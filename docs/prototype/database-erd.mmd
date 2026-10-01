@@ -1,0 +1,77 @@
+%% Actual local PostgreSQL schema, including migration 003, verified on October 1, 2026.
+%% Only enforced foreign-key relationships are drawn.
+%% audit_events.object_id is a polymorphic reference, not an FK.
+%% Entitlements have a composite UNIQUE(learner_id, offering_id).
+%% commands has a composite PRIMARY KEY(actor, key).
+erDiagram
+    direction LR
+    learners ||--o{ entitlements : registers
+    offerings ||--o{ entitlements : grants_access
+    entitlements ||--o| orders : has_payment_record
+    entitlements ||--o| operations : has_background_workflow
+
+    learners {
+        uuid id PK
+        text email UK "Normalized; nullable for legacy samples"
+        timestamptz created_at
+    }
+    offerings {
+        uuid id PK
+        text title
+        text category
+        text summary
+        text description
+        jsonb outcomes
+        text course_type "cohort or self_paced"
+        text format
+        date start_date "Required for cohort; null for self_paced"
+        date end_date "Required for cohort; null for self_paced"
+        integer price_cents
+        integer capacity
+        boolean approval_required
+        boolean published
+        integer version
+        timestamptz created_at
+    }
+    entitlements {
+        uuid id PK
+        uuid learner_id FK "Unique with offering_id"
+        uuid offering_id FK "Unique with learner_id"
+        text status
+        timestamptz reserved_until "Nullable"
+        timestamptz created_at
+    }
+    orders {
+        uuid id PK
+        uuid entitlement_id FK, UK
+        integer amount_cents
+        text payment_status "Simulated payment"
+        timestamptz created_at
+    }
+    operations {
+        uuid id PK
+        uuid entitlement_id FK, UK
+        text status
+        text stage
+        timestamptz next_run "Nullable"
+        text error "Nullable"
+        timestamptz created_at "Nullable"
+    }
+    commands {
+        text actor PK "Composite primary key"
+        text key PK "Composite primary key"
+        text fingerprint
+        jsonb response
+    }
+    audit_events {
+        bigint id PK
+        text actor
+        text action
+        uuid object_id "Nullable; not a foreign key"
+        jsonb details
+        timestamptz created_at
+    }
+    schema_migrations {
+        text version PK
+        timestamptz applied_at "Nullable"
+    }
