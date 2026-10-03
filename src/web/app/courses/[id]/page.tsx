@@ -1,14 +1,13 @@
 "use client";
 import { useDemoAuth } from "../../../components/demo-auth";
 import { useRouter } from "next/navigation";
-import { use, useEffect, useState } from "react";
+import { use, useEffect, useRef, useState } from "react";
 import {
   Alert,
   Box,
   Breadcrumbs,
   Button,
   Chip,
-  CircularProgress,
   Divider,
   Link,
   List,
@@ -27,6 +26,46 @@ import {
   Offering,
   Learning,
 } from "../../../components/api";
+import { LoadingCards } from "../../../components/loading";
+// Registration returns the learner's existing record unchanged when one exists.
+function registrationResult(status: string): {
+  severity: "success" | "info" | "warning";
+  message: string;
+} {
+  switch (status) {
+    case "awaiting_approval":
+      return {
+        severity: "success",
+        message:
+          "Your approval request is saved. Staff can review it in the demo queue.",
+      };
+    case "reserved":
+      return {
+        severity: "success",
+        message:
+          "Your seat is reserved. Complete the simulated payment in My learning.",
+      };
+    case "declined":
+      return {
+        severity: "warning",
+        message:
+          "Your approval request for this course was declined. A new review process is outside this prototype.",
+      };
+    case "provisioning":
+    case "enrolled":
+      return {
+        severity: "info",
+        message:
+          "You are already registered for this course. Check My learning for its status.",
+      };
+    default:
+      return {
+        severity: "success",
+        message:
+          "Your registration is saved. Check My learning for the next step.",
+      };
+  }
+}
 export default function Course({
   params,
 }: {
@@ -41,6 +80,11 @@ export default function Course({
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
     [registered, setRegistered] = useState<Learning>();
+  const nextStep = useRef<HTMLAnchorElement>(null);
+  // Keep keyboard focus after the registration button is replaced.
+  useEffect(() => {
+    if (registered) nextStep.current?.focus();
+  }, [registered]);
   useEffect(() => {
     api<Offering>(`offerings/${id}`)
       .then(setCourse)
@@ -67,7 +111,7 @@ export default function Course({
     return error ? (
       <Alert severity="error">{error}</Alert>
     ) : (
-      <CircularProgress aria-label="Loading course" />
+      <LoadingCards label="Loading course" count={1} />
     );
   return (
     <>
@@ -92,38 +136,24 @@ export default function Course({
         sx={{
           display: "grid",
           gridTemplateColumns: { xs: "1fr", md: "1fr 340px" },
-          gap: 5,
+          gap: { xs: 4, md: 5 },
           mt: 4,
         }}
       >
-        <Box>
-          <Typography variant="h5" component="h2">
-            About this course
-          </Typography>
-          <Typography sx={{ mt: 2, lineHeight: 1.85 }}>
-            {course.description}
-          </Typography>
-          <Typography variant="h5" component="h2" sx={{ mt: 4 }}>
-            What you’ll learn
-          </Typography>
-          <List sx={{ listStyleType: "disc", pl: 3 }}>
-            {course.outcomes.map((outcome) => (
-              <ListItem key={outcome} sx={{ display: "list-item", pl: 0 }}>
-                <ListItemText primary={outcome} />
-              </ListItem>
-            ))}
-          </List>
-          <Divider sx={{ my: 3 }} />
-          <Typography variant="h6" component="h2">
-            Before you register
-          </Typography>
-          <Typography color="text.secondary" sx={{ mt: 1, lineHeight: 1.8 }}>
-            This is a sample non-credit offering. Registrations are saved for your demo
-            email. Payment, identity provisioning and course access
-            are simulated locally.
-          </Typography>
-        </Box>
-        <Paper variant="outlined" sx={{ p: 3, alignSelf: "start" }}>
+        {/* First in reading order so phones reach registration without scrolling past the description. */}
+        <Paper
+          variant="outlined"
+          component="section"
+          aria-label="Registration"
+          sx={{
+            p: 3,
+            alignSelf: "start",
+            gridColumn: { md: 2 },
+            gridRow: { md: 1 },
+            position: { md: "sticky" },
+            top: { md: 24 },
+          }}
+        >
           <Typography variant="h4" component="p">
             {money(course.price_cents)}
           </Typography>
@@ -154,12 +184,12 @@ export default function Course({
             {error && <Alert severity="error">{error}</Alert>}
             {registered ? (
               <>
-                <Alert severity="success">
-                  {registered.status === "awaiting_approval"
-                    ? "Your approval request is saved. Staff can review it in the demo queue."
-                    : "Your registration is saved. Check My learning for the next step."}
+                <Alert
+                  severity={registrationResult(registered.status).severity}
+                >
+                  {registrationResult(registered.status).message}
                 </Alert>
-                <Button variant="contained" href="/learning">
+                <Button variant="contained" href="/learning" ref={nextStep}>
                   Go to My learning
                 </Button>
               </>
@@ -185,6 +215,33 @@ export default function Course({
             </Typography>
           </Stack>
         </Paper>
+        <Box sx={{ gridColumn: { md: 1 }, gridRow: { md: 1 } }}>
+          <Typography variant="h5" component="h2">
+            About this course
+          </Typography>
+          <Typography sx={{ mt: 2, lineHeight: 1.85 }}>
+            {course.description}
+          </Typography>
+          <Typography variant="h5" component="h2" sx={{ mt: 4 }}>
+            What you’ll learn
+          </Typography>
+          <List sx={{ listStyleType: "disc", pl: 3 }}>
+            {course.outcomes.map((outcome) => (
+              <ListItem key={outcome} sx={{ display: "list-item", pl: 0 }}>
+                <ListItemText primary={outcome} />
+              </ListItem>
+            ))}
+          </List>
+          <Divider sx={{ my: 3 }} />
+          <Typography variant="h6" component="h2">
+            Before you register
+          </Typography>
+          <Typography color="text.secondary" sx={{ mt: 1, lineHeight: 1.8 }}>
+            This is a sample non-credit offering. Registrations are saved for
+            your demo email. Payment, identity provisioning and course access
+            are simulated locally.
+          </Typography>
+        </Box>
       </Box>
     </>
   );

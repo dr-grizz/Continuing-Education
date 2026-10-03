@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import Image from "next/image";
 import { courseImage } from "../components/course-images";
 import { FeaturedCourses } from "../components/featured-courses";
+import { LoadingCards } from "../components/loading";
 import {
   Alert,
   Box,
@@ -14,7 +15,6 @@ import {
   ListItemText,
   MenuItem,
   Select,
-  CircularProgress,
   Divider,
   InputAdornment,
   Paper,
@@ -36,13 +36,61 @@ import {
   courseFormatLabel,
   Offering,
 } from "../components/api";
+const categories = ["Technology", "Leadership", "Healthcare", "Ministry"];
+const courseTypes = {
+  all: "All types",
+  cohort: "Scheduled",
+  self_paced: "Self-paced",
+};
+const sorts = {
+  start: "Soonest start",
+  "price-asc": "Price: low to high",
+  "price-desc": "Price: high to low",
+  title: "Title A–Z",
+};
+type CourseTypeFilter = keyof typeof courseTypes;
+type Sort = keyof typeof sorts;
+// Self-paced courses start anytime, so they sort ahead of scheduled dates.
+const startKey = (o: Offering) => o.start_date ?? "";
 export default function Catalog() {
   const [offerings, setOfferings] = useState<Offering[]>([]),
     [selectedTopics, setSelectedTopics] = useState<string[]>([]),
     [search, setSearch] = useState(""),
     [error, setError] = useState(""),
     [loading, setLoading] = useState(true),
-    [layout, setLayout] = useState<"list" | "grid">("list");
+    [layout, setLayout] = useState<"list" | "grid">("list"),
+    [courseType, setCourseType] = useState<CourseTypeFilter>("all"),
+    [sort, setSort] = useState<Sort>("start"),
+    [urlReady, setUrlReady] = useState(false);
+  // Keep filters in the URL so filtered views can be shared and reloaded.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    setSearch(params.get("q") ?? "");
+    setSelectedTopics(
+      (params.get("topics") ?? "")
+        .split(",")
+        .filter((topic) => categories.includes(topic)),
+    );
+    const type = params.get("type");
+    if (type && type in courseTypes) setCourseType(type as CourseTypeFilter);
+    const sortParam = params.get("sort");
+    if (sortParam && sortParam in sorts) setSort(sortParam as Sort);
+    setUrlReady(true);
+  }, []);
+  useEffect(() => {
+    if (!urlReady) return;
+    const params = new URLSearchParams();
+    if (search) params.set("q", search);
+    if (selectedTopics.length) params.set("topics", selectedTopics.join(","));
+    if (courseType !== "all") params.set("type", courseType);
+    if (sort !== "start") params.set("sort", sort);
+    const query = params.toString();
+    window.history.replaceState(
+      null,
+      "",
+      query ? `?${query}` : window.location.pathname,
+    );
+  }, [urlReady, search, selectedTopics, courseType, sort]);
   useEffect(() => {
     try {
       const saved = localStorage.getItem("ce-catalog-layout");
@@ -66,12 +114,30 @@ export default function Catalog() {
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, []);
-  const categories = ["Technology", "Leadership", "Healthcare", "Ministry"];
-  const filtered = offerings.filter(
-    (o) =>
-      (selectedTopics.length === 0 || selectedTopics.includes(o.category)) &&
-      `${o.title} ${o.summary}`.toLowerCase().includes(search.toLowerCase()),
-  );
+  const filtered = offerings
+    .filter(
+      (o) =>
+        (selectedTopics.length === 0 || selectedTopics.includes(o.category)) &&
+        (courseType === "all" || o.course_type === courseType) &&
+        `${o.title} ${o.summary}`.toLowerCase().includes(search.toLowerCase()),
+    )
+    .sort((a, b) =>
+      sort === "price-asc"
+        ? a.price_cents - b.price_cents
+        : sort === "price-desc"
+          ? b.price_cents - a.price_cents
+          : sort === "title"
+            ? a.title.localeCompare(b.title)
+            : startKey(a).localeCompare(startKey(b)) ||
+              a.title.localeCompare(b.title),
+    );
+  const filtersActive =
+    search !== "" || selectedTopics.length > 0 || courseType !== "all";
+  function clearFilters() {
+    setSearch("");
+    setSelectedTopics([]);
+    setCourseType("all");
+  }
   return (
     <>
       <FeaturedCourses offerings={offerings} />
@@ -98,10 +164,19 @@ export default function Catalog() {
       </Typography>
       <Box sx={{ mt: 5 }}>
         <Box>
-          <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+          <Box
+            sx={{
+              display: "grid",
+              gap: 2,
+              gridTemplateColumns: {
+                xs: "1fr 1fr",
+                md: "minmax(0, 2fr) repeat(3, minmax(0, 1fr))",
+              },
+            }}
+          >
             <TextField
               fullWidth
-              sx={{ flex: 1 }}
+              sx={{ gridColumn: { xs: "1 / -1", md: "auto" } }}
               label="Search courses"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -118,7 +193,8 @@ export default function Catalog() {
             />
             <FormControl
               size="small"
-              sx={{ width: { xs: "100%", sm: 300 }, flexShrink: 0 }}
+              fullWidth
+              sx={{ gridColumn: { xs: "1 / -1", md: "auto" } }}
             >
               <InputLabel id="topic-filter-label" shrink>
                 Topics
@@ -170,7 +246,33 @@ export default function Catalog() {
                 ))}
               </Select>
             </FormControl>
-          </Stack>
+            <TextField
+              select
+              label="Course type"
+              value={courseType}
+              onChange={(e) =>
+                setCourseType(e.target.value as CourseTypeFilter)
+              }
+            >
+              {Object.entries(courseTypes).map(([value, label]) => (
+                <MenuItem key={value} value={value}>
+                  {label}
+                </MenuItem>
+              ))}
+            </TextField>
+            <TextField
+              select
+              label="Sort by"
+              value={sort}
+              onChange={(e) => setSort(e.target.value as Sort)}
+            >
+              {Object.entries(sorts).map(([value, label]) => (
+                <MenuItem key={value} value={value}>
+                  {label}
+                </MenuItem>
+              ))}
+            </TextField>
+          </Box>
           <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5 }}>
             All offerings are non-credit. Dates and prices are sample data.
           </Typography>
@@ -199,6 +301,11 @@ export default function Catalog() {
               >
                 {filtered.length} {filtered.length === 1 ? "course" : "courses"}
               </Typography>
+              {filtersActive && (
+                <Button size="small" onClick={clearFilters}>
+                  Clear filters
+                </Button>
+              )}
               <ToggleButtonGroup
                 value={layout}
                 exclusive
@@ -226,18 +333,11 @@ export default function Catalog() {
             </Stack>
           </Stack>
           {error && <Alert severity="error">{error}</Alert>}
-          {loading && <CircularProgress aria-label="Loading courses" />}
+          {loading && <LoadingCards label="Loading courses" image />}
           {!loading && !error && filtered.length === 0 && (
             <Paper variant="outlined" sx={{ p: 3 }}>
               <Typography>No courses match your search.</Typography>
-              <Button
-                onClick={() => {
-                  setSearch("");
-                  setSelectedTopics([]);
-                }}
-              >
-                Clear filters
-              </Button>
+              <Button onClick={clearFilters}>Clear filters</Button>
             </Paper>
           )}
           <Box
@@ -266,6 +366,11 @@ export default function Catalog() {
                   display: "flex",
                   flexDirection: layout === "grid" ? "column" : "row",
                   minWidth: 0,
+                  transition: "border-color .15s, box-shadow .15s",
+                  "&:hover, &:focus-within": {
+                    borderColor: "primary.main",
+                    boxShadow: "0 6px 20px rgba(16, 32, 48, .08)",
+                  },
                 }}
               >
                 <Box
@@ -277,7 +382,7 @@ export default function Catalog() {
                     aspectRatio: layout === "grid" ? "16 / 9" : undefined,
                     borderRadius: layout === "grid" ? 0 : 1,
                     overflow: "hidden",
-                    bgcolor: "grey.100",
+                    bgcolor: "action.hover",
                   }}
                 >
                   <Image

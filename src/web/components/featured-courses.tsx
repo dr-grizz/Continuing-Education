@@ -21,6 +21,7 @@ import {
   type Offering,
 } from "./api";
 import { courseImage } from "./course-images";
+import { brand } from "../app/theme";
 
 // Prototype editorial picks. Course details still come from the catalog API.
 const featuredIds = [
@@ -54,13 +55,13 @@ export function FeaturedCourses({ offerings }: { offerings: Offering[] }) {
         overflow: "hidden",
         display: "grid",
         gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" },
-        bgcolor: "primary.main",
-        color: "primary.contrastText",
+        bgcolor: brand.navy,
+        color: brand.onNavy,
       }}
     >
       <Box
         sx={{
-          p: { xs: 3, sm: 4 },
+          p: { xs: 2.5, sm: 4 },
           display: "flex",
           flexDirection: "column",
           minWidth: 0,
@@ -96,7 +97,7 @@ export function FeaturedCourses({ offerings }: { offerings: Offering[] }) {
             sx={{
               mt: 2.5,
               bgcolor: "white",
-              color: "primary.main",
+              color: brand.navy,
               "&:hover": { bgcolor: "#edf1f4" },
             }}
           >
@@ -151,7 +152,9 @@ export function FeaturedCourses({ offerings }: { offerings: Offering[] }) {
       <Box
         sx={{
           position: "relative",
-          minHeight: { xs: 210, sm: 270, md: 360 },
+          // Hidden on phones so the catalog appears sooner.
+          display: { xs: "none", sm: "block" },
+          minHeight: { sm: 270, md: 360 },
           order: { xs: -1, md: 0 },
         }}
       >

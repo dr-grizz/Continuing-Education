@@ -32,7 +32,7 @@ Stop application processes with Ctrl+C. `docker compose stop db` stops PostgreSQ
 3. Request Healthcare Communication, then use **Staff → Approvals** to approve it. Return to My learning, reserve a seat and simulate payment.
 4. Use Staff to create a draft offering, publish it and inspect the audit activity.
 
-Design uses standard MUI navigation, forms, tables, alerts and dialogs. Colors and text branding are provisional; institutional brand assets and course content need review.
+Design uses standard MUI navigation, forms, tables, alerts and dialogs. The [UI specification](docs/prototype/ui-specification.md) records the theme tokens, layouts, patterns and page behavior. Colors, the font and text branding are provisional; institutional brand assets and course content need review.
 
 ## Automation
 

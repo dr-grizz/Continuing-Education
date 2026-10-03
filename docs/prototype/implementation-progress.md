@@ -2,7 +2,7 @@
 
 Updated October 1, 2026. This document records the current local prototype, completed tasks, verification evidence, and remaining work. Checked items mean implemented for the prototype; they do not imply production readiness. Unchecked items are proposed work, not authorization to deploy, connect production services, or create GitHub issues.
 
-The portal now supports database-backed catalog browsing, individual demo learners, registration and approval, simulated payment, and simulated enrollment. The recommended next step is to complete and verify the registration experience across both Scheduled and Self-paced courses, including approval decisions, expired reservations, and failure states.
+The portal now supports database-backed catalog browsing, individual demo learners, registration and approval, simulated payment, and simulated enrollment. The registration flow has been verified end to end for Scheduled and Self-paced courses, with and without approval, using separate learners. The recommended next step is controlled simulation of failed provisioning with a staff recovery interface.
 
 ## Current implementation
 
@@ -88,9 +88,9 @@ Local website: `http://127.0.0.1:3000/`. API documentation: `http://localhost:30
 
 Complete these using synthetic data and local services before moving to external integrations.
 
-1. [ ] Verify the complete registration flow for Scheduled and Self-paced courses, with and without approval, using separate learner accounts.
-2. [ ] Review learner messages and actions for pending approval, declined requests, no seats, expired reservations, renewed reservations and duplicate registration.
-3. [ ] Exercise simulated payment through completed enrollment after the individual-user change; verify that other learners cannot see its operation or course record.
+1. [x] Verify the complete registration flow for Scheduled and Self-paced courses, with and without approval, using separate learner accounts.
+2. [ ] Review learner messages and actions for pending approval, declined requests, no seats, expired reservations, renewed reservations and duplicate registration. API behavior is verified for all of these; the course page and no-seats messages were fixed. Pending and declined messages still need a browser review as the affected learner.
+3. [x] Exercise simulated payment through completed enrollment after the individual-user change; verify that other learners cannot see its operation or course record.
 4. [ ] Add controlled simulation of delayed or failed provisioning and a staff recovery interface with reason and audit history.
 5. [ ] Add meaningful integration checks for reservation expiry/renewal and worker interruption/restart; the worker is durable by design, but a crash/restart drill is still pending.
 6. [ ] Decide and implement course launch behavior for the prototype. The current enrolled state explicitly says a live link will appear after Canvas is connected.
@@ -156,12 +156,21 @@ Automated accessibility scanning and a real screen-reader session remain outstan
 | Current learner view | [Database-backed My learning screenshot](database-backed-learning.jpg) |
 | Catalog terminology | [Scheduled and Self-paced screenshot](catalog-scheduled-self-paced.jpg) |
 | Spotlight design | [Featured course screenshot](catalog-course-spotlight.jpg) |
+| UI baseline | [UI specification](ui-specification.md) |
 | Database structure | [Mermaid ERD](database-erd.mmd) |
 | API contract | [OpenAPI specification](../openapi.json) |
 | Architecture and boundaries | [Local prototype ADR](../adr/0001-local-prototype.md) |
 | UI asset attribution | [Image credits](image-credits.md) and [logo source](../../src/web/public/brand/SOURCE.txt) |
 
 ## Latest implementation record
+
+October 2, 2026: replaced the Inter placeholder with Figtree, a free font similar to Proxima Nova (the cedarville.edu font, which requires a paid Adobe Fonts license). It is self-hosted through `next/font`. Brand approval of the substitute is still pending.
+
+October 2, 2026: completed the staff tables. Offerings, approvals and activity now have sortable columns (`aria-sort`, keyboard operable), with a sort select on phones. Approvals and activity gained search. All three tables page at 10, 25 or 50 rows, through a shared `table-view` helper. The activity API now returns the 200 most recent events instead of 50. Recorded the [UI specification](ui-specification.md). Verified: typecheck, Prettier, `npm test`; in the browser, keyboard column sorting in both directions, activity paging, search narrowing back to page 1, and phone layout at 375px with no overflow.
+
+October 2, 2026: modernized the UI baseline. Changes: Inter font, self-hosted by `next/font` (a placeholder until a brand font is approved); light and dark themes that follow the OS setting, with fixed navy brand surfaces; larger corner radius; compact mobile header with an accessible menu; shorter prototype banner on phones; no spotlight image on phones; course-type filter and sort, with search, topics, type and sort kept in the URL; card hover and focus feedback; loading placeholders instead of spinners; brief confirmations after learner and staff actions; course registration panel first on phones and sticky on desktop; staff offering search and status filter; phone card layouts for staff offerings, approvals and activity; readable activity events with learner email and course title (`/reconciliation` audit rows gained `actor_email`, `offering_title` and `subject_email`). Verified: typecheck, Prettier, `npm test`, production build, and computed WCAG contrast for the new dark palette (body text 7.8:1 or higher, input borders 3.97:1). In the browser: light and dark themes, 375px and 1280px layouts with no page overflow, keyboard open/close of the mobile menu with focus return, URL filter restoration, and the confirmation pop-up. Not performed: screen-reader session, forced colors, cross-browser check. `next build` now needs network access to fetch the font on the first build.
+
+October 1, 2026: verified the registration matrix through the web proxy with two synthetic learners: Scheduled and Self-paced courses, each with and without approval, through simulated payment to enrolled. All 32 checks passed, covering learner isolation of records, operations and payment; payment before approval; approve, decline and repeat decisions; duplicate registration; and no seats. Forced expiry confirmed that stale reservations cannot be paid, an expired seat can be renewed when free, renewal fails when another learner holds the seat, and approval carries over after expiry. Fixes: the worker now records a `seat.expired` audit event (earlier expiries were not audited); the course page now reports the learner's actual status (it previously said "registration is saved" to enrolled or declined learners) and moves focus to the next action; My learning shows action errors beside the affected course instead of a page-top error that the next poll cleared. Typecheck, formatting and `npm test` passed; the no-seats error was checked at 320px width. Remaining accessibility gaps: on My learning, keyboard focus drops to the page when an action button is disabled or replaced; every MUI alert uses `role="alert"`, including static status text; no screen-reader session was performed. Approval currently survives reservation expiry; approval-expiry policy is still undecided. Verification created synthetic `verify-*@example.test` learners and two `Verify …` offerings in the local database.
 
 October 1, 2026: added migration `003_demo_users.sql`, normalized learner lookup, the web demo-session endpoint and cookie, selected-learner API context, persistent individual registrations, staff requester emails, and the Self-paced registration fix. Updated the ERD, API documentation, domain context, architecture decision and README. Added integration tests and saved the current My learning screenshot.
 

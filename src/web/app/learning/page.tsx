@@ -1,15 +1,16 @@
 "use client";
 import { useDemoAuth } from "../../components/demo-auth";
+import { LoadingCards } from "../../components/loading";
 import { useCallback, useEffect, useState } from "react";
 import {
   Alert,
   Box,
   Button,
   Chip,
-  CircularProgress,
   Divider,
   Link,
   Paper,
+  Snackbar,
   Stack,
   Step,
   StepLabel,
@@ -38,7 +39,9 @@ export default function LearningPage() {
   const [rows, setRows] = useState<Learning[]>([]),
     [loading, setLoading] = useState(true),
     [error, setError] = useState(""),
-    [busy, setBusy] = useState("");
+    [busy, setBusy] = useState(""),
+    [actionError, setActionError] = useState<{ id: string; message: string }>(),
+    [notice, setNotice] = useState("");
   const refresh = useCallback(async () => {
     try {
       setRows(await api<Learning[]>("me/learning"));
@@ -56,16 +59,21 @@ export default function LearningPage() {
   }, [refresh]);
   async function act(row: Learning) {
     setBusy(row.id);
+    setActionError(undefined);
     try {
-      if (row.status === "reserved")
+      if (row.status === "reserved") {
         await api(`prototype/registrations/${row.id}/simulate-payment`, {
           body: {},
         });
-      else
+        setNotice(`Payment simulated for ${row.title}. Preparing access.`);
+      } else {
         await api("registrations", { body: { offeringId: row.offering_id } });
+        setNotice(`Seat reserved for ${row.title}.`);
+      }
       await refresh();
     } catch (e) {
-      setError((e as Error).message);
+      // Show the failure beside its course; polling clears the page-level error.
+      setActionError({ id: row.id, message: (e as Error).message });
     } finally {
       setBusy("");
     }
@@ -76,7 +84,8 @@ export default function LearningPage() {
         My learning
       </Typography>
       <Typography color="text.secondary" sx={{ mt: 1 }}>
-        Demo session for {auth.email}. Your course registrations are saved for this email.
+        Demo session for {auth.email}. Your course registrations are saved for
+        this email.
       </Typography>
       {error && (
         <Alert severity="error" sx={{ mt: 3 }}>
@@ -84,7 +93,9 @@ export default function LearningPage() {
         </Alert>
       )}
       {loading && (
-        <CircularProgress sx={{ mt: 3 }} aria-label="Loading registrations" />
+        <Box sx={{ mt: 4 }}>
+          <LoadingCards label="Loading registrations" count={2} />
+        </Box>
       )}
       {!loading && !rows.length && (
         <Paper variant="outlined" sx={{ p: 4, mt: 4 }}>
@@ -131,6 +142,11 @@ export default function LearningPage() {
               />
             </Stack>
             <Divider sx={{ my: 2.5 }} />
+            {actionError?.id === row.id && (
+              <Alert severity="error" sx={{ mb: 2 }}>
+                {actionError.message}
+              </Alert>
+            )}
             {row.status === "awaiting_approval" && (
               <Alert severity="info">
                 Your request is awaiting program approval. In this prototype,
@@ -154,7 +170,7 @@ export default function LearningPage() {
                   onClick={() => act(row)}
                   disabled={busy === row.id}
                 >
-                  Reserve a seat
+                  {busy === row.id ? "Reserving…" : "Reserve a seat"}
                 </Button>
               </Stack>
             )}
@@ -233,6 +249,20 @@ export default function LearningPage() {
           </Paper>
         ))}
       </Stack>
+      <Snackbar
+        open={Boolean(notice)}
+        autoHideDuration={6000}
+        onClose={() => setNotice("")}
+        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+      >
+        <Alert
+          severity="success"
+          variant="filled"
+          onClose={() => setNotice("")}
+        >
+          {notice}
+        </Alert>
+      </Snackbar>
     </>
   );
 }

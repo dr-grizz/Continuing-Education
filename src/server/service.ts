@@ -352,8 +352,19 @@ export class PortalService {
     const counts = await db.query(
       `SELECT (SELECT count(*) FROM orders)::integer AS simulated_orders,(SELECT count(*) FROM entitlements WHERE status='enrolled')::integer AS simulated_enrollments,(SELECT count(*) FROM operations WHERE status IN ('pending','running'))::integer AS pending_operations`,
     );
+    // Resolve learner actors and affected records to readable labels for the staff log.
     const auditRows = await db.query(
-      "SELECT actor,action,object_id,created_at FROM audit_events ORDER BY id DESC LIMIT 50",
+      `SELECT a.actor,a.action,a.object_id,a.created_at,
+        CASE WHEN a.actor LIKE 'demo-learner:%' THEN coalesce(actor_learner.email,'Legacy demo learner') END AS actor_email,
+        coalesce(o.title,eo.title) AS offering_title,
+        subject_learner.email AS subject_email
+      FROM audit_events a
+      LEFT JOIN learners actor_learner ON a.actor='demo-learner:'||actor_learner.id::text
+      LEFT JOIN offerings o ON o.id=a.object_id
+      LEFT JOIN entitlements e ON e.id=a.object_id
+      LEFT JOIN offerings eo ON eo.id=e.offering_id
+      LEFT JOIN learners subject_learner ON subject_learner.id=e.learner_id
+      ORDER BY a.id DESC LIMIT 200`,
     );
     return { ...counts.rows[0], audit: auditRows.rows };
   }

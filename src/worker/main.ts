@@ -47,9 +47,11 @@ async function tick() {
         );
       }
     }
-    await client.query(
-      "UPDATE entitlements SET status='expired' WHERE status='reserved' AND reserved_until<=now()",
+    const expired = await client.query(
+      "UPDATE entitlements SET status='expired' WHERE status='reserved' AND reserved_until<=now() RETURNING id",
     );
+    for (const row of expired.rows)
+      await audit(client, "prototype-worker", "seat.expired", row.id);
     await client.query("COMMIT");
   } catch (error) {
     await client.query("ROLLBACK");

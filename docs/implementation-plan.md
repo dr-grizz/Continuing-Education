@@ -18,6 +18,27 @@ The first prototype implements MUI catalog/search and course details, demo learn
 
 Payment, identity and Canvas outcomes are explicitly simulated. Demo role switching is not production authentication. This slice does not complete the full milestone acceptance gates: live mapping validation, SSO/identity proof, Stripe webhooks, approval expiry policy, refunds, transfers, lifecycle enforcement and production operations remain future work.
 
+### Known prototype gaps
+
+Recorded October 2, 2026, after the registration-flow verification and UI modernization. The current baseline is described in the [UI specification](prototype/ui-specification.md), and evidence is in the [implementation progress](prototype/implementation-progress.md). These are open items, not accepted behavior. Resolve or explicitly accept each one before the milestone named.
+
+| Gap | Current behavior | Needed | Milestone |
+| --- | --- | --- | --- |
+| Focus loss in My learning | When an action button is disabled during a request, or replaced by the next status, keyboard focus falls to the page body | Keep focus on the action or move it to the updated status; verify with keyboard and screen reader | M1 |
+| Over-announced status messages | MUI alerts default to `role="alert"`, including static status text in learner cards, so screen readers may announce them on every render | Use alert semantics only for new, time-sensitive messages; use plain text or a polite status region otherwise | M1 |
+| Accessibility evidence | Keyboard, focus, contrast and 320–375px reflow are checked. No automated scan, screen-reader session, forced-colors, 200–400% zoom or cross-browser review has been recorded | Complete the README checklist for catalog, sign-in, registration, learner status and staff dialogs/tables; record findings | M1 exit; release gate |
+| Pending and declined learner messages | API behavior is verified; the browser view as the affected learner is not | Review both states in the browser as the learner | M2 |
+| Staff form validation | The New offering dialog shows the API's validation message in one alert; fields are not individually marked and there is no error summary | Inline field errors plus an error summary, preserving entered data (see Visual and interaction conventions) | M2 |
+| Catalog and staff paging | The API returns up to 100 offerings and 200 audit events; the catalog has no pagination; staff sorting and paging are client-side within those limits | Server-side search, sort and paging before catalog or audit volume approaches the limits | M2 |
+| Brand baseline | Figtree, a free font similar to Proxima Nova (the cedarville.edu font), is used; colors are provisional and copy is unreviewed | Cedarville Marketing to approve Figtree as the substitute or supply a licensed brand font; approve colors, logo use and content | M1 exit |
+| Theme control | Light/dark follows the operating system only | Decide whether a manual theme toggle is required | M1 |
+| Approval after reservation expiry | A learner whose approved reservation expires keeps the approval and can reserve again without review | Approval expiry policy (owner: Program Operations) | M2 |
+| Declined requests | A declined learner cannot request again; re-registering returns the declined record | Policy and flow for re-request or appeal | M2 |
+| Registration window | Scheduled courses accept registration until the end date, including after the course has started | Confirm enrollment-window policy; enforce it in the API and show it in the catalog | M2 |
+| Open staff access | Any browser can reach Staff; the web proxy trusts a client-supplied role header | Staff SSO/MFA and server-side roles (already planned; prototype only) | M1 |
+| Failure and recovery | Provisioning always succeeds; there is no simulated failure, staff recovery screen, or recorded worker crash/restart drill | Controlled failure simulation, owned exception queue with reasons and audit, restart drill | M3 |
+| Course launch | Enrolled learners see that a live link will appear after Canvas is connected | Decide prototype launch behavior; real launch links depend on Canvas integration | M4 |
+
 ## Scope and ownership
 
 | System or group | Owns |
