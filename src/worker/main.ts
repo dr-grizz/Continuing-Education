@@ -1,4 +1,6 @@
+import type { operations } from "../generated/prisma/client";
 import { db } from "../domain/db";
+import { prisma, sql, transaction, Tx } from "../domain/prisma";
 import { audit } from "../server/service";
 let stopped = false;
 type Stage = "identity" | "canvas";
@@ -23,121 +25,138 @@ function simulatedFailure(op: {
       op.attempts === 0)
   );
 }
-async function tick() {
-  const client = await db.connect();
-  try {
-    await client.query("BEGIN");
-    const job = await client.query(
-      "SELECT * FROM operations WHERE status IN ('pending','running') AND next_run<=now() ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1",
+// One worker step in one transaction: claim at most one due job, then expire stale
+// reservations and lapsed approvals. Claiming uses FOR UPDATE SKIP LOCKED so several
+// workers never process the same job.
+async function step(tx: Tx) {
+  const [op] = await sql<operations>(
+    tx,
+    "SELECT * FROM operations WHERE status IN ('pending','running') AND next_run<=now() ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1",
+  );
+  if (op) {
+    const [current] = await sql<{ status: string }>(
+      tx,
+      "SELECT status FROM entitlements WHERE id=$1::uuid FOR UPDATE",
+      op.entitlement_id,
     );
-    if (job.rowCount) {
-      const op = job.rows[0];
-      const current = await client.query(
-        "SELECT status FROM entitlements WHERE id=$1 FOR UPDATE",
-        [op.entitlement_id],
+    if (current?.status !== "provisioning") {
+      await sql(
+        tx,
+        "UPDATE operations SET status='failed',error='Registration is no longer eligible' WHERE id=$1::uuid",
+        op.id,
       );
-      if (current.rows[0]?.status !== "provisioning") {
-        await client.query(
-          "UPDATE operations SET status='failed',error='Registration is no longer eligible' WHERE id=$1",
-          [op.id],
-        );
-      } else if (
-        op.simulated_outcome === "delayed" &&
-        op.stage === "identity" &&
-        !op.delay_applied
-      ) {
-        await client.query(
-          "UPDATE operations SET status='running',delay_applied=true,next_run=now()+interval '20 seconds' WHERE id=$1",
-          [op.id],
-        );
-        await audit(
-          client,
-          "prototype-worker",
-          "prototype.provisioning_delayed",
-          op.entitlement_id,
-          { stage: op.stage },
-        );
-      } else if (simulatedFailure(op)) {
-        const attempt = op.attempts + 1;
-        const reason = failureReasons[op.stage as Stage];
-        if (attempt < MAX_ATTEMPTS) {
-          // Bounded automatic retry with increasing delay.
-          await client.query(
-            "UPDATE operations SET status='running',attempts=$2,error=$3,next_run=now()+make_interval(secs => $4) WHERE id=$1",
-            [op.id, attempt, reason, attempt * 3],
-          );
-          await audit(
-            client,
-            "prototype-worker",
-            "prototype.provisioning_retry_scheduled",
-            op.entitlement_id,
-            { stage: op.stage, attempt, reason },
-          );
-        } else {
-          // Retries exhausted: hand the registration to the staff exception queue.
-          await client.query(
-            "UPDATE operations SET status='failed',attempts=$2,error=$3,failed_at=now(),next_run=NULL WHERE id=$1",
-            [op.id, attempt, reason],
-          );
-          await client.query(
-            "UPDATE entitlements SET status='exception' WHERE id=$1",
-            [op.entitlement_id],
-          );
-          await audit(
-            client,
-            "prototype-worker",
-            "prototype.provisioning_failed",
-            op.entitlement_id,
-            { stage: op.stage, attempts: attempt, reason },
-          );
-        }
-      } else if (op.stage === "identity") {
-        await client.query(
-          "UPDATE operations SET status='running',stage='canvas',attempts=0,error=NULL,next_run=now()+interval '3 seconds' WHERE id=$1",
-          [op.id],
+    } else if (
+      op.simulated_outcome === "delayed" &&
+      op.stage === "identity" &&
+      !op.delay_applied
+    ) {
+      await sql(
+        tx,
+        "UPDATE operations SET status='running',delay_applied=true,next_run=now()+interval '20 seconds' WHERE id=$1::uuid",
+        op.id,
+      );
+      await audit(
+        tx,
+        "prototype-worker",
+        "prototype.provisioning_delayed",
+        op.entitlement_id,
+        { stage: op.stage },
+      );
+    } else if (simulatedFailure(op)) {
+      const attempt = op.attempts + 1;
+      const reason = failureReasons[op.stage as Stage];
+      if (attempt < MAX_ATTEMPTS) {
+        // Bounded automatic retry with increasing delay.
+        await sql(
+          tx,
+          "UPDATE operations SET status='running',attempts=$2,error=$3,next_run=now()+make_interval(secs => $4) WHERE id=$1::uuid",
+          op.id,
+          attempt,
+          reason,
+          attempt * 3,
         );
         await audit(
-          client,
+          tx,
           "prototype-worker",
-          "prototype.identity_simulated",
+          "prototype.provisioning_retry_scheduled",
           op.entitlement_id,
+          { stage: op.stage, attempt, reason },
         );
       } else {
-        await client.query(
-          "UPDATE entitlements SET status='enrolled' WHERE id=$1",
-          [op.entitlement_id],
+        // Retries exhausted: hand the registration to the staff exception queue.
+        await sql(
+          tx,
+          "UPDATE operations SET status='failed',attempts=$2,error=$3,failed_at=now(),next_run=NULL WHERE id=$1::uuid",
+          op.id,
+          attempt,
+          reason,
         );
-        await client.query(
-          "UPDATE operations SET status='succeeded',stage='complete',error=NULL WHERE id=$1",
-          [op.id],
-        );
-        await audit(
-          client,
-          "prototype-worker",
-          "prototype.enrollment_simulated",
+        await sql(
+          tx,
+          "UPDATE entitlements SET status='exception' WHERE id=$1::uuid",
           op.entitlement_id,
         );
+        await audit(
+          tx,
+          "prototype-worker",
+          "prototype.provisioning_failed",
+          op.entitlement_id,
+          { stage: op.stage, attempts: attempt, reason },
+        );
       }
+    } else if (op.stage === "identity") {
+      await sql(
+        tx,
+        "UPDATE operations SET status='running',stage='canvas',attempts=0,error=NULL,next_run=now()+interval '3 seconds' WHERE id=$1::uuid",
+        op.id,
+      );
+      await audit(
+        tx,
+        "prototype-worker",
+        "prototype.identity_simulated",
+        op.entitlement_id,
+      );
+    } else {
+      await sql(
+        tx,
+        "UPDATE entitlements SET status='enrolled' WHERE id=$1::uuid",
+        op.entitlement_id,
+      );
+      await sql(
+        tx,
+        "UPDATE operations SET status='succeeded',stage='complete',error=NULL WHERE id=$1::uuid",
+        op.id,
+      );
+      await audit(
+        tx,
+        "prototype-worker",
+        "prototype.enrollment_simulated",
+        op.entitlement_id,
+      );
     }
-    const expired = await client.query(
-      "UPDATE entitlements SET status='expired' WHERE status='reserved' AND reserved_until<=now() RETURNING id",
-    );
-    for (const row of expired.rows)
-      await audit(client, "prototype-worker", "seat.expired", row.id);
-    const lapsed = await client.query(
-      "UPDATE entitlements SET status='approval_expired' WHERE status='approved' AND approval_expires_at<=now() RETURNING id",
-    );
-    for (const row of lapsed.rows)
-      await audit(client, "prototype-worker", "approval.expired", row.id);
-    await client.query("COMMIT");
+  }
+  const expired = await sql<{ id: string }>(
+    tx,
+    "UPDATE entitlements SET status='expired' WHERE status='reserved' AND reserved_until<=now() RETURNING id",
+  );
+  for (const row of expired)
+    await audit(tx, "prototype-worker", "seat.expired", row.id);
+  const lapsed = await sql<{ id: string }>(
+    tx,
+    "UPDATE entitlements SET status='approval_expired' WHERE status='approved' AND approval_expires_at<=now() RETURNING id",
+  );
+  for (const row of lapsed)
+    await audit(tx, "prototype-worker", "approval.expired", row.id);
+}
+async function tick() {
+  try {
+    await transaction(step);
   } catch (error) {
-    await client.query("ROLLBACK");
+    // The transaction rolled back; the job stays due and is retried next tick.
     console.error(
       "Worker retry:",
       error instanceof Error ? error.message : "unknown error",
     );
-  } finally {
-    client.release();
   }
 }
 async function main() {
@@ -148,6 +167,7 @@ async function main() {
     await tick();
     await new Promise((resolve) => setTimeout(resolve, 1000));
   }
+  await prisma.$disconnect();
   await db.end();
 }
 process.on("SIGINT", () => {

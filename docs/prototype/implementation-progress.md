@@ -164,6 +164,21 @@ Automated accessibility scanning and a real screen-reader session remain outstan
 
 ## Latest implementation record
 
+October 6, 2026: issue #2 Phase 2 (queries and transactions on Prisma), on branch `prisma-adoption`.
+- **Single client:** `src/domain/prisma.ts` creates one `PrismaClient` over the existing `pg` pool, keeping the local-only guard. It provides `transaction()` (interactive, maxWait 10 s, timeout 20 s), `sql()` (raw SQL with bound parameters) and `offeringColumns()`, which avoids duplicate date columns in raw selects.
+- **Service:**
+  - Routine reads and simple writes use the typed client.
+  - Locking and computed SQL stays raw inside the same transaction: offering and registration row locks, advisory locks for idempotency, final-seat counts, the registration upsert, approval expiry, the enrollment window and seat counts, and the audit-label joins.
+  - The auth guard and API startup check use Prisma. Startup now requires the Prisma baseline.
+- **Worker:** each step runs in one transaction, keeping `FOR UPDATE SKIP LOCKED` claiming.
+- **Probe findings** from a rolled-back probe transaction: Prisma cannot read `void`, so advisory locks are wrapped, and uncast counts return bigint. All other parameter and result types behaved as they did under `pg`.
+- **TypedSQL** was not adopted because it needs a database during generation; raw rows are typed from the generated models instead.
+- **Verification:**
+  - The integration suite passes 14/14, covering concurrency, idempotent payment/retry, cross-user rejection and worker-driven flows. The migration suite passes 9/9.
+  - Worker crash drill: the worker was force-killed (`kill -9`) during a delayed job, and after restart the job completed exactly once (1 order, 1 audit event per step).
+  - Browser smoke test: sign-in form, catalog, course page registration, payment to enrolled with the Canvas link, all staff tabs, and price history in the edit dialog.
+  - API, worker and auth code no longer query `pg` directly.
+
 October 6, 2026: issue #2 Phase 1 (Prisma migration foundation), on branch `prisma-adoption`.
 - **Packages and decision:** pinned Prisma 7.10.0 (`prisma`, `@prisma/client`, `@prisma/adapter-pg`), recorded in [ADR 0002](../adr/0002-prisma-orm.md).
 - **Schema and baseline:** introspected `prisma/schema.prisma`, keeping snake_case fields. The baseline `prisma/migrations/0_baseline` reproduces legacy migrations 001–007 exactly, including the checks, the price-history trigger and the seed.

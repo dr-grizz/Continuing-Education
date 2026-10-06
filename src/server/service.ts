@@ -5,8 +5,18 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { createHash } from "node:crypto";
-import { PoolClient } from "pg";
-import { db } from "../domain/db";
+import {
+  Prisma,
+  type entitlements,
+  type offerings,
+} from "../generated/prisma/client";
+import {
+  offeringColumns,
+  prisma,
+  sql,
+  transaction,
+  Tx,
+} from "../domain/prisma";
 import {
   OfferingDto,
   OfferingEditDto,
@@ -20,21 +30,61 @@ import { Principal } from "./auth";
 const enrollmentWindow = `CASE WHEN o.course_type='cohort' THEN to_char(o.start_date+o.enrollment_close_days,'YYYY-MM-DD') END AS enrollment_closes_on,
   CASE WHEN o.course_type='cohort' THEN to_char(o.start_date+o.enrollment_close_days,'Mon FMDD, YYYY') END AS enrollment_closes_label,
   (o.course_type<>'cohort' OR current_date<=o.start_date+o.enrollment_close_days) AS enrollment_open`;
-const listing = `SELECT o.*,${enrollmentWindow}, to_char(o.start_date,'YYYY-MM-DD') AS start_date, to_char(o.end_date,'YYYY-MM-DD') AS end_date,
+const scheduleText = `to_char(o.start_date,'YYYY-MM-DD') AS start_date, to_char(o.end_date,'YYYY-MM-DD') AS end_date`;
+const listing = `SELECT ${offeringColumns("o")},${enrollmentWindow},${scheduleText},
   (o.capacity - (SELECT count(*) FROM entitlements e WHERE e.offering_id=o.id AND
     (e.status IN ('provisioning','enrolled','exception') OR (e.status='reserved' AND e.reserved_until>now()))))::integer AS seats_available
   FROM offerings o`;
+// Registrations that still depend on the offering's current terms.
+const activeRegistrations = `(SELECT count(*) FROM entitlements a WHERE a.offering_id=o.id AND
+  (a.status IN ('awaiting_approval','approved','provisioning','enrolled','exception') OR (a.status='reserved' AND a.reserved_until>now())))::integer`;
+const seatsInUse = `(SELECT count(*) FROM entitlements s WHERE s.offering_id=o.id AND
+  (s.status IN ('provisioning','enrolled','exception') OR (s.status='reserved' AND s.reserved_until>now())))::integer`;
+
+// Row shapes for raw queries, derived from the Prisma models.
+type ScheduleText = { start_date: string | null; end_date: string | null };
+type EnrollmentWindow = {
+  enrollment_closes_on: string | null;
+  enrollment_closes_label: string | null;
+  enrollment_open: boolean;
+};
+export type OfferingListing = Omit<offerings, "start_date" | "end_date"> &
+  ScheduleText &
+  EnrollmentWindow & {
+    seats_available: number;
+    active_registrations?: number;
+    seats_in_use?: number;
+  };
+export type LearningRow = entitlements &
+  ScheduleText &
+  EnrollmentWindow &
+  Pick<
+    offerings,
+    | "title"
+    | "category"
+    | "format"
+    | "course_type"
+    | "price_cents"
+    | "approval_required"
+    | "published"
+    | "canvas_course_url"
+  > & {
+    operation_id: string | null;
+    stage: string | null;
+    operation_status: string | null;
+    attempts: number | null;
+  };
+
 export async function audit(
-  client: PoolClient,
+  tx: Tx,
   actor: string,
   action: string,
   id: string | null,
-  details = {},
+  details: Prisma.InputJsonObject = {},
 ) {
-  await client.query(
-    "INSERT INTO audit_events(actor,action,object_id,details) VALUES ($1,$2,$3,$4)",
-    [actor, action, id, JSON.stringify(details)],
-  );
+  await tx.audit_events.create({
+    data: { actor, action, object_id: id, details },
+  });
 }
 function validateSchedule(data: OfferingDto) {
   if (data.courseType === "cohort") {
@@ -55,30 +105,31 @@ function validateSchedule(data: OfferingDto) {
     );
   }
 }
-// Registrations that still depend on the offering's current terms.
-const activeRegistrations = `(SELECT count(*) FROM entitlements a WHERE a.offering_id=o.id AND
-  (a.status IN ('awaiting_approval','approved','provisioning','enrolled','exception') OR (a.status='reserved' AND a.reserved_until>now())))::integer`;
-const seatsInUse = `(SELECT count(*) FROM entitlements s WHERE s.offering_id=o.id AND
-  (s.status IN ('provisioning','enrolled','exception') OR (s.status='reserved' AND s.reserved_until>now())))::integer`;
+// Prisma date columns take a Date; YYYY-MM-DD parses as UTC midnight, preserving the day.
+const toDate = (value?: string | null) => (value ? new Date(value) : null);
+// Command responses are stored as JSON, exactly as JSON.stringify renders them.
+const asJson = (value: unknown) =>
+  JSON.parse(JSON.stringify(value ?? null)) as Prisma.InputJsonValue;
+
 @Injectable()
 export class PortalService {
   async demoUser(email: string) {
     const normalized = email.trim().toLowerCase();
-    return (
-      await db.query(
-        "INSERT INTO learners(email) VALUES ($1) ON CONFLICT(email) DO UPDATE SET email=EXCLUDED.email RETURNING id,email,created_at",
-        [normalized],
-      )
-    ).rows[0];
+    // Matching where/create/update values let Prisma use a native ON CONFLICT upsert.
+    return prisma.learners.upsert({
+      where: { email: normalized },
+      create: { email: normalized },
+      update: { email: normalized },
+      select: { id: true, email: true, created_at: true },
+    });
   }
   async me(principal: Principal) {
-    const result = await db.query(
-      "SELECT id,email,created_at FROM learners WHERE id=$1",
-      [principal.learnerId],
-    );
-    if (!result.rowCount)
-      throw new NotFoundException("Demo learner not found.");
-    return result.rows[0];
+    const learner = await prisma.learners.findUnique({
+      where: { id: principal.learnerId },
+      select: { id: true, email: true, created_at: true },
+    });
+    if (!learner) throw new NotFoundException("Demo learner not found.");
+    return learner;
   }
   async list(query: QueryDto, staff = false) {
     // Staff also see how many registrations and seats depend on each offering.
@@ -88,39 +139,28 @@ export class PortalService {
           `,${activeRegistrations} AS active_registrations,${seatsInUse} AS seats_in_use FROM offerings o`,
         )
       : listing;
-    return (
-      await db.query(
-        `${select} WHERE ($1 OR o.published) AND ($2='' OR o.title ILIKE $2 OR o.summary ILIKE $2) AND ($3='' OR o.category=$3) ORDER BY o.start_date,o.title LIMIT 100`,
-        [staff, query.search ? `%${query.search}%` : "", query.category || ""],
-      )
-    ).rows;
+    return sql<OfferingListing>(
+      prisma,
+      `${select} WHERE ($1 OR o.published) AND ($2='' OR o.title ILIKE $2 OR o.summary ILIKE $2) AND ($3='' OR o.category=$3) ORDER BY o.start_date,o.title LIMIT 100`,
+      staff,
+      query.search ? `%${query.search}%` : "",
+      query.category || "",
+    );
   }
   async detail(id: string) {
-    const result = await db.query(`${listing} WHERE o.id=$1 AND o.published`, [
+    const [offering] = await sql<OfferingListing>(
+      prisma,
+      `${listing} WHERE o.id=$1::uuid AND o.published`,
       id,
-    ]);
-    if (!result.rowCount) throw new NotFoundException("Offering not found.");
-    return result.rows[0];
-  }
-  async transaction<T>(action: (client: PoolClient) => Promise<T>): Promise<T> {
-    const client = await db.connect();
-    try {
-      await client.query("BEGIN");
-      const result = await action(client);
-      await client.query("COMMIT");
-      return result;
-    } catch (error) {
-      await client.query("ROLLBACK");
-      throw error;
-    } finally {
-      client.release();
-    }
+    );
+    if (!offering) throw new NotFoundException("Offering not found.");
+    return offering;
   }
   async command(
     principal: Principal,
     key: string,
     input: unknown,
-    action: (client: PoolClient) => Promise<unknown>,
+    action: (tx: Tx) => Promise<unknown>,
   ) {
     if (!key || key.length > 160)
       throw new BadRequestException(
@@ -129,36 +169,42 @@ export class PortalService {
     const fingerprint = createHash("sha256")
       .update(JSON.stringify(input))
       .digest("hex");
-    return this.transaction(async (client) => {
-      await client.query(
-        "SELECT pg_advisory_xact_lock(hashtextextended($1,0))",
-        [`${principal.actor}:${key}`],
+    return transaction(async (tx) => {
+      // Serializes retries of the same actor-scoped key within this transaction.
+      await sql(
+        tx,
+        "SELECT 1 AS locked FROM (SELECT pg_advisory_xact_lock(hashtextextended($1,0))) l",
+        `${principal.actor}:${key}`,
       );
-      const previous = await client.query(
-        "SELECT fingerprint,response FROM commands WHERE actor=$1 AND key=$2",
-        [principal.actor, key],
-      );
-      if (previous.rowCount) {
-        if (previous.rows[0].fingerprint !== fingerprint)
+      const previous = await tx.commands.findUnique({
+        where: { actor_key: { actor: principal.actor, key } },
+      });
+      if (previous) {
+        if (previous.fingerprint !== fingerprint)
           throw new ConflictException(
             "Idempotency key was already used for a different command.",
           );
-        return previous.rows[0].response;
+        return previous.response;
       }
-      const response = await action(client);
-      await client.query(
-        "INSERT INTO commands(actor,key,fingerprint,response) VALUES ($1,$2,$3,$4)",
-        [principal.actor, key, fingerprint, JSON.stringify(response)],
-      );
+      const response = await action(tx);
+      await tx.commands.create({
+        data: {
+          actor: principal.actor,
+          key,
+          fingerprint,
+          response: asJson(response),
+        },
+      });
       return response;
     });
   }
-  async reserve(client: PoolClient, offering: any) {
-    const occupied = await client.query(
-      `SELECT count(*)::integer AS count FROM entitlements WHERE offering_id=$1 AND (status IN ('provisioning','enrolled','exception') OR (status='reserved' AND reserved_until>now()))`,
-      [offering.id],
+  async reserve(tx: Tx, offering: { id: string; capacity: number }) {
+    const [occupied] = await sql<{ count: number }>(
+      tx,
+      `SELECT count(*)::integer AS count FROM entitlements WHERE offering_id=$1::uuid AND (status IN ('provisioning','enrolled','exception') OR (status='reserved' AND reserved_until>now()))`,
+      offering.id,
     );
-    if (occupied.rows[0].count >= offering.capacity)
+    if (occupied.count >= offering.capacity)
       throw new ConflictException("This offering has no available seats.");
   }
   async register(principal: Principal, key: string, offeringId: string) {
@@ -166,23 +212,27 @@ export class PortalService {
       principal,
       key,
       { action: "register", offeringId },
-      async (client) => {
-        const found = await client.query(
-          `SELECT o.*,${enrollmentWindow} FROM offerings o WHERE o.id=$1 AND o.published FOR UPDATE`,
-          [offeringId],
+      async (tx) => {
+        // Row lock on the offering serializes final-seat allocation.
+        const [offering] = await sql<offerings & EnrollmentWindow>(
+          tx,
+          `SELECT o.*,${enrollmentWindow} FROM offerings o WHERE o.id=$1::uuid AND o.published FOR UPDATE`,
+          offeringId,
         );
-        if (!found.rowCount)
-          throw new NotFoundException("Offering not available.");
-        const offering = found.rows[0];
-        const existing = await client.query(
-          "SELECT * FROM entitlements WHERE learner_id=$1 AND offering_id=$2",
-          [principal.learnerId, offeringId],
-        );
-        const row = existing.rows[0];
+        if (!offering) throw new NotFoundException("Offering not available.");
+        const row = await tx.entitlements.findUnique({
+          where: {
+            learner_id_offering_id: {
+              learner_id: principal.learnerId as string,
+              offering_id: offeringId,
+            },
+          },
+        });
         const now = Date.now();
         const reservationCurrent =
           row?.status === "reserved" &&
-          new Date(row.reserved_until).getTime() > now;
+          Boolean(row.reserved_until) &&
+          (row.reserved_until as Date).getTime() > now;
         // In-progress registrations are returned unchanged, even after enrollment closes.
         if (
           row &&
@@ -201,32 +251,37 @@ export class PortalService {
           );
         // A still-valid approval allows reserving again; declined or lapsed approvals need a new request.
         const approvalValid =
-          ["approved", "expired", "reserved"].includes(row?.status) &&
-          row?.approval_expires_at &&
-          new Date(row.approval_expires_at).getTime() > now;
+          !!row &&
+          ["approved", "expired", "reserved"].includes(row.status) &&
+          !!row.approval_expires_at &&
+          row.approval_expires_at.getTime() > now;
         const needsApproval = offering.approval_required && !approvalValid;
-        if (!needsApproval) await this.reserve(client, offering);
+        if (!needsApproval) await this.reserve(tx, offering);
         const status = needsApproval ? "awaiting_approval" : "reserved";
-        const result = await client.query(
-          `INSERT INTO entitlements(learner_id,offering_id,status,reserved_until,quoted_price_cents) VALUES ($1,$2,$3,CASE WHEN $3='reserved' THEN now()+interval '30 minutes' ELSE NULL END,
+        const [result] = await sql<entitlements>(
+          tx,
+          `INSERT INTO entitlements(learner_id,offering_id,status,reserved_until,quoted_price_cents) VALUES ($1::uuid,$2::uuid,$3,CASE WHEN $3='reserved' THEN now()+interval '30 minutes' ELSE NULL END,
           CASE WHEN $3='reserved' THEN $4::integer END)
         ON CONFLICT(learner_id,offering_id) DO UPDATE SET status=EXCLUDED.status,reserved_until=EXCLUDED.reserved_until,
           quoted_price_cents=coalesce(EXCLUDED.quoted_price_cents,entitlements.quoted_price_cents),
           approval_expires_at=CASE WHEN EXCLUDED.status='awaiting_approval' THEN NULL ELSE entitlements.approval_expires_at END
         RETURNING *`,
-          [principal.learnerId, offeringId, status, offering.price_cents],
+          principal.learnerId,
+          offeringId,
+          status,
+          offering.price_cents,
         );
         await audit(
-          client,
+          tx,
           principal.actor,
           needsApproval
             ? row
               ? "approval.requested_again"
               : "approval.requested"
             : "seat.reserved",
-          result.rows[0].id,
+          result.id,
         );
-        return result.rows[0];
+        return result;
       },
     );
   }
@@ -235,21 +290,23 @@ export class PortalService {
       principal,
       key,
       { action: "simulate-payment", entitlementId },
-      async (client) => {
-        const result = await client.query(
-          "SELECT e.*,coalesce(e.quoted_price_cents,o.price_cents) AS amount_cents,o.published FROM entitlements e JOIN offerings o ON o.id=e.offering_id WHERE e.id=$1 AND e.learner_id=$2 FOR UPDATE OF e",
-          [entitlementId, principal.learnerId],
+      async (tx) => {
+        const [row] = await sql<
+          entitlements & { amount_cents: number; published: boolean }
+        >(
+          tx,
+          "SELECT e.*,coalesce(e.quoted_price_cents,o.price_cents) AS amount_cents,o.published FROM entitlements e JOIN offerings o ON o.id=e.offering_id WHERE e.id=$1::uuid AND e.learner_id=$2::uuid FOR UPDATE OF e",
+          entitlementId,
+          principal.learnerId,
         );
-        if (!result.rowCount)
-          throw new NotFoundException("Registration not found.");
-        const row = result.rows[0];
-        const existing = await client.query(
-          "SELECT * FROM operations WHERE entitlement_id=$1",
-          [entitlementId],
-        );
-        if (existing.rowCount) return existing.rows[0];
+        if (!row) throw new NotFoundException("Registration not found.");
+        const existing = await tx.operations.findUnique({
+          where: { entitlement_id: entitlementId },
+        });
+        if (existing) return existing;
         if (
           row.status !== "reserved" ||
+          !row.reserved_until ||
           new Date(row.reserved_until).getTime() <= Date.now()
         )
           throw new ConflictException(
@@ -260,53 +317,72 @@ export class PortalService {
           throw new ConflictException(
             "This course is no longer open for registration.",
           );
-        await client.query(
-          "INSERT INTO orders(entitlement_id,amount_cents) VALUES ($1,$2)",
-          [entitlementId, row.amount_cents],
-        );
-        await client.query(
-          "UPDATE entitlements SET status='provisioning',reserved_until=NULL WHERE id=$1",
-          [entitlementId],
-        );
-        const op = await client.query(
-          `INSERT INTO operations(entitlement_id,simulated_outcome)
-          SELECT $1,coalesce((SELECT value FROM prototype_settings WHERE key='provisioning_outcome'),'normal') RETURNING *`,
-          [entitlementId],
-        );
+        await tx.orders.create({
+          data: {
+            entitlement_id: entitlementId,
+            amount_cents: row.amount_cents,
+          },
+        });
+        await tx.entitlements.update({
+          where: { id: entitlementId },
+          data: { status: "provisioning", reserved_until: null },
+        });
+        const setting = await tx.prototype_settings.findUnique({
+          where: { key: "provisioning_outcome" },
+        });
+        const op = await tx.operations.create({
+          data: {
+            entitlement_id: entitlementId,
+            simulated_outcome: setting?.value ?? "normal",
+          },
+        });
         await audit(
-          client,
+          tx,
           principal.actor,
           "prototype.payment_simulated",
           entitlementId,
         );
-        return op.rows[0];
+        return op;
       },
     );
   }
   async learning(principal: Principal) {
-    return (
-      await db.query(
-        `SELECT e.*,o.title,o.category,o.format,o.course_type,o.price_cents,o.approval_required,to_char(o.start_date,'YYYY-MM-DD') AS start_date,to_char(o.end_date,'YYYY-MM-DD') AS end_date,
+    return sql<LearningRow>(
+      prisma,
+      `SELECT e.*,o.title,o.category,o.format,o.course_type,o.price_cents,o.approval_required,${scheduleText},
       ${enrollmentWindow},o.published,CASE WHEN e.status='enrolled' THEN o.canvas_course_url END AS canvas_course_url,
-      p.id AS operation_id,p.stage,p.status AS operation_status,p.attempts FROM entitlements e JOIN offerings o ON o.id=e.offering_id LEFT JOIN operations p ON p.entitlement_id=e.id WHERE e.learner_id=$1 ORDER BY e.created_at DESC`,
-        [principal.learnerId],
-      )
-    ).rows;
+      p.id AS operation_id,p.stage,p.status AS operation_status,p.attempts FROM entitlements e JOIN offerings o ON o.id=e.offering_id LEFT JOIN operations p ON p.entitlement_id=e.id WHERE e.learner_id=$1::uuid ORDER BY e.created_at DESC`,
+      principal.learnerId,
+    );
   }
   async operation(id: string, principal: Principal) {
-    const result = await db.query(
-      `SELECT p.* FROM operations p JOIN entitlements e ON e.id=p.entitlement_id WHERE p.id=$1 AND ($2::uuid IS NULL OR e.learner_id=$2)`,
-      [id, principal.learnerId || null],
-    );
-    if (!result.rowCount) throw new NotFoundException("Operation not found.");
-    return result.rows[0];
+    // Learners may read only their own operations; automation reads any.
+    const operation = await prisma.operations.findFirst({
+      where: {
+        id,
+        ...(principal.learnerId
+          ? { entitlements: { learner_id: principal.learnerId } }
+          : {}),
+      },
+    });
+    if (!operation) throw new NotFoundException("Operation not found.");
+    return operation;
   }
   async approvals() {
-    return (
-      await db.query(
-        `SELECT e.*,o.title,o.approval_valid_days,l.email AS learner_email FROM entitlements e JOIN offerings o ON o.id=e.offering_id JOIN learners l ON l.id=e.learner_id WHERE e.status='awaiting_approval' ORDER BY e.created_at`,
-      )
-    ).rows;
+    const requests = await prisma.entitlements.findMany({
+      where: { status: "awaiting_approval" },
+      include: {
+        offerings: { select: { title: true, approval_valid_days: true } },
+        learners: { select: { email: true } },
+      },
+      orderBy: { created_at: "asc" },
+    });
+    return requests.map(({ offerings: offering, learners, ...request }) => ({
+      ...request,
+      title: offering.title,
+      approval_valid_days: offering.approval_valid_days,
+      learner_email: learners.email,
+    }));
   }
   async decide(
     principal: Principal,
@@ -318,18 +394,20 @@ export class PortalService {
       principal,
       key,
       { action: "decision", id, decision },
-      async (client) => {
+      async (tx) => {
         // Approvals stay valid for the offering's staff-set number of days.
-        const row = await client.query(
+        const [row] = await sql<entitlements>(
+          tx,
           `UPDATE entitlements e SET status=$2,
             approval_expires_at=CASE WHEN $2='approved' THEN now()+make_interval(days => o.approval_valid_days) END
-          FROM offerings o WHERE e.id=$1 AND e.status='awaiting_approval' AND o.id=e.offering_id RETURNING e.*`,
-          [id, decision],
+          FROM offerings o WHERE e.id=$1::uuid AND e.status='awaiting_approval' AND o.id=e.offering_id RETURNING e.*`,
+          id,
+          decision,
         );
-        if (!row.rowCount)
+        if (!row)
           throw new ConflictException("Request is not awaiting approval.");
-        await audit(client, principal.actor, `approval.${decision}`, id);
-        return row.rows[0];
+        await audit(tx, principal.actor, `approval.${decision}`, id);
+        return row;
       },
     );
   }
@@ -339,37 +417,35 @@ export class PortalService {
       principal,
       key,
       { action: "create", data },
-      async (client) => {
-        const row = await client.query(
-          `INSERT INTO offerings(title,category,summary,description,format,start_date,end_date,capacity,price_cents,approval_required,course_type,approval_valid_days,enrollment_close_days,canvas_course_url) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
-          [
-            data.title,
-            data.category,
-            data.summary,
-            data.description,
-            data.format,
-            data.startDate,
-            data.endDate,
-            data.capacity,
-            data.priceCents,
-            data.approvalRequired,
-            data.courseType,
-            data.approvalValidDays ?? 7,
-            data.enrollmentCloseDays ?? 7,
-            data.canvasCourseUrl || null,
-          ],
-        );
-        await client.query(
-          "INSERT INTO offering_prices(offering_id,price_cents,actor,reason) VALUES ($1,$2,$3,'Initial price')",
-          [row.rows[0].id, data.priceCents, principal.actor],
-        );
-        await audit(
-          client,
-          principal.actor,
-          "offering.created",
-          row.rows[0].id,
-        );
-        return row.rows[0];
+      async (tx) => {
+        const offering = await tx.offerings.create({
+          data: {
+            title: data.title,
+            category: data.category,
+            summary: data.summary,
+            description: data.description,
+            format: data.format,
+            start_date: toDate(data.startDate),
+            end_date: toDate(data.endDate),
+            capacity: data.capacity,
+            price_cents: data.priceCents,
+            approval_required: data.approvalRequired,
+            course_type: data.courseType,
+            approval_valid_days: data.approvalValidDays ?? 7,
+            enrollment_close_days: data.enrollmentCloseDays ?? 7,
+            canvas_course_url: data.canvasCourseUrl || null,
+          },
+        });
+        await tx.offering_prices.create({
+          data: {
+            offering_id: offering.id,
+            price_cents: data.priceCents,
+            actor: principal.actor,
+            reason: "Initial price",
+          },
+        });
+        await audit(tx, principal.actor, "offering.created", offering.id);
+        return offering;
       },
     );
   }
@@ -383,34 +459,39 @@ export class PortalService {
       principal,
       key,
       { action: "settings", id, data },
-      async (client) => {
-        const before = await client.query(
-          "SELECT approval_valid_days,enrollment_close_days,canvas_course_url FROM offerings WHERE id=$1 AND version=$2 FOR UPDATE",
-          [id, data.version],
+      async (tx) => {
+        const [before] = await sql<
+          Pick<
+            offerings,
+            | "approval_valid_days"
+            | "enrollment_close_days"
+            | "canvas_course_url"
+          >
+        >(
+          tx,
+          "SELECT approval_valid_days,enrollment_close_days,canvas_course_url FROM offerings WHERE id=$1::uuid AND version=$2 FOR UPDATE",
+          id,
+          data.version,
         );
-        if (!before.rowCount)
+        if (!before)
           throw new ConflictException(
             "Offering changed or does not exist. Refresh and retry.",
           );
-        const row = await client.query(
-          "UPDATE offerings SET approval_valid_days=$2,enrollment_close_days=$3,canvas_course_url=$4,version=version+1 WHERE id=$1 RETURNING *",
-          [
-            id,
-            data.approvalValidDays,
-            data.enrollmentCloseDays,
-            data.canvasCourseUrl || null,
-          ],
-        );
-        // Changed periods apply to future approvals; existing approvals keep their expiry.
-        await audit(client, principal.actor, "offering.settings_changed", id, {
-          before: before.rows[0],
-          after: {
-            approval_valid_days: data.approvalValidDays,
-            enrollment_close_days: data.enrollmentCloseDays,
-            canvas_course_url: data.canvasCourseUrl || null,
-          },
+        const after = {
+          approval_valid_days: data.approvalValidDays,
+          enrollment_close_days: data.enrollmentCloseDays,
+          canvas_course_url: data.canvasCourseUrl || null,
+        };
+        const offering = await tx.offerings.update({
+          where: { id },
+          data: { ...after, version: { increment: 1 } },
         });
-        return row.rows[0];
+        // Changed periods apply to future approvals; existing approvals keep their expiry.
+        await audit(tx, principal.actor, "offering.settings_changed", id, {
+          before,
+          after,
+        });
+        return offering;
       },
     );
   }
@@ -426,18 +507,25 @@ export class PortalService {
       principal,
       key,
       { action: "edit", id, data },
-      async (client) => {
-        const found = await client.query(
-          `SELECT o.*,to_char(o.start_date,'YYYY-MM-DD') AS start_date,to_char(o.end_date,'YYYY-MM-DD') AS end_date,
+      async (tx) => {
+        const [before] = await sql<
+          Omit<offerings, "start_date" | "end_date"> &
+            ScheduleText & {
+              active_registrations: number;
+              seats_in_use: number;
+            }
+        >(
+          tx,
+          `SELECT ${offeringColumns("o")},${scheduleText},
             ${activeRegistrations} AS active_registrations,${seatsInUse} AS seats_in_use
-          FROM offerings o WHERE o.id=$1 AND o.version=$2 FOR UPDATE`,
-          [id, version],
+          FROM offerings o WHERE o.id=$1::uuid AND o.version=$2 FOR UPDATE`,
+          id,
+          version,
         );
-        if (!found.rowCount)
+        if (!before)
           throw new ConflictException(
             "Offering changed or does not exist. Refresh and retry.",
           );
-        const before = found.rows[0];
         // Offerings that are or were published change only with an audited
         // reason and protected terms, because learners may depend on them.
         const protectedTerms = before.published || before.unpublished_at;
@@ -485,34 +573,42 @@ export class PortalService {
             fields.enrollmentCloseDays ?? before.enrollment_close_days,
           canvas_course_url: fields.canvasCourseUrl || null,
         };
+        const previous = before as Record<string, unknown>;
         const changes = Object.fromEntries(
           Object.entries(after)
-            .filter(([field, value]) => before[field] !== value)
+            .filter(([field, value]) => previous[field] !== value)
             .map(([field, value]) => [
               field,
-              { before: before[field], after: value },
+              { before: previous[field] ?? null, after: value },
             ]),
         );
         if (!Object.keys(changes).length)
           throw new BadRequestException("No changes to save.");
-        const row = await client.query(
-          `UPDATE offerings SET title=$2,category=$3,summary=$4,description=$5,format=$6,course_type=$7,start_date=$8,end_date=$9,
-            capacity=$10,price_cents=$11,approval_required=$12,approval_valid_days=$13,enrollment_close_days=$14,canvas_course_url=$15,version=version+1
-          WHERE id=$1 RETURNING *`,
-          [id, ...Object.values(after)],
-        );
+        const offering = await tx.offerings.update({
+          where: { id },
+          data: {
+            ...after,
+            start_date: toDate(after.start_date),
+            end_date: toDate(after.end_date),
+            version: { increment: 1 },
+          },
+        });
         if (changes.price_cents)
-          await client.query(
-            "INSERT INTO offering_prices(offering_id,price_cents,actor,reason) VALUES ($1,$2,$3,$4)",
-            [id, after.price_cents, principal.actor, reason?.trim() || null],
-          );
-        await audit(client, principal.actor, "offering.edited", id, {
+          await tx.offering_prices.create({
+            data: {
+              offering_id: id,
+              price_cents: after.price_cents,
+              actor: principal.actor,
+              reason: reason?.trim() || null,
+            },
+          });
+        await audit(tx, principal.actor, "offering.edited", id, {
           reason: reason?.trim() || null,
           published: before.published,
           unpublished: Boolean(before.unpublished_at),
-          changes,
+          changes: changes as Prisma.InputJsonObject,
         });
-        return row.rows[0];
+        return offering;
       },
     );
   }
@@ -527,31 +623,39 @@ export class PortalService {
       principal,
       key,
       { action: "unpublish", id, version, reason },
-      async (client) => {
-        const row = await client.query(
-          `UPDATE offerings o SET published=false,unpublished_at=now(),version=version+1 WHERE o.id=$1 AND o.version=$2 AND o.published
+      async (tx) => {
+        const [offering] = await sql<
+          offerings & { active_registrations: number }
+        >(
+          tx,
+          `UPDATE offerings o SET published=false,unpublished_at=now(),version=version+1 WHERE o.id=$1::uuid AND o.version=$2 AND o.published
           RETURNING o.*,${activeRegistrations} AS active_registrations`,
-          [id, version],
+          id,
+          version,
         );
-        if (!row.rowCount)
+        if (!offering)
           throw new ConflictException(
             "Offering changed, is not published, or does not exist. Refresh and retry.",
           );
-        await audit(client, principal.actor, "offering.unpublished", id, {
+        await audit(tx, principal.actor, "offering.unpublished", id, {
           reason,
-          active_registrations: row.rows[0].active_registrations,
+          active_registrations: offering.active_registrations,
         });
-        return row.rows[0];
+        return offering;
       },
     );
   }
   async prices(id: string) {
-    return (
-      await db.query(
-        "SELECT price_cents,effective_at,actor,reason FROM offering_prices WHERE offering_id=$1 ORDER BY id DESC",
-        [id],
-      )
-    ).rows;
+    return prisma.offering_prices.findMany({
+      where: { offering_id: id },
+      orderBy: { id: "desc" },
+      select: {
+        price_cents: true,
+        effective_at: true,
+        actor: true,
+        reason: true,
+      },
+    });
   }
   async publish(
     principal: Principal,
@@ -563,32 +667,33 @@ export class PortalService {
       principal,
       key,
       { action: "publish", id, version },
-      async (client) => {
-        const row = await client.query(
-          "UPDATE offerings SET published=true,unpublished_at=NULL,version=version+1 WHERE id=$1 AND version=$2 RETURNING *",
-          [id, version],
-        );
-        if (!row.rowCount)
+      async (tx) => {
+        // Version check guards against publishing a stale draft.
+        const updated = await tx.offerings.updateMany({
+          where: { id, version },
+          data: {
+            published: true,
+            unpublished_at: null,
+            version: { increment: 1 },
+          },
+        });
+        if (!updated.count)
           throw new ConflictException(
             "Offering changed or does not exist. Refresh and retry.",
           );
-        await audit(
-          client,
-          principal.actor,
-          "prototype.offering_published",
-          id,
-        );
-        return row.rows[0];
+        await audit(tx, principal.actor, "prototype.offering_published", id);
+        return tx.offerings.findUniqueOrThrow({ where: { id } });
       },
     );
   }
   async simulation() {
-    const row = await db.query(
-      "SELECT value,updated_at FROM prototype_settings WHERE key='provisioning_outcome'",
-    );
+    const setting = await prisma.prototype_settings.findUnique({
+      where: { key: "provisioning_outcome" },
+    });
     return {
-      provisioningOutcome: row.rows[0]?.value ?? "normal",
-      updatedAt: row.rows[0]?.updated_at ?? null,
+      // operations_simulated_outcome_check limits stored values to these outcomes.
+      provisioningOutcome: (setting?.value ?? "normal") as ProvisioningOutcome,
+      updatedAt: setting?.updated_at ?? null,
     };
   }
   async setSimulation(
@@ -600,41 +705,54 @@ export class PortalService {
       principal,
       key,
       { action: "simulation", outcome },
-      async (client) => {
-        await client.query(
-          `INSERT INTO prototype_settings(key,value) VALUES ('provisioning_outcome',$1)
-          ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value,updated_at=now()`,
-          [outcome],
-        );
-        await audit(
-          client,
-          principal.actor,
-          "prototype.simulation_changed",
-          null,
-          { provisioningOutcome: outcome },
-        );
+      async (tx) => {
+        await tx.prototype_settings.upsert({
+          where: { key: "provisioning_outcome" },
+          create: { key: "provisioning_outcome", value: outcome },
+          update: { value: outcome, updated_at: new Date() },
+        });
+        await audit(tx, principal.actor, "prototype.simulation_changed", null, {
+          provisioningOutcome: outcome,
+        });
         return { provisioningOutcome: outcome };
       },
     );
   }
   async exceptions() {
-    const rows = (
-      await db.query(
-        `SELECT e.id,e.status,e.offering_id,o.title,l.email AS learner_email,p.id AS operation_id,p.stage,p.error,p.attempts,p.failed_at,p.simulated_outcome
-        FROM entitlements e JOIN offerings o ON o.id=e.offering_id JOIN learners l ON l.id=e.learner_id JOIN operations p ON p.entitlement_id=e.id
-        WHERE e.status='exception' ORDER BY p.failed_at`,
-      )
-    ).rows;
+    const rows = await prisma.entitlements.findMany({
+      where: { status: "exception" },
+      include: {
+        offerings: { select: { title: true } },
+        learners: { select: { email: true } },
+        operations: true,
+      },
+      orderBy: { operations: { failed_at: "asc" } },
+    });
     const history = rows.length
-      ? (
-          await db.query(
-            "SELECT object_id,actor,action,details,created_at FROM audit_events WHERE object_id=ANY($1::uuid[]) ORDER BY id",
-            [rows.map((row) => row.id)],
-          )
-        ).rows
+      ? await prisma.audit_events.findMany({
+          where: { object_id: { in: rows.map((row) => row.id) } },
+          orderBy: { id: "asc" },
+          select: {
+            object_id: true,
+            actor: true,
+            action: true,
+            details: true,
+            created_at: true,
+          },
+        })
       : [];
     return rows.map((row) => ({
-      ...row,
+      id: row.id,
+      status: row.status,
+      offering_id: row.offering_id,
+      title: row.offerings.title,
+      learner_email: row.learners.email,
+      operation_id: row.operations?.id ?? null,
+      stage: row.operations?.stage ?? null,
+      error: row.operations?.error ?? null,
+      attempts: row.operations?.attempts ?? 0,
+      failed_at: row.operations?.failed_at ?? null,
+      simulated_outcome: row.operations?.simulated_outcome ?? null,
       history: history
         .filter((event) => event.object_id === row.id)
         .map(({ object_id, ...event }) => event),
@@ -652,55 +770,79 @@ export class PortalService {
       principal,
       key,
       { action: `exception.${action}`, id, reason },
-      async (client) => {
-        const found = await client.query(
-          "SELECT e.id,p.stage FROM entitlements e JOIN operations p ON p.entitlement_id=e.id WHERE e.id=$1 AND e.status='exception' FOR UPDATE OF e,p",
-          [id],
+      async (tx) => {
+        const [found] = await sql<{ id: string; stage: string }>(
+          tx,
+          "SELECT e.id,p.stage FROM entitlements e JOIN operations p ON p.entitlement_id=e.id WHERE e.id=$1::uuid AND e.status='exception' FOR UPDATE OF e,p",
+          id,
         );
-        if (!found.rowCount)
+        if (!found)
           throw new ConflictException("Registration is not awaiting recovery.");
-        const stage = found.rows[0].stage;
         if (action === "retry") {
           // Retrying assumes the cause was fixed, so the simulation resumes normally.
-          await client.query(
-            "UPDATE entitlements SET status='provisioning' WHERE id=$1",
-            [id],
-          );
-          await client.query(
-            "UPDATE operations SET status='pending',attempts=0,error=NULL,failed_at=NULL,simulated_outcome='normal',next_run=now() WHERE entitlement_id=$1",
-            [id],
-          );
+          await tx.entitlements.update({
+            where: { id },
+            data: { status: "provisioning" },
+          });
+          await tx.operations.update({
+            where: { entitlement_id: id },
+            data: {
+              status: "pending",
+              attempts: 0,
+              error: null,
+              failed_at: null,
+              simulated_outcome: "normal",
+              next_run: new Date(),
+            },
+          });
         } else {
-          await client.query(
-            "UPDATE entitlements SET status='enrolled' WHERE id=$1",
-            [id],
-          );
-          await client.query(
-            "UPDATE operations SET status='succeeded',stage='manual',next_run=NULL WHERE entitlement_id=$1",
-            [id],
-          );
+          await tx.entitlements.update({
+            where: { id },
+            data: { status: "enrolled" },
+          });
+          await tx.operations.update({
+            where: { entitlement_id: id },
+            data: { status: "succeeded", stage: "manual", next_run: null },
+          });
         }
         await audit(
-          client,
+          tx,
           principal.actor,
           action === "retry"
             ? "exception.retry_requested"
             : "exception.resolved_manually",
           id,
-          { reason, stage },
+          { reason, stage: found.stage },
         );
-        return (
-          await client.query("SELECT * FROM entitlements WHERE id=$1", [id])
-        ).rows[0];
+        return tx.entitlements.findUniqueOrThrow({ where: { id } });
       },
     );
   }
   async report() {
-    const counts = await db.query(
-      `SELECT (SELECT count(*) FROM orders)::integer AS simulated_orders,(SELECT count(*) FROM entitlements WHERE status='enrolled')::integer AS simulated_enrollments,(SELECT count(*) FROM operations WHERE status IN ('pending','running'))::integer AS pending_operations,(SELECT count(*) FROM entitlements WHERE status='exception')::integer AS open_exceptions`,
-    );
+    const [
+      simulated_orders,
+      simulated_enrollments,
+      pending_operations,
+      open_exceptions,
+    ] = await Promise.all([
+      prisma.orders.count(),
+      prisma.entitlements.count({ where: { status: "enrolled" } }),
+      prisma.operations.count({
+        where: { status: { in: ["pending", "running"] } },
+      }),
+      prisma.entitlements.count({ where: { status: "exception" } }),
+    ]);
     // Resolve learner actors and affected records to readable labels for the staff log.
-    const auditRows = await db.query(
+    const audit = await sql<{
+      actor: string;
+      action: string;
+      object_id: string | null;
+      created_at: Date;
+      actor_email: string | null;
+      offering_title: string | null;
+      subject_email: string | null;
+    }>(
+      prisma,
       `SELECT a.actor,a.action,a.object_id,a.created_at,
         CASE WHEN a.actor LIKE 'demo-learner:%' THEN coalesce(actor_learner.email,'Legacy demo learner') END AS actor_email,
         coalesce(o.title,eo.title) AS offering_title,
@@ -713,6 +855,12 @@ export class PortalService {
       LEFT JOIN learners subject_learner ON subject_learner.id=e.learner_id
       ORDER BY a.id DESC LIMIT 200`,
     );
-    return { ...counts.rows[0], audit: auditRows.rows };
+    return {
+      simulated_orders,
+      simulated_enrollments,
+      pending_operations,
+      open_exceptions,
+      audit,
+    };
   }
 }

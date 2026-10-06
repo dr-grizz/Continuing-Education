@@ -21,7 +21,21 @@ Decision:
 - The **baseline** reproduces the 001–007 schema exactly. Prisma generates the DDL; the hand-added parts are unique constraints matching the legacy definitions, all CHECK constraints, the `offering_prices` append-only function and trigger, and the synthetic seed. Prisma does not model checks, functions or triggers, so any migration that changes them is hand-written. The structural comparison in `npm run test:migrations` guards against drift. Each check and the trigger are also documented with `///` comments in `prisma/schema.prisma`, so they appear in the generated types. Keep these comments when editing the schema, and do not overwrite them with `prisma db pull`.
 - **Authoring:** `npm run db:migrate:draft -- <name>` diffs the migrations, replayed into a disposable shadow database, against `schema.prisma`, and writes a reviewable migration wrapped in `BEGIN`/`COMMIT`. Do not run `prisma migrate dev`, `db push` or `migrate reset` against the main database. They can propose resetting it.
 - **Transactions:** Prisma does not wrap a migration in a transaction. The failure test showed a partial change left behind, so migrations with several statements wrap themselves in `BEGIN`/`COMMIT`.
-- **Phase 2 (planned):** routine reads use the typed client, with TypedSQL for computed columns. Transactional workflows use interactive transactions with the locking SQL (`FOR UPDATE`, `SKIP LOCKED`, advisory locks) kept as raw statements inside the same transaction.
+- **Data access (Phase 2):** `src/domain/prisma.ts` creates one `PrismaClient` on the existing `pg` pool, keeping the local-only guard in `db.ts`.
+  - **Routine reads and simple writes** use the typed client: learner lookup and upsert, operations, approvals, exceptions and their history, price history, settings, report counts, offering create/update/publish, orders, audit events and idempotency records.
+  - **Raw SQL stays** where it carries locking or computed columns, through `sql()` (bound parameters only), with row types built from the generated models:
+    - offering `FOR UPDATE`
+    - `FOR UPDATE OF e`/`e,p`
+    - actor-scoped advisory locks
+    - final-seat counts
+    - the `ON CONFLICT` registration upsert
+    - approval expiry
+    - the enrollment window
+    - seat and registration counts
+    - the audit-label joins
+    - worker claiming with `FOR UPDATE SKIP LOCKED`
+  - **Transactions:** every workflow runs in one interactive transaction (`transaction()`, maxWait 10 s, timeout 20 s), so typed calls and raw statements share one transaction. Prisma cannot read `void`, so advisory locks are wrapped in `SELECT 1 FROM (SELECT pg_advisory_xact_lock(…))`. Counts are cast to integer, because uncast counts come back as bigint.
+  - **TypedSQL** was considered and not adopted. `prisma generate --sql` needs a live database during generation, which would break `npm ci` before setup.
 
 Consequences:
 
