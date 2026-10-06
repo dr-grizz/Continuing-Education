@@ -1,6 +1,6 @@
 generator client {
-  provider = "prisma-client"
-  output   = "../src/generated/prisma"
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
   // The server and worker compile to CommonJS (tsconfig.server.json).
   moduleFormat = "cjs"
 }
@@ -9,6 +9,13 @@ datasource db {
   provider = "postgresql"
 }
 
+// Database rules that Prisma cannot model live in hand-written migration SQL
+// (see prisma/migrations/0_baseline). They are documented below with `///` so they
+// appear in generated types; changing one requires editing migration SQL by hand.
+// `npm run test:migrations` fails if fresh and adopted databases drift apart.
+// Do not re-run `prisma db pull` over this file without restoring these comments.
+
+/// Append-only audit trail. object_id is a polymorphic reference (offering, entitlement), not a foreign key.
 model audit_events {
   id         BigInt   @id @default(autoincrement())
   actor      String
@@ -18,6 +25,7 @@ model audit_events {
   created_at DateTime @default(now()) @db.Timestamptz(6)
 }
 
+/// Idempotency records: one response per (actor, Idempotency-Key).
 model commands {
   actor       String
   key         String
@@ -27,15 +35,18 @@ model commands {
   @@id([actor, key])
 }
 
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// A learner's registration for an offering. One per (learner_id, offering_id).
 model entitlements {
   id                  String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   learner_id          String      @db.Uuid
   offering_id         String      @db.Uuid
+  /// CHECK entitlements_status_check: awaiting_approval, approved, approval_expired, declined, reserved, provisioning, enrolled, expired, exception.
   status              String
   reserved_until      DateTime?   @db.Timestamptz(6)
   created_at          DateTime    @default(now()) @db.Timestamptz(6)
+  /// Set when approved: now() + offerings.approval_valid_days.
   approval_expires_at DateTime?   @db.Timestamptz(6)
+  /// Price at reservation; payment charges this. CHECK entitlements_quoted_price_cents_check: >= 0.
   quoted_price_cents  Int?
   learners            learners    @relation(fields: [learner_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "entitlements_learner_fk")
   offerings           offerings   @relation(fields: [offering_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -45,18 +56,21 @@ model entitlements {
   @@unique([learner_id, offering_id])
 }
 
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// Demo learner. The email-less row 00000000-0000-4000-8000-000000000001 is the legacy sample learner.
 model learners {
   id           String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// CHECK learners_email_check: lowercase, trimmed, 3-254 characters. Null only for the legacy learner.
   email        String?        @unique
   created_at   DateTime       @default(now()) @db.Timestamptz(6)
   entitlements entitlements[]
 }
 
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// Price history. TRIGGER offering_prices_no_update (function offering_prices_append_only)
+/// rejects every UPDATE, so rows are append-only; they are deleted only by cascade with their offering.
 model offering_prices {
   id           BigInt    @id @default(autoincrement())
   offering_id  String    @db.Uuid
+  /// CHECK offering_prices_price_cents_check: >= 0.
   price_cents  Int
   effective_at DateTime  @default(now()) @db.Timestamptz(6)
   actor        String
@@ -66,7 +80,8 @@ model offering_prices {
   @@index([offering_id, id], map: "offering_prices_offering")
 }
 
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// Saleable offering. CHECK offerings_schedule_check: cohort requires start_date and end_date;
+/// self_paced requires both to be null. CHECK offerings_check: end_date >= start_date.
 model offerings {
   id                    String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   title                 String
@@ -77,37 +92,49 @@ model offerings {
   format                String
   start_date            DateTime?         @db.Date
   end_date              DateTime?         @db.Date
+  /// Current price; history in offering_prices. CHECK offerings_price_cents_check: >= 0.
   price_cents           Int
+  /// CHECK offerings_capacity_check: > 0.
   capacity              Int
   approval_required     Boolean           @default(false)
   published             Boolean           @default(false)
   version               Int               @default(1)
   created_at            DateTime          @default(now()) @db.Timestamptz(6)
+  /// CHECK offerings_course_type_check: cohort (shown as Scheduled) or self_paced (Self-paced).
   course_type           String            @default("cohort")
+  /// CHECK offerings_approval_valid_days_check: 1-365.
   approval_valid_days   Int               @default(7)
+  /// Scheduled courses close enrollment this many days after start_date. CHECK offerings_enrollment_close_days_check: 0-365.
   enrollment_close_days Int               @default(7)
+  /// CHECK offerings_canvas_course_url_check: null or matches ^https://[^[:space:]]+$.
   canvas_course_url     String?
+  /// Set when unpublished, cleared when published again; distinguishes Unpublished from Draft.
   unpublished_at        DateTime?         @db.Timestamptz(6)
   entitlements          entitlements[]
   offering_prices       offering_prices[]
 }
 
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// Durable background provisioning job, claimed by the worker with FOR UPDATE SKIP LOCKED.
 model operations {
   id                String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   entitlement_id    String       @unique @db.Uuid
+  /// CHECK operations_status_check: pending, running, succeeded, failed.
   status            String       @default("pending")
+  /// identity, canvas, complete, or manual (staff-recorded enrollment).
   stage             String       @default("identity")
   next_run          DateTime?    @default(now()) @db.Timestamptz(6)
   error             String?
   created_at        DateTime?    @default(now()) @db.Timestamptz(6)
+  /// Prototype only. CHECK operations_simulated_outcome_check: normal, delayed, transient, identity_failure, canvas_failure.
   simulated_outcome String       @default("normal")
+  /// Automatic attempts at the current stage. CHECK operations_attempts_check: >= 0.
   attempts          Int          @default(0)
   delay_applied     Boolean      @default(false)
   failed_at         DateTime?    @db.Timestamptz(6)
   entitlements      entitlements @relation(fields: [entitlement_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 }
 
+/// Simulated payment record (not financial evidence). amount_cents is the quoted price.
 model orders {
   id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   entitlement_id String       @unique @db.Uuid
@@ -117,12 +144,14 @@ model orders {
   entitlements   entitlements @relation(fields: [entitlement_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 }
 
+/// Prototype-only settings, for example provisioning_outcome for simulated failures.
 model prototype_settings {
   key        String   @id
   value      String
   updated_at DateTime @default(now()) @db.Timestamptz(6)
 }
 
+/// Read-only history of legacy migrations 001-007. Prisma Migrate history is in _prisma_migrations.
 model schema_migrations {
   version    String    @id
   applied_at DateTime? @default(now()) @db.Timestamptz(6)
