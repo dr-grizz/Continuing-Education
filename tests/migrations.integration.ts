@@ -1,7 +1,14 @@
 import "dotenv/config";
 import { strict as assert } from "node:assert";
 import { randomUUID } from "node:crypto";
-import { cpSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  mkdirSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import path from "node:path";
 import { Pool } from "pg";
 import { applyLegacyMigrations } from "../scripts/legacy-migrations";
@@ -110,6 +117,16 @@ async function seedActivity(pool: Pool) {
     "INSERT INTO offering_prices(offering_id,price_cents,actor,reason) VALUES ('10000000-0000-4000-8000-000000000002',20900,'demo-staff','Adoption test price')",
   );
 }
+// Every committed Prisma migration, in the order Prisma applies them.
+const migrationsDir = path.resolve(__dirname, "../prisma/migrations");
+const committed = readdirSync(migrationsDir)
+  .filter((entry) => statSync(path.join(migrationsDir, entry)).isDirectory())
+  .sort();
+const allApplied = committed.map((migration_name) => ({
+  migration_name,
+  finished: true,
+  rolled_back: false,
+}));
 const migrationNames = async (pool: Pool) =>
   (
     await pool.query(
@@ -143,8 +160,24 @@ async function main() {
       ),
       /offerings_schedule_check/,
     );
-    assert.deepEqual(await migrationNames(fresh.pool), [
-      { migration_name: "0_baseline", finished: true, rolled_back: false },
+    assert.deepEqual(await migrationNames(fresh.pool), allApplied);
+    await assert.rejects(
+      fresh.pool.query(
+        "UPDATE operations SET status='paused' WHERE false OR status='paused'",
+      ),
+      /invalid input value for enum operation_status/,
+      "enum columns reject values outside the enum",
+    );
+    const enums = (
+      await fresh.pool.query(
+        "SELECT typname FROM pg_type WHERE typtype='e' AND typnamespace='public'::regnamespace ORDER BY 1",
+      )
+    ).rows.map((row) => row.typname);
+    assert.deepEqual(enums, [
+      "course_type",
+      "entitlement_status",
+      "operation_status",
+      "simulated_outcome",
     ]);
     console.log(
       "PASS: fresh database gets the baseline schema, checks, trigger and synthetic seed",
@@ -158,7 +191,7 @@ async function main() {
     await migrate(fresh.url, { quiet: true });
     assert.deepEqual(await structure(fresh.pool), before.structure);
     assert.deepEqual(await snapshot(fresh.pool), before.data);
-    assert.equal((await migrationNames(fresh.pool)).length, 1);
+    assert.equal((await migrationNames(fresh.pool)).length, committed.length);
     console.log("PASS: a second migration run changes nothing");
 
     // 3. Adoption of an existing 001-007 database with live records.
@@ -188,9 +221,7 @@ async function main() {
       legacyHistory,
     );
     assert.equal(legacyBefore.offerings.length, 6, "no duplicate seed");
-    assert.deepEqual(await migrationNames(legacy.pool), [
-      { migration_name: "0_baseline", finished: true, rolled_back: false },
-    ]);
+    assert.deepEqual(await migrationNames(legacy.pool), allApplied);
     console.log(
       "PASS: existing 001-007 database adopted without replay; all records preserved",
     );
@@ -243,7 +274,7 @@ async function main() {
       migrate(racing.url, { quiet: true }),
       migrate(racing.url, { quiet: true }),
     ]);
-    assert.equal((await migrationNames(racing.pool)).length, 1);
+    assert.equal((await migrationNames(racing.pool)).length, committed.length);
     assert.equal((await snapshot(racing.pool)).offerings.length, 6);
     console.log(
       "PASS: concurrent migration runs are serialized; baseline applied once",
@@ -297,7 +328,7 @@ async function main() {
       `import { defineConfig, env } from "prisma/config";\nexport default defineConfig({ schema: "../prisma/schema.prisma", migrations: { path: "migrations" }, datasource: { url: env("DATABASE_URL") } });\n`,
     );
     process.env.PRISMA_CONFIG_PATH = path.join(workspace, "prisma.config.ts");
-    const failing = path.join(workspace, "migrations", "1_failing_change");
+    const failing = path.join(workspace, "migrations", "90_failing_change");
     mkdirSync(failing);
     writeFileSync(
       path.join(failing, "migration.sql"),
@@ -305,10 +336,10 @@ async function main() {
     );
     await assert.rejects(migrate(legacy.url, { quiet: true }));
     const failedRow = (await migrationNames(legacy.pool)).find(
-      (m) => m.migration_name === "1_failing_change",
+      (m) => m.migration_name === "90_failing_change",
     );
     assert.deepEqual(failedRow, {
-      migration_name: "1_failing_change",
+      migration_name: "90_failing_change",
       finished: false,
       rolled_back: false,
     });
@@ -332,7 +363,7 @@ async function main() {
         "migrate",
         "resolve",
         "--rolled-back",
-        "1_failing_change",
+        "90_failing_change",
         "--config",
         process.env.PRISMA_CONFIG_PATH,
       ],
@@ -341,7 +372,7 @@ async function main() {
     const corrective = path.join(
       workspace,
       "migrations",
-      "2_offering_subtitle",
+      "91_offering_subtitle",
     );
     mkdirSync(corrective);
     writeFileSync(
@@ -365,9 +396,9 @@ async function main() {
     assert.deepEqual(
       history.map((m) => [m.migration_name, m.finished, m.rolled_back]),
       [
-        ["0_baseline", true, false],
-        ["1_failing_change", false, true],
-        ["2_offering_subtitle", true, false],
+        ...committed.map((name) => [name, true, false]),
+        ["90_failing_change", false, true],
+        ["91_offering_subtitle", true, false],
       ],
     );
     console.log(

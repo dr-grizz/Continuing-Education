@@ -164,6 +164,14 @@ Automated accessibility scanning and a real screen-reader session remain outstan
 
 ## Latest implementation record
 
+October 6, 2026: converted four status and type columns to PostgreSQL enums (issue #2 follow-up).
+- **Migration:** `prisma/migrations/1_status_enums` converts `course_type`, `entitlements.status`, `operations.status` and `operations.simulated_outcome` in place, replacing four value-list checks and recreating the schedule rule. Prisma's draft would have dropped and re-added the columns, deleting their data, so the migration was rewritten by hand.
+- **Code:** request validation now reads the allowed values from the generated `CourseType` and `SimulatedOutcome` enums, and raw SQL casts parameters written to enum columns.
+- **Verification:**
+  - Migration tests 9/9: enum types exist, invalid values are rejected, statuses survive adoption, there is no drift, and the structure is identical at 183 elements.
+  - On the main database, after a backup, all 10 tables were unchanged row for row and the columns use the enum types.
+  - The integration suite passes 14/14, and the catalog and My learning render unchanged.
+
 October 6, 2026: issue #2 Phase 2 (queries and transactions on Prisma), on branch `prisma-adoption`.
 - **Single client:** `src/domain/prisma.ts` creates one `PrismaClient` over the existing `pg` pool, keeping the local-only guard. It provides `transaction()` (interactive, maxWait 10 s, timeout 20 s), `sql()` (raw SQL with bound parameters) and `offeringColumns()`, which avoids duplicate date columns in raw selects.
 - **Service:**

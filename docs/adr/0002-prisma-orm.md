@@ -37,6 +37,13 @@ Decision:
   - **Transactions:** every workflow runs in one interactive transaction (`transaction()`, maxWait 10 s, timeout 20 s), so typed calls and raw statements share one transaction. Prisma cannot read `void`, so advisory locks are wrapped in `SELECT 1 FROM (SELECT pg_advisory_xact_lock(…))`. Counts are cast to integer, because uncast counts come back as bigint.
   - **TypedSQL** was considered and not adopted. `prisma generate --sql` needs a live database during generation, which would break `npm ci` before setup.
 
+- **Enums:** migration `1_status_enums` (October 6, 2026) converts `offerings.course_type`, `entitlements.status`, `operations.status` and `operations.simulated_outcome` to PostgreSQL enums, which Prisma models as `CourseType`, `EntitlementStatus`, `OperationStatus` and `SimulatedOutcome`.
+  - The enums replace the four value-list checks. The schedule rule was recreated, because its stored definition compared `course_type` as text.
+  - Prisma's draft dropped and re-added the columns, so the migration was rewritten by hand to convert them in place (`ALTER COLUMN … TYPE … USING`). It was verified row for row on the main database after a backup.
+  - Request validation reads the allowed values from the generated enums.
+  - Raw SQL that writes a parameter into an enum column casts it explicitly (`$n::entitlement_status`).
+  - Adding a value later needs `ALTER TYPE … ADD VALUE` in its own migration. The new value cannot be used in the same transaction that adds it.
+
 Consequences:
 
 - Schema changes have a single reviewed path, and query results can be typed.

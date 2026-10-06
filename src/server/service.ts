@@ -9,6 +9,7 @@ import {
   Prisma,
   type entitlements,
   type offerings,
+  type SimulatedOutcome,
 } from "../generated/prisma/client";
 import {
   offeringColumns,
@@ -260,8 +261,8 @@ export class PortalService {
         const status = needsApproval ? "awaiting_approval" : "reserved";
         const [result] = await sql<entitlements>(
           tx,
-          `INSERT INTO entitlements(learner_id,offering_id,status,reserved_until,quoted_price_cents) VALUES ($1::uuid,$2::uuid,$3,CASE WHEN $3='reserved' THEN now()+interval '30 minutes' ELSE NULL END,
-          CASE WHEN $3='reserved' THEN $4::integer END)
+          `INSERT INTO entitlements(learner_id,offering_id,status,reserved_until,quoted_price_cents) VALUES ($1::uuid,$2::uuid,$3::entitlement_status,CASE WHEN $3::entitlement_status='reserved' THEN now()+interval '30 minutes' ELSE NULL END,
+          CASE WHEN $3::entitlement_status='reserved' THEN $4::integer END)
         ON CONFLICT(learner_id,offering_id) DO UPDATE SET status=EXCLUDED.status,reserved_until=EXCLUDED.reserved_until,
           quoted_price_cents=coalesce(EXCLUDED.quoted_price_cents,entitlements.quoted_price_cents),
           approval_expires_at=CASE WHEN EXCLUDED.status='awaiting_approval' THEN NULL ELSE entitlements.approval_expires_at END
@@ -333,7 +334,8 @@ export class PortalService {
         const op = await tx.operations.create({
           data: {
             entitlement_id: entitlementId,
-            simulated_outcome: setting?.value ?? "normal",
+            // Set only through the validated simulation command; the enum column rejects anything else.
+            simulated_outcome: (setting?.value ?? "normal") as SimulatedOutcome,
           },
         });
         await audit(
@@ -398,8 +400,8 @@ export class PortalService {
         // Approvals stay valid for the offering's staff-set number of days.
         const [row] = await sql<entitlements>(
           tx,
-          `UPDATE entitlements e SET status=$2,
-            approval_expires_at=CASE WHEN $2='approved' THEN now()+make_interval(days => o.approval_valid_days) END
+          `UPDATE entitlements e SET status=$2::entitlement_status,
+            approval_expires_at=CASE WHEN $2::entitlement_status='approved' THEN now()+make_interval(days => o.approval_valid_days) END
           FROM offerings o WHERE e.id=$1::uuid AND e.status='awaiting_approval' AND o.id=e.offering_id RETURNING e.*`,
           id,
           decision,

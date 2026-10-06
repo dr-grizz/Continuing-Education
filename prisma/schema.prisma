@@ -37,19 +37,19 @@ model commands {
 
 /// A learner's registration for an offering. One per (learner_id, offering_id).
 model entitlements {
-  id                  String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  learner_id          String      @db.Uuid
-  offering_id         String      @db.Uuid
-  /// CHECK entitlements_status_check: awaiting_approval, approved, approval_expired, declined, reserved, provisioning, enrolled, expired, exception.
-  status              String
-  reserved_until      DateTime?   @db.Timestamptz(6)
-  created_at          DateTime    @default(now()) @db.Timestamptz(6)
+  id                  String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  learner_id          String            @db.Uuid
+  offering_id         String            @db.Uuid
+  /// Registration state (enum entitlement_status).
+  status              EntitlementStatus
+  reserved_until      DateTime?         @db.Timestamptz(6)
+  created_at          DateTime          @default(now()) @db.Timestamptz(6)
   /// Set when approved: now() + offerings.approval_valid_days.
-  approval_expires_at DateTime?   @db.Timestamptz(6)
+  approval_expires_at DateTime?         @db.Timestamptz(6)
   /// Price at reservation; payment charges this. CHECK entitlements_quoted_price_cents_check: >= 0.
   quoted_price_cents  Int?
-  learners            learners    @relation(fields: [learner_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "entitlements_learner_fk")
-  offerings           offerings   @relation(fields: [offering_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  learners            learners          @relation(fields: [learner_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "entitlements_learner_fk")
+  offerings           offerings         @relation(fields: [offering_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   operations          operations?
   orders              orders?
 
@@ -100,8 +100,8 @@ model offerings {
   published             Boolean           @default(false)
   version               Int               @default(1)
   created_at            DateTime          @default(now()) @db.Timestamptz(6)
-  /// CHECK offerings_course_type_check: cohort (shown as Scheduled) or self_paced (Self-paced).
-  course_type           String            @default("cohort")
+  /// cohort is shown as Scheduled; self_paced as Self-paced (enum course_type).
+  course_type           CourseType        @default(cohort)
   /// CHECK offerings_approval_valid_days_check: 1-365.
   approval_valid_days   Int               @default(7)
   /// Scheduled courses close enrollment this many days after start_date. CHECK offerings_enrollment_close_days_check: 0-365.
@@ -116,22 +116,22 @@ model offerings {
 
 /// Durable background provisioning job, claimed by the worker with FOR UPDATE SKIP LOCKED.
 model operations {
-  id                String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  entitlement_id    String       @unique @db.Uuid
-  /// CHECK operations_status_check: pending, running, succeeded, failed.
-  status            String       @default("pending")
+  id                String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  entitlement_id    String           @unique @db.Uuid
+  /// Job state (enum operation_status).
+  status            OperationStatus  @default(pending)
   /// identity, canvas, complete, or manual (staff-recorded enrollment).
-  stage             String       @default("identity")
-  next_run          DateTime?    @default(now()) @db.Timestamptz(6)
+  stage             String           @default("identity")
+  next_run          DateTime?        @default(now()) @db.Timestamptz(6)
   error             String?
-  created_at        DateTime?    @default(now()) @db.Timestamptz(6)
-  /// Prototype only. CHECK operations_simulated_outcome_check: normal, delayed, transient, identity_failure, canvas_failure.
-  simulated_outcome String       @default("normal")
+  created_at        DateTime?        @default(now()) @db.Timestamptz(6)
+  /// Prototype only; chosen at payment from prototype_settings (enum simulated_outcome).
+  simulated_outcome SimulatedOutcome @default(normal)
   /// Automatic attempts at the current stage. CHECK operations_attempts_check: >= 0.
-  attempts          Int          @default(0)
-  delay_applied     Boolean      @default(false)
-  failed_at         DateTime?    @db.Timestamptz(6)
-  entitlements      entitlements @relation(fields: [entitlement_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  attempts          Int              @default(0)
+  delay_applied     Boolean          @default(false)
+  failed_at         DateTime?        @db.Timestamptz(6)
+  entitlements      entitlements     @relation(fields: [entitlement_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 }
 
 /// Simulated payment record (not financial evidence). amount_cents is the quoted price.
@@ -155,4 +155,48 @@ model prototype_settings {
 model schema_migrations {
   version    String    @id
   applied_at DateTime? @default(now()) @db.Timestamptz(6)
+}
+
+/// Offering schedule type. Replaced offerings_course_type_check (migration 1_status_enums).
+enum CourseType {
+  cohort
+  self_paced
+
+  @@map("course_type")
+}
+
+/// Registration lifecycle. Replaced entitlements_status_check.
+enum EntitlementStatus {
+  awaiting_approval
+  approved
+  approval_expired
+  declined
+  reserved
+  provisioning
+  enrolled
+  expired
+  exception
+
+  @@map("entitlement_status")
+}
+
+/// Background job state. Replaced operations_status_check.
+enum OperationStatus {
+  pending
+  running
+  succeeded
+  failed
+
+  @@map("operation_status")
+}
+
+/// Prototype provisioning simulation. Replaced operations_simulated_outcome_check.
+enum SimulatedOutcome {
+  normal
+  delayed
+  transient
+  identity_failure
+  canvas_failure
+
+  @@map("simulated_outcome")
 }
