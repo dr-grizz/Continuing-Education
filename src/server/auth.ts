@@ -21,7 +21,12 @@ export class PrototypeGuard implements CanActivate {
         process.env.STAFF_API_TOKEN,
         {
           actor: "demo-staff",
-          scopes: ["catalog:write", "approvals:decide", "reports:read"],
+          scopes: [
+            "catalog:write",
+            "approvals:decide",
+            "reports:read",
+            "exceptions:resolve",
+          ],
         },
       ],
       [

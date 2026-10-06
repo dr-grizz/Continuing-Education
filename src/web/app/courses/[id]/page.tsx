@@ -172,6 +172,15 @@ export default function Course({
               <Typography variant="subtitle2">Schedule</Typography>
               <Typography variant="body2">{courseSchedule(course)}</Typography>
             </Box>
+            {course.enrollment_closes_on && (
+              <Box>
+                <Typography variant="subtitle2">Enrollment</Typography>
+                <Typography variant="body2">
+                  {course.enrollment_open ? "Closes" : "Closed"}{" "}
+                  {date(course.enrollment_closes_on)}
+                </Typography>
+              </Box>
+            )}
             <Box>
               <Typography variant="subtitle2">Availability</Typography>
               <Typography variant="body2">
@@ -179,7 +188,18 @@ export default function Course({
               </Typography>
             </Box>
             {course.approval_required && (
-              <Chip label="Program approval required" variant="outlined" />
+              <Box>
+                <Chip label="Program approval required" variant="outlined" />
+                <Typography
+                  variant="body2"
+                  color="text.secondary"
+                  sx={{ mt: 1 }}
+                >
+                  Once approved, reserve a seat within{" "}
+                  {course.approval_valid_days}{" "}
+                  {course.approval_valid_days === 1 ? "day" : "days"}.
+                </Typography>
+              </Box>
             )}
             {error && <Alert severity="error">{error}</Alert>}
             {registered ? (
@@ -196,18 +216,22 @@ export default function Course({
             ) : (
               <Button
                 variant="contained"
-                disabled={busy || course.seats_available <= 0}
+                disabled={
+                  busy || course.seats_available <= 0 || !course.enrollment_open
+                }
                 onClick={register}
               >
-                {busy
-                  ? "Saving…"
-                  : course.approval_required
-                    ? auth.email
-                      ? "Request approval"
-                      : "Sign in to request approval"
-                    : auth.email
-                      ? "Start registration"
-                      : "Sign in to register"}
+                {!course.enrollment_open
+                  ? "Enrollment closed"
+                  : busy
+                    ? "Saving…"
+                    : course.approval_required
+                      ? auth.email
+                        ? "Request approval"
+                        : "Sign in to request approval"
+                      : auth.email
+                        ? "Start registration"
+                        : "Sign in to register"}
               </Button>
             )}
             <Typography variant="caption" color="text.secondary">

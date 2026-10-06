@@ -15,6 +15,12 @@ export type Offering = {
   approval_required: boolean;
   published: boolean;
   version: number;
+  approval_valid_days: number;
+  enrollment_close_days: number;
+  canvas_course_url: string | null;
+  enrollment_closes_on: string | null;
+  enrollment_open: boolean;
+  unpublished_at: string | null;
 };
 export type Learning = {
   id: string;
@@ -29,6 +35,14 @@ export type Learning = {
   status: string;
   stage?: string;
   operation_status?: string;
+  attempts?: number;
+  approval_required?: boolean;
+  approval_expires_at?: string | null;
+  enrollment_closes_on?: string | null;
+  enrollment_open?: boolean;
+  canvas_course_url?: string | null;
+  published?: boolean;
+  quoted_price_cents?: number | null;
   reserved_until?: string;
   created_at?: string;
 };

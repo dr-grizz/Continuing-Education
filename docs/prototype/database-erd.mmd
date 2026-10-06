@@ -1,4 +1,5 @@
-%% Actual local PostgreSQL schema, including migration 003, verified on October 1, 2026.
+%% Actual local PostgreSQL schema, including migration 007, verified on October 6, 2026.
+%% offering_prices is append-only (update trigger); rows cascade only when their offering is deleted.
 %% Only enforced foreign-key relationships are drawn.
 %% audit_events.object_id is a polymorphic reference, not an FK.
 %% Entitlements have a composite UNIQUE(learner_id, offering_id).
@@ -9,6 +10,7 @@ erDiagram
     offerings ||--o{ entitlements : grants_access
     entitlements ||--o| orders : has_payment_record
     entitlements ||--o| operations : has_background_workflow
+    offerings ||--o{ offering_prices : price_history
 
     learners {
         uuid id PK
@@ -29,7 +31,11 @@ erDiagram
         integer price_cents
         integer capacity
         boolean approval_required
+        integer approval_valid_days "Default 7"
+        integer enrollment_close_days "Default 7; Scheduled only"
+        text canvas_course_url "Nullable; https only"
         boolean published
+        timestamptz unpublished_at "Nullable; set when unpublished"
         integer version
         timestamptz created_at
     }
@@ -37,8 +43,10 @@ erDiagram
         uuid id PK
         uuid learner_id FK "Unique with offering_id"
         uuid offering_id FK "Unique with learner_id"
-        text status
+        text status "Includes approval_expired"
         timestamptz reserved_until "Nullable"
+        timestamptz approval_expires_at "Nullable"
+        integer quoted_price_cents "Nullable; price at reservation"
         timestamptz created_at
     }
     orders {
@@ -55,6 +63,10 @@ erDiagram
         text stage
         timestamptz next_run "Nullable"
         text error "Nullable"
+        text simulated_outcome "Prototype: normal, delayed, transient, identity_failure, canvas_failure"
+        integer attempts "Automatic attempts at current stage"
+        boolean delay_applied
+        timestamptz failed_at "Nullable; set when retries are exhausted"
         timestamptz created_at "Nullable"
     }
     commands {
@@ -70,6 +82,19 @@ erDiagram
         uuid object_id "Nullable; not a foreign key"
         jsonb details
         timestamptz created_at
+    }
+    offering_prices {
+        bigint id PK
+        uuid offering_id FK
+        integer price_cents
+        timestamptz effective_at
+        text actor
+        text reason "Nullable"
+    }
+    prototype_settings {
+        text key PK "provisioning_outcome"
+        text value
+        timestamptz updated_at
     }
     schema_migrations {
         text version PK

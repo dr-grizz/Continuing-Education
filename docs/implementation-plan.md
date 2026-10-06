@@ -16,28 +16,36 @@ The repository now contains a local prototype, `CONTEXT.md`, and the prototype a
 
 The first prototype implements MUI catalog/search and course details, demo learner registration/status, staff draft creation/publication and approval decisions, and a scoped NestJS API with OpenAPI documentation. PostgreSQL runs in a dedicated persistent Docker Compose service. A separate worker processes durable simulated identity/enrollment operations. See [local setup and limitations](../README.md) and [prototype ADR](adr/0001-local-prototype.md).
 
-Payment, identity and Canvas outcomes are explicitly simulated. Demo role switching is not production authentication. This slice does not complete the full milestone acceptance gates: live mapping validation, SSO/identity proof, Stripe webhooks, approval expiry policy, refunds, transfers, lifecycle enforcement and production operations remain future work.
+Payment, identity and Canvas outcomes are explicitly simulated. Demo role switching is not production authentication. This slice does not complete the full milestone acceptance gates: live mapping validation, SSO/identity proof, Stripe webhooks, refunds, transfers, lifecycle enforcement and production operations remain future work.
+
+### Policy decisions
+
+Decided October 6, 2026, and implemented in the prototype (migration `005_enrollment_policies.sql`). Each value below is a per-offering default that staff can change in **Staff → Offerings → Settings**. Changes are version-checked and audited (`offering.settings_changed`).
+
+| Policy | Decision | Prototype behavior |
+| --- | --- | --- |
+| Approval validity | An approval lasts one week; staff can change the period | `approval_valid_days` (default 7, range 1–365). Approval sets `approval_expires_at`. Unused approvals lapse to `approval_expired` (worker, audited `approval.expired`). A still-valid approval survives an expired seat reservation. A changed period applies to new approvals only |
+| Enrollment window | Scheduled courses close enrollment one week after the start date; staff can change the window | `enrollment_close_days` (default 7, range 0–365). Registration, approval requests and seat renewals are refused after the start date plus that many days. Registrations already in progress are unaffected. Self-paced courses never close |
+| Repeat requests | Declined learners may request approval again | Re-registering after a decline (or a lapsed approval) creates a new approval request (audited `approval.requested_again`) |
+| Course launch | Learners get a link to the Canvas course once their Canvas account and enrollment exist | `canvas_course_url` (optional HTTPS). Shown as **Open course in Canvas** only after enrollment completes; returned by the API only for enrolled registrations. Sample offerings use `canvas.example.edu` placeholders, and real course mappings await Canvas integration (M4) |
 
 ### Known prototype gaps
 
 Recorded October 2, 2026, after the registration-flow verification and UI modernization. The current baseline is described in the [UI specification](prototype/ui-specification.md), and evidence is in the [implementation progress](prototype/implementation-progress.md). These are open items, not accepted behavior. Resolve or explicitly accept each one before the milestone named.
 
+Resolved October 6, 2026: staff offering management now covers editing (drafts freely; published offerings only with an audited reason, with course type and approval requirement locked, dates locked while learners are registered and capacity never below seats in use), unpublishing with a reason, append-only price history with per-reservation quoted prices, and field-level validation with an error summary in the offering form. Unpublished offerings have their own status (`unpublished_at`, migration 007) and keep the published-offering edit rules.
+
+Resolved October 5, 2026: My learning no longer loses keyboard focus (focus moves to the next action or the course heading); static status messages no longer use alert semantics, and background status changes are announced once through a polite live region; simulated provisioning failure, bounded automatic retries, the staff exception queue (retry or manual enrollment, each with an audited reason) and a worker crash/restart drill are in place. Screen-reader confirmation of these changes is still part of the accessibility evidence gap.
+
 | Gap | Current behavior | Needed | Milestone |
 | --- | --- | --- | --- |
-| Focus loss in My learning | When an action button is disabled during a request, or replaced by the next status, keyboard focus falls to the page body | Keep focus on the action or move it to the updated status; verify with keyboard and screen reader | M1 |
-| Over-announced status messages | MUI alerts default to `role="alert"`, including static status text in learner cards, so screen readers may announce them on every render | Use alert semantics only for new, time-sensitive messages; use plain text or a polite status region otherwise | M1 |
 | Accessibility evidence | Keyboard, focus, contrast and 320–375px reflow are checked. No automated scan, screen-reader session, forced-colors, 200–400% zoom or cross-browser review has been recorded | Complete the README checklist for catalog, sign-in, registration, learner status and staff dialogs/tables; record findings | M1 exit; release gate |
 | Pending and declined learner messages | API behavior is verified; the browser view as the affected learner is not | Review both states in the browser as the learner | M2 |
-| Staff form validation | The New offering dialog shows the API's validation message in one alert; fields are not individually marked and there is no error summary | Inline field errors plus an error summary, preserving entered data (see Visual and interaction conventions) | M2 |
 | Catalog and staff paging | The API returns up to 100 offerings and 200 audit events; the catalog has no pagination; staff sorting and paging are client-side within those limits | Server-side search, sort and paging before catalog or audit volume approaches the limits | M2 |
 | Brand baseline | Figtree, a free font similar to Proxima Nova (the cedarville.edu font), is used; colors are provisional and copy is unreviewed | Cedarville Marketing to approve Figtree as the substitute or supply a licensed brand font; approve colors, logo use and content | M1 exit |
 | Theme control | Light/dark follows the operating system only | Decide whether a manual theme toggle is required | M1 |
-| Approval after reservation expiry | A learner whose approved reservation expires keeps the approval and can reserve again without review | Approval expiry policy (owner: Program Operations) | M2 |
-| Declined requests | A declined learner cannot request again; re-registering returns the declined record | Policy and flow for re-request or appeal | M2 |
-| Registration window | Scheduled courses accept registration until the end date, including after the course has started | Confirm enrollment-window policy; enforce it in the API and show it in the catalog | M2 |
 | Open staff access | Any browser can reach Staff; the web proxy trusts a client-supplied role header | Staff SSO/MFA and server-side roles (already planned; prototype only) | M1 |
-| Failure and recovery | Provisioning always succeeds; there is no simulated failure, staff recovery screen, or recorded worker crash/restart drill | Controlled failure simulation, owned exception queue with reasons and audit, restart drill | M3 |
-| Course launch | Enrolled learners see that a live link will appear after Canvas is connected | Decide prototype launch behavior; real launch links depend on Canvas integration | M4 |
+| Exception ownership and alerting | Failed provisioning reaches a staff queue with reason, history, retry and manual-resolution actions, but exceptions have no assigned owner, age target or alert, and the simulation outcome is one shared setting for all demo users | Owner assignment, ageing/SLA indicators and alerts once staff roles exist; per-scenario simulation if concurrent demos need it | M3 |
 
 ## Scope and ownership
 

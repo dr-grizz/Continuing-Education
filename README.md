@@ -31,6 +31,7 @@ Stop application processes with Ctrl+C. `docker compose stop db` stops PostgreSQ
 2. Register for an open course as the demo learner. In My learning, select **Simulate payment** and watch the worker prepare demo access.
 3. Request Healthcare Communication, then use **Staff → Approvals** to approve it. Return to My learning, reserve a seat and simulate payment.
 4. Use Staff to create a draft offering, publish it and inspect the audit activity.
+5. In **Staff → Exceptions**, set *Outcome for new payments* to a failure, then simulate a payment in My learning. Watch the automatic retries, then review the exception in Staff and retry provisioning or record a manual enrollment with a reason. Set the outcome back to *Normal* afterwards; it applies to every demo learner.
 
 Design uses standard MUI navigation, forms, tables, alerts and dialogs. The [UI specification](docs/prototype/ui-specification.md) records the theme tokens, layouts, patterns and page behavior. Colors, the font and text branding are provisional; institutional brand assets and course content need review.
 
@@ -45,7 +46,7 @@ curl http://localhost:3001/api/v1/reconciliation \
   -H "Authorization: Bearer $CE_AUTOMATION_TOKEN"
 ```
 
-Public catalog requests need no token. The read-only automation token cannot create offerings or decide approvals. Use the staff token for authorized prototype write experiments; do not embed tokens in committed scripts. OpenAPI describes requests and required command headers. Registration/payment jobs expose their status at `/api/v1/operations/{id}`. OAuth/service-account management and signed outbound notifications are planned, not implemented.
+Public catalog requests need no token. The read-only automation token cannot create offerings or decide approvals. Use the staff token for authorized prototype write experiments; do not embed tokens in committed scripts. OpenAPI describes requests and required command headers. Registration/payment jobs expose their status at `/api/v1/operations/{id}`. `GET /api/v1/exceptions` lists failed provisioning for staff and the read-only automation token; only the staff token can change the simulation (`/api/v1/prototype/simulation`) or recover exceptions. OAuth/service-account management and signed outbound notifications are planned, not implemented.
 
 ## Verify
 

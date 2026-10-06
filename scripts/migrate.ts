@@ -12,6 +12,10 @@ async function main() {
       ["001", "src/domain/001_initial.sql"],
       ["002", "src/domain/002_course_types.sql"],
       ["003", "src/domain/003_demo_users.sql"],
+      ["004", "src/domain/004_provisioning_failures.sql"],
+      ["005", "src/domain/005_enrollment_policies.sql"],
+      ["006", "src/domain/006_offering_management.sql"],
+      ["007", "src/domain/007_unpublished_status.sql"],
     ]) {
       const exists = await client.query(
         "SELECT 1 FROM schema_migrations WHERE version=$1",

@@ -89,12 +89,12 @@ Local website: `http://127.0.0.1:3000/`. API documentation: `http://localhost:30
 Complete these using synthetic data and local services before moving to external integrations.
 
 1. [x] Verify the complete registration flow for Scheduled and Self-paced courses, with and without approval, using separate learner accounts.
-2. [ ] Review learner messages and actions for pending approval, declined requests, no seats, expired reservations, renewed reservations and duplicate registration. API behavior is verified for all of these; the course page and no-seats messages were fixed. Pending and declined messages still need a browser review as the affected learner.
+2. [x] Review learner messages and actions for pending approval, declined requests, no seats, expired reservations, renewed reservations and duplicate registration. Declined → request again → pending → approved was reviewed in the browser as the affected learner on October 6, 2026.
 3. [x] Exercise simulated payment through completed enrollment after the individual-user change; verify that other learners cannot see its operation or course record.
-4. [ ] Add controlled simulation of delayed or failed provisioning and a staff recovery interface with reason and audit history.
-5. [ ] Add meaningful integration checks for reservation expiry/renewal and worker interruption/restart; the worker is durable by design, but a crash/restart drill is still pending.
-6. [ ] Decide and implement course launch behavior for the prototype. The current enrolled state explicitly says a live link will appear after Canvas is connected.
-7. [ ] Expand staff offering management beyond create/publish, including reviewed editing, unpublishing and validation/error states.
+4. [x] Add controlled simulation of delayed or failed provisioning and a staff recovery interface with reason and audit history.
+5. [ ] Add meaningful integration checks for reservation expiry/renewal and worker interruption/restart. A manual crash/restart drill passed on October 5, 2026; automated expiry/renewal and restart checks are still pending.
+6. [x] Decide and implement course launch behavior for the prototype. Decided October 6, 2026: an **Open course in Canvas** link appears once enrollment completes (placeholder URLs for samples).
+7. [x] Expand staff offering management beyond create/publish, including reviewed editing, unpublishing and validation/error states. Completed October 6, 2026: one offering form for create and edit, reason-gated published edits, unpublishing, append-only price history and quoted prices.
 8. [ ] Improve user/profile presentation if needed; email is currently the only sign-in identity attribute, with no profile editing screen.
 9. [ ] Add automated accessibility scanning and manual screen-reader review for sign-in, registration, status changes, staff forms, dialogs and tables.
 10. [ ] Test zoom, forced colors, error announcements and cross-browser behavior; record unresolved findings before accepting the UI baseline.
@@ -163,6 +163,46 @@ Automated accessibility scanning and a real screen-reader session remain outstan
 | UI asset attribution | [Image credits](image-credits.md) and [logo source](../../src/web/public/brand/SOURCE.txt) |
 
 ## Latest implementation record
+
+October 6, 2026 (final): unpublished offerings now have their own status. Migration `007_unpublished_status.sql` adds `offerings.unpublished_at`, which unpublishing sets and publishing clears, backfilled from audit events. Staff see Draft, Published or Unpublished chips and filter options. Unpublished offerings keep the reason requirement and protected terms when edited. The integration suite is extended (14/14 pass), and the browser check covered all three labels, the Unpublished filter and the edit note, using a temporarily unpublished synthetic course that was then republished.
+
+October 6, 2026 (later): completed staff offering management and the offering form.
+- **Database:** migration `006_offering_management.sql` adds the append-only `offering_prices` table (a trigger rejects updates; rows are removed only with their offering) and `entitlements.quoted_price_cents`.
+- **API:**
+  - `POST /offerings/{id}/edit` (version-checked). Drafts change freely. Published offerings need a reason of 10–500 characters, keep their course type and approval requirement, keep their dates while learners are registered, and cannot drop capacity below seats in use. Each edit is audited as `offering.edited` with before/after values. A price change appends a price-history row.
+  - `POST /offerings/{id}/unpublish` needs a reason. It hides the offering and stops new registrations and payments; paid enrollments continue. Audited as `offering.unpublished` with the number of affected registrations.
+  - `GET /offerings/{id}/prices`.
+  - Reservations store the price quoted at reservation time, and payment charges that price. The staff offering list adds `active_registrations` and `seats_in_use`.
+- **UI:**
+  - One `OfferingForm` for New offering and Edit replaces the inline create dialog and the separate Settings dialog. It has field-level validation, a focused error summary with links, locked-field explanations, a reason field and price history for published offerings.
+  - An Unpublish dialog states the impact and needs a reason. Row actions are Edit plus Publish or Unpublish.
+  - Learners with an unpaid registration for an unpublished course see "No longer offered" and a note, with no actions and no link. Payment text uses the quoted price.
+- **Verification:** two new integration groups (14/14 pass). In the browser, from the keyboard: create validation and save; publish; a published edit with locks, required reason and price change; unpublish validation and confirmation; and the learner view of an unpublished course. Walkthrough data was removed and the temporarily unpublished sample course was republished.
+
+October 6, 2026: implemented four policy decisions (see the implementation plan's Policy decisions).
+- **Database:** migration `005_enrollment_policies.sql` adds per-offering `approval_valid_days`, `enrollment_close_days` and `canvas_course_url`, plus `entitlements.approval_expires_at` and the `approval_expired` status. Existing approvals got a fresh validity period, and sample offerings got placeholder `canvas.example.edu` links.
+- **API:**
+  - Registration enforces the enrollment window, reuses a still-valid approval and lets declined or lapsed learners request again. Registrations already in progress are returned unchanged.
+  - Approval sets the expiry, and the worker lapses unused approvals.
+  - The new `POST /offerings/{id}/settings` (version-checked, audited) changes the three settings.
+  - Catalog and learner responses include `enrollment_closes_on` and `enrollment_open`. The Canvas URL is returned only for enrolled registrations.
+- **UI:**
+  - Learners see an approval deadline and a **Request approval again** action, and a closed-enrollment message instead of an action once enrollment closes. Enrolled courses show **Open course in Canvas** (new tab, labelled) or a not-yet-mapped note.
+  - The course page shows when enrollment closes, the approval period, and a disabled "Enrollment closed" button. Catalog cards get an "Enrollment closed" chip.
+  - Staff get the new fields in New offering, a per-offering Settings dialog (field validation, an error summary that takes focus and links to fields, and the calculated closing date), closing dates in the offerings list, and an approval confirmation that states the reservation period.
+- **Verification:** three new integration groups (12/12 pass) cover the window, version conflicts and validation, approval period, lapse, repeat requests, changed periods, and the Canvas link appearing only after enrollment. In the browser:
+  - Settings dialog error summary and links, save, and focus return.
+  - Declined → request again → approved with the 7-day deadline, as learner B.
+  - Closed enrollment on the learner card, course page and catalog, by temporarily backdating a synthetic course and then restoring it.
+  - Canvas links as learner A.
+  Sample offering settings were restored to their defaults afterwards.
+
+October 5, 2026: closed two M1 accessibility gaps and added simulated provisioning failure with staff recovery (M3).
+- **Accessibility:** My learning action buttons stay focusable while busy (`aria-disabled`). After an action, focus moves to the next step's button or to the course heading. Background status changes are announced once through a polite live region. Static status, staff and sign-in notices use `role="note"` instead of `role="alert"`.
+- **Failure simulation:** migration `004_provisioning_failures.sql` adds `prototype_settings` and per-operation `simulated_outcome`, `attempts`, `delay_applied` and `failed_at`. Staff choose the outcome for new payments: normal, delayed, temporary failure, identity failure or Canvas failure. The worker retries a failed step up to three times with increasing delay, then marks the registration `exception` and records `prototype.provisioning_failed`.
+- **Staff recovery:** a new Staff → Exceptions tab offers a review dialog with failure reason and history, plus Retry provisioning or Record manual enrollment. Both require a reason of at least 10 characters, which is audited. New API routes are `GET /exceptions`, `POST /exceptions/{id}/retry`, `POST /exceptions/{id}/resolve` and `GET`/`POST /prototype/simulation`, with a new staff-only `exceptions:resolve` scope. The reconciliation report adds `open_exceptions`.
+- **Learner view:** learners see "taking longer than usual" during automatic retries, and a warning with the failed step marked once staff review is needed.
+- **Verification:** two new integration groups (9/9 pass) cover identity failure, bounded retries, the queue, scopes, staff retry, Canvas failure with manual resolution, and temporary failure that recovers automatically. In the browser, the full failure → exception → staff retry → enrolled flow was run from the keyboard, with focus checks (focus returns to the queue heading after recovery) and phone and dark-mode layouts. Worker crash drill: the worker was force-killed (`kill -9`) during a delayed job, the job stayed untouched while overdue, and after restart it completed exactly once with no duplicate audit events or orders. OpenAPI snapshot refreshed.
 
 October 2, 2026: replaced the Inter placeholder with Figtree, a free font similar to Proxima Nova (the cedarville.edu font, which requires a paid Adobe Fonts license). It is self-hosted through `next/font`. Brand approval of the substitute is still pending.
 

@@ -479,6 +479,13 @@ export default function Catalog() {
                       {o.approval_required && (
                         <Chip label="Approval required" variant="outlined" />
                       )}
+                      {!o.enrollment_open && (
+                        <Chip
+                          label="Enrollment closed"
+                          color="warning"
+                          variant="outlined"
+                        />
+                      )}
                     </Stack>
                     <Button
                       href={`/courses/${o.id}`}

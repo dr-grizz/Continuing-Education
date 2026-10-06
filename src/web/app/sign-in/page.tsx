@@ -54,7 +54,7 @@ export default function SignIn() {
       <Typography sx={{ mt: 1, mb: 3 }} color="text.secondary">
         Try the learner experience.
       </Typography>
-      <Alert severity="info" sx={{ mb: 3 }}>
+      <Alert severity="info" role="note" sx={{ mb: 3 }}>
         Demo sign-in: use any email and any password. Each email has its own
         saved course registrations.
       </Alert>

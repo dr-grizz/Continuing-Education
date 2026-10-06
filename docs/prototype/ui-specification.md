@@ -1,6 +1,6 @@
 # Prototype UI specification
 
-Status: baseline for the local prototype, October 2, 2026. This records how the current interface is built, so that future changes stay consistent. Colors, the font and copy are provisional until Cedarville brand and content review. Implementation lives in `src/web`. Accessibility review requirements are in the [README checklist](../../README.md#reviewtest-checklist).
+Status: baseline for the local prototype, updated October 6, 2026. This records how the current interface is built, so that future changes stay consistent. Colors, the font and copy are provisional until Cedarville brand and content review. Implementation lives in `src/web`. Accessibility review requirements are in the [README checklist](../../README.md#reviewtest-checklist).
 
 ## Principles
 
@@ -77,7 +77,15 @@ MUI defaults: `xs` <600, `sm` ≥600, `md` ≥900, `lg` ≥1200. Content is cent
 | Action failure | Inline error `Alert` placed beside the affected item. It never auto-hides, and polling must not clear it. |
 | Page/load failure | Inline error `Alert` at the top of the content. |
 | Registration result on course page | Inline `Alert`, severity by status (see Course detail). Focus moves to the next action. |
-| Informational limits (demo, simulation) | Info `Alert` or caption text |
+| Background status change (polling, worker) | One visually hidden `role="status"` region per page announces "{course}: {new status}." once. Changes caused by the learner's own action are not repeated there, because the snackbar announces them. |
+| Static status or notice text | `Alert` with `role="note"`, so it is not re-announced on render. Reserve `role="alert"` for new, time-sensitive messages. |
+| Informational limits (demo, simulation) | Info `Alert` (`role="note"`) or caption text |
+
+### Focus
+
+- Buttons stay focusable while their request runs: use `aria-disabled` and ignore repeat clicks instead of `disabled`, because disabling a focused button drops focus to the page.
+- When an action replaces its own button, move focus to the next step's action (`data-next-action`), or to the item heading (`tabIndex={-1}`) when no action remains.
+- Dialogs are modal and labelled by their title, and focus starts inside the dialog. On close, focus returns to the opening control; if that control no longer exists (for example a resolved queue row), focus moves to the section heading.
 
 ### Loading
 
@@ -109,24 +117,34 @@ Outlined `Paper`. Catalog cards add a hover and focus-within state: primary bord
 ### Forms
 
 - Every field has a visible label. Placeholders only give examples.
-- Required fields are marked by MUI's required indicator. Validation messages come from the API and appear in an inline error alert.
+- Required fields are marked by MUI's required indicator.
+- Pattern (offering form, `src/web/components/offering-form.tsx`):
+  - Validate on save.
+  - Mark each invalid field (`aria-invalid`), with the message as its helper text.
+  - Show an error summary above the fields: an error `Alert` titled "Fix these fields", listing each problem as a link that focuses its field. The summary receives focus.
+  - Keep entered values after an error.
+  - Server failures appear in the same summary.
+- Single-field confirmation dialogs, such as Unpublish, mark the field, focus it and keep the error inline.
 - Self-paced course creation hides the date fields.
 
 ## Terminology
 
 - **Course type:** show "Scheduled" with a date range ("Nov 9, 2026 – Dec 4, 2026") or "Starts {date}". Show "Self-paced" with "Start anytime". Do not show cohort dates for self-paced courses.
-- **Learner registration statuses:**
+- **Learner registration statuses** (for `approved`, `approval_expired`, `declined` and `expired`, once enrollment has closed the action is replaced by "Enrollment for this course closed on {date}…"):
 
 | Status | Label | Primary action/message |
 | --- | --- | --- |
 | `awaiting_approval` | Awaiting approval | Explains staff review |
-| `approved` | Approved — ready to register | Reserve a seat |
-| `declined` | Request declined | Explains a new review is outside the prototype |
+| `approved` | Approved — reserve a seat | "Reserve a seat by {date, time}, when the approval expires"; Reserve a seat |
+| `approval_expired` | Approval expired | Explains the approval lapsed; Request approval again |
+| `declined` | Request declined | "You can request approval again"; Request approval again |
 | `reserved` | Seat reserved | Shows the deadline time; Simulate payment |
 | `provisioning` | Preparing access | Three-step progress: Payment recorded → Identity prepared → Enrollment verified |
-| `enrolled` | Demo enrollment ready | Success; a live link will come after Canvas is connected |
-| `expired` | Reservation expired | Reserve a seat |
-| `exception` | Support review needed | — |
+| `enrolled` | Enrolled | **Open course in Canvas** (new tab; accessible name "Open {course} in Canvas (opens in a new tab)") when a Canvas URL is mapped; otherwise a note that the link will appear when staff connect the course |
+| `expired` | Reservation expired | Reserve a seat while the approval (if any) is still valid; otherwise Request approval again |
+| `provisioning` (retrying) | Preparing access | "Taking longer than usual… retrying automatically; no action is needed" |
+| any unpaid status on an unpublished offering | No longer offered | "This course is no longer open for registration…"; no actions, and the title is not linked |
+| `exception` | Support review needed (warning chip) | The failed step is marked "Needs staff review"; payment is recorded and the learner does not need to pay again |
 
 - **Staff activity events** use plain language, for example "Approval requested", "Reservation expired", "Payment simulated" and "Enrollment completed (simulated)". Learner actors are shown by email. System actors are "Staff (demo)", "Background worker", "Automation token" or "Legacy demo learner". The complete mapping is `auditLabels` in `src/web/app/staff/page.tsx`. Add a label there whenever a new audit action is introduced.
 
@@ -143,12 +161,12 @@ Outlined `Paper`. Catalog cards add a hover and focus-within state: primary bord
    - Sort (Soonest start with self-paced first, Price low→high, Price high→low, Title A–Z)
 4. Filters are kept in the URL (`q`, `topics`, `type`, `sort`) with `history.replaceState`. Default values are omitted.
 5. Results header: list heading, live course count, "Clear filters" when any filter is active, and a List/Grid toggle remembered in `localStorage`.
-6. Results: list cards (thumbnail 88–144px) or grid cards (16:9 image; 1, 2 or 3 columns). Each card shows the category, title, summary, format label, price, start, an "Approval required" chip when relevant, and "View course".
+6. Results: list cards (thumbnail 88–144px) or grid cards (16:9 image; 1, 2 or 3 columns). Each card shows the category, title, summary, format label, price, start, an "Approval required" chip when relevant, an "Enrollment closed" warning chip once a Scheduled course's enrollment window has passed, and "View course".
 
 ### Course detail (`/courses/[id]`)
 
 - Breadcrumb, category, `h1` title, summary.
-- The registration panel (`section`, `aria-label="Registration"`) comes **first in DOM order**. On `md` and up it is placed in the right column (340px) and stays sticky at the top while scrolling. It shows the price, format, schedule, availability, an approval chip, and the action button: "Start registration", "Request approval", or the "Sign in to …" variants.
+- The registration panel (`section`, `aria-label="Registration"`) comes **first in DOM order**. On `md` and up it is placed in the right column (340px) and stays sticky at the top while scrolling. It shows the price, format, schedule, "Enrollment closes/Closed {date}" (Scheduled only), availability, an approval chip with "Once approved, reserve a seat within N days", and the action button: "Start registration", "Request approval", the "Sign in to …" variants, or a disabled "Enrollment closed".
 - The result message depends on the returned status:
 
 | Status | Severity | Message |
@@ -170,29 +188,61 @@ Mock sign-in. The Email field (`autoComplete="username"`) and Password field (`c
 - Signed out: a panel with a sign-in button.
 - Signed in: the session email, then one outlined card per registration with category, linked title, schedule, status chip, and the status-specific content from the table above. The page polls every 2.5 seconds.
 - Action errors stay inside the affected card. Successes show a snackbar ("Seat reserved for …", "Payment simulated for …").
+- Focus and announcements follow the Focus and Feedback patterns above. Action buttons carry `data-next-action`, and course headings are programmatic focus targets.
 
 ### Staff (`/staff`)
 
-Header with the API documentation link and the demo-access info alert. Tabs: Offerings, Approvals (count), Activity.
+Header with the API documentation link and the demo-access info note. Tabs: Offerings, Approvals (count), Exceptions (count), Activity. The tab row scrolls on phones, with scroll arrows shown.
 
 - **Offerings:**
   - Search by title, Status filter (All, Published, Draft), live count.
   - Sortable columns: Offering, Schedule, Price, Seats, Status. The phone sort select adds "Fewest seats left" and "Drafts first".
-  - Row action: Publish (drafts only).
-  - "New offering" opens a dialog with title, topic, summary, description, course type, format, cohort dates (Scheduled only), price, capacity, and an approval switch. Saving creates a draft.
+  - The Schedule column adds "Enrollment closes/closed {date}" for Scheduled courses.
+  - Row actions: **Edit**, plus **Publish** for drafts or **Unpublish** (error color) for published offerings. Accessible names include the course title.
+  - **New offering** and **Edit** open the same offering form, which follows the Forms pattern and is version-checked. Fields:
+    - Course title, Topic, Short summary, Description.
+    - Course type, Format.
+    - Start and End dates plus Enrollment closes (days after start), for Scheduled only.
+    - Price (USD), Seat capacity.
+    - Approval switch, plus Approval valid for (days) when approval is required.
+    - Canvas course URL (optional, https).
+  - New offerings save as drafts, and each policy defaults to 7 days. Focus returns to the opening button on close.
+  - Editing a **published** offering:
+    - An info note explains that course type and the approval requirement are locked, and that dates are locked while learners are registered. Those controls are disabled, with helper text.
+    - Capacity shows the seats in use and cannot go below them.
+    - Price helper: a new price applies to new reservations, and earlier reservations keep their quoted price.
+    - The form lists the **Price history** (newest first, with reasons).
+    - A required **Reason for change** field (10–500 characters, audited) appears.
+  - **Unpublish** dialog: explains the effect (leaves the catalog; no new registrations, approval requests or payments) and warns with the number of learners whose registrations are active. It requires a reason (10–500 characters, audited).
+  - Status chips: **Draft** (never published, neutral), **Published** (success), **Unpublished** (warning; removed from the catalog after publishing, and can be published again). The Status filter offers all three. Unpublished offerings keep the published-offering edit rules: reason required and protected terms.
 - **Approvals:**
   - Search by learner email or course; sortable Learner, Offering, Requested (default oldest first); Approve (outlined) and Decline (error text) actions.
   - Empty state suggests requesting Healthcare Communication.
+- **Exceptions** (`src/web/components/staff-exceptions.tsx`):
+  - **Provisioning simulation** panel (prototype only): an "Outcome for new payments" select with these options. It applies to payments made after the change, and each operation keeps the outcome it was queued with.
+    - Normal
+    - Delayed: about 20 seconds longer
+    - Temporary failure: recovers on automatic retry
+    - Identity failure
+    - Canvas enrollment failure
+  - Failed steps retry automatically up to three times with increasing delay before reaching the queue.
+  - "Needs staff review" queue: Learner, Course, Failed step (with attempts), Failed time, Review. It is sortable, with a phone sort select and cards. The empty state explains how to try the workflow.
+  - Review dialog:
+    - Course and learner.
+    - A warning note with the failed step, attempts and reason.
+    - An ordered history: event, any staff reason, actor and time.
+    - Guidance text.
+    - A required **Reason** field (at least 10 characters, audited; inline error with `aria-invalid`).
+    - Actions: Cancel, **Record manual enrollment** (outlined) and **Retry provisioning** (contained). Retry assumes the cause is fixed and resumes from the failed step.
 - **Activity:**
-  - Simulated order, enrollment and pending-operation counts.
+  - Simulated order, enrollment, pending-operation and open-exception counts.
   - Search across event, course and learner.
   - Sortable Time (default newest first), Event and By columns, plus a Details column with the course and the affected learner.
   - Shows the 200 most recent events (API limit), paged on the client.
 
 ## Known gaps
 
-- Keyboard focus is lost when a My learning action button is disabled or replaced during a request.
-- MUI alerts default to `role="alert"`, including static status messages inside learner cards.
-- No screen-reader session, forced-colors, zoom or cross-browser review has been recorded for this baseline.
+- Focus and announcement behavior is verified by keyboard and DOM inspection; no screen-reader session, forced-colors, zoom or cross-browser review has been recorded for this baseline.
 - Staff paging and sorting are client-side, so they cover at most the 100 offerings and 200 audit events the API returns.
+- The provisioning simulation is one shared setting for all demo users. Exceptions have no assigned owner, age target or alert.
 - There is no manual light/dark toggle. The brand font, colors and copy await Cedarville review.

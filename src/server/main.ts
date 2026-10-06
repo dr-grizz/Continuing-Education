@@ -28,7 +28,12 @@ import { PrototypeGuard, requireScope } from "./auth";
 import {
   DemoUserDto,
   DecisionDto,
+  ExceptionActionDto,
+  SimulationDto,
+  UnpublishDto,
   OfferingDto,
+  OfferingEditDto,
+  OfferingSettingsDto,
   PublishDto,
   QueryDto,
   RegistrationDto,
@@ -133,6 +138,63 @@ class WorkflowController {
     requireScope(req, "catalog:write");
     return this.portal.publish(req.principal, key, id, dto.version);
   }
+  @Post("offerings/:id/edit")
+  @HttpCode(200)
+  @ApiOperation({
+    summary:
+      "Edit an offering (version-checked); published offerings need a reason and keep protected terms",
+  })
+  edit(
+    @Req() req: any,
+    @Headers("idempotency-key") key: string,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body() dto: OfferingEditDto,
+  ) {
+    requireScope(req, "catalog:write");
+    return this.portal.edit(req.principal, key, id, dto);
+  }
+  @Post("offerings/:id/unpublish")
+  @HttpCode(200)
+  @ApiOperation({
+    summary:
+      "Stop new registrations and payments; in-progress enrollments continue",
+  })
+  unpublish(
+    @Req() req: any,
+    @Headers("idempotency-key") key: string,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body() dto: UnpublishDto,
+  ) {
+    requireScope(req, "catalog:write");
+    return this.portal.unpublish(
+      req.principal,
+      key,
+      id,
+      dto.version,
+      dto.reason,
+    );
+  }
+  @Get("offerings/:id/prices")
+  @ApiOperation({ summary: "Append-only price history, newest first" })
+  prices(@Req() req: any, @Param("id", ParseUUIDPipe) id: string) {
+    requireScope(req, "catalog:write");
+    return this.portal.prices(id);
+  }
+  @Post("offerings/:id/settings")
+  @HttpCode(200)
+  @ApiOperation({
+    summary:
+      "Change approval validity, enrollment window and Canvas link (version-checked)",
+  })
+  settings(
+    @Req() req: any,
+    @Headers("idempotency-key") key: string,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body() dto: OfferingSettingsDto,
+  ) {
+    requireScope(req, "catalog:write");
+    return this.portal.updateSettings(req.principal, key, id, dto);
+  }
   @Get("approval-requests") approvals(@Req() req: any) {
     requireScope(req, "approvals:decide");
     return this.portal.approvals();
@@ -145,6 +207,67 @@ class WorkflowController {
   ) {
     requireScope(req, "approvals:decide");
     return this.portal.decide(req.principal, key, id, dto.decision);
+  }
+  @Get("prototype/simulation")
+  @ApiOperation({
+    summary: "PROTOTYPE ONLY: current simulated provisioning outcome",
+  })
+  simulation(@Req() req: any) {
+    requireScope(req, "reports:read");
+    return this.portal.simulation();
+  }
+  @Post("prototype/simulation")
+  @HttpCode(200)
+  @ApiOperation({
+    summary: "PROTOTYPE ONLY: choose the outcome for newly queued provisioning",
+  })
+  setSimulation(
+    @Req() req: any,
+    @Headers("idempotency-key") key: string,
+    @Body() dto: SimulationDto,
+  ) {
+    requireScope(req, "exceptions:resolve");
+    return this.portal.setSimulation(
+      req.principal,
+      key,
+      dto.provisioningOutcome,
+    );
+  }
+  @Get("exceptions")
+  @ApiOperation({
+    summary: "Registrations whose provisioning failed after automatic retries",
+  })
+  exceptions(@Req() req: any) {
+    requireScope(req, "reports:read");
+    return this.portal.exceptions();
+  }
+  @Post("exceptions/:id/retry")
+  @HttpCode(200)
+  @ApiOperation({
+    summary: "Queue provisioning again after the cause is fixed",
+  })
+  retry(
+    @Req() req: any,
+    @Headers("idempotency-key") key: string,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body() dto: ExceptionActionDto,
+  ) {
+    requireScope(req, "exceptions:resolve");
+    return this.portal.recover(req.principal, key, id, "retry", dto.reason);
+  }
+  @Post("exceptions/:id/resolve")
+  @HttpCode(200)
+  @ApiOperation({
+    summary: "Record that access was granted manually outside the portal",
+  })
+  resolve(
+    @Req() req: any,
+    @Headers("idempotency-key") key: string,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body() dto: ExceptionActionDto,
+  ) {
+    requireScope(req, "exceptions:resolve");
+    return this.portal.recover(req.principal, key, id, "resolve", dto.reason);
   }
   @Get("reconciliation") report(@Req() req: any) {
     requireScope(req, "reports:read");

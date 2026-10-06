@@ -5,16 +5,10 @@ import {
   Box,
   Button,
   Chip,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  FormControlLabel,
   MenuItem,
   Snackbar,
   Paper,
   Stack,
-  Switch,
   Tab,
   Table,
   TableBody,
@@ -37,11 +31,21 @@ import {
 } from "../../components/api";
 import { LoadingCards } from "../../components/loading";
 import {
+  OfferingForm,
+  StaffOffering,
+  UnpublishDialog,
+} from "../../components/offering-form";
+import {
   SortableHeader,
   SortSelect,
   TablePager,
   useTableView,
 } from "../../components/table-view";
+import { actorLabels, auditLabels } from "../../components/audit-labels";
+import {
+  ExceptionRow,
+  StaffExceptions,
+} from "../../components/staff-exceptions";
 type AuditEntry = {
   actor: string;
   action: string;
@@ -53,24 +57,7 @@ type AuditEntry = {
 type ApprovalRequest = Learning & {
   created_at: string;
   learner_email: string | null;
-};
-const auditLabels: Record<string, string> = {
-  "approval.requested": "Approval requested",
-  "approval.approved": "Approval granted",
-  "approval.declined": "Approval declined",
-  "seat.reserved": "Seat reserved",
-  "seat.expired": "Reservation expired",
-  "prototype.payment_simulated": "Payment simulated",
-  "prototype.identity_simulated": "Identity prepared (simulated)",
-  "prototype.enrollment_simulated": "Enrollment completed (simulated)",
-  "offering.created": "Draft offering created",
-  "prototype.offering_published": "Offering published",
-};
-const actorLabels: Record<string, string> = {
-  "demo-staff": "Staff (demo)",
-  "demo-learner": "Legacy demo learner",
-  "demo-automation": "Automation token",
-  "prototype-worker": "Background worker",
+  approval_valid_days: number;
 };
 const actorLabel = (entry: AuditEntry) =>
   entry.actor_email ?? actorLabels[entry.actor] ?? entry.actor;
@@ -85,51 +72,63 @@ const eventDetail = (entry: AuditEntry) =>
   ]
     .filter(Boolean)
     .join(" ");
+// Draft = never published; Unpublished = removed from the catalog after publishing.
+type OfferingStatus = "draft" | "published" | "unpublished";
+const offeringStatus = (c: Offering): OfferingStatus =>
+  c.published ? "published" : c.unpublished_at ? "unpublished" : "draft";
+const statusOrder: OfferingStatus[] = ["draft", "unpublished", "published"];
+const statusLabels: Record<OfferingStatus, string> = {
+  draft: "Draft",
+  published: "Published",
+  unpublished: "Unpublished",
+};
+const statusColors = {
+  draft: "default",
+  published: "success",
+  unpublished: "warning",
+} as const;
 // Tables on tablet/desktop; stacked cards on phones where columns would scroll.
 const wideOnly = { display: { xs: "none", sm: "block" } };
 const phoneOnly = { display: { xs: "block", sm: "none" } };
-const initial = {
-  title: "",
-  category: "Technology",
-  summary: "",
-  description: "",
-  format: "Online",
-  courseType: "self_paced",
-  startDate: "2026-11-02",
-  endDate: "2026-12-11",
-  price: "149",
-  capacity: "20",
-  approvalRequired: false,
-};
 export default function Staff() {
   const [tab, setTab] = useState(0),
-    [courses, setCourses] = useState<Offering[]>([]),
+    [courses, setCourses] = useState<StaffOffering[]>([]),
     [requests, setRequests] = useState<ApprovalRequest[]>([]),
     [report, setReport] = useState<{
       simulated_orders: number;
       simulated_enrollments: number;
       pending_operations: number;
+      open_exceptions: number;
       audit: AuditEntry[];
     }>(),
     [loaded, setLoaded] = useState(false),
+    [formOpen, setFormOpen] = useState(false),
+    [editing, setEditing] = useState<StaffOffering>(),
+    [unpublishing, setUnpublishing] = useState<StaffOffering>(),
+    [exceptions, setExceptions] = useState<ExceptionRow[]>([]),
+    [outcome, setOutcome] = useState("normal"),
     [query, setQuery] = useState(""),
-    [status, setStatus] = useState<"all" | "published" | "draft">("all"),
+    [status, setStatus] = useState<"all" | OfferingStatus>("all"),
     [approvalQuery, setApprovalQuery] = useState(""),
     [activityQuery, setActivityQuery] = useState(""),
     [error, setError] = useState(""),
     [message, setMessage] = useState(""),
-    [open, setOpen] = useState(false),
-    [busy, setBusy] = useState(false),
-    [form, setForm] = useState(initial);
+    [busy, setBusy] = useState(false);
   async function refresh() {
-    const [c, r, p] = await Promise.all([
-      api<Offering[]>("staff/offerings", { role: "staff" }),
+    const [c, r, p, x, sim] = await Promise.all([
+      api<StaffOffering[]>("staff/offerings", { role: "staff" }),
       api<ApprovalRequest[]>("approval-requests", { role: "staff" }),
       api<typeof report>("reconciliation", { role: "staff" }),
+      api<ExceptionRow[]>("exceptions", { role: "staff" }),
+      api<{ provisioningOutcome: string }>("prototype/simulation", {
+        role: "staff",
+      }),
     ]);
     setCourses(c);
     setRequests(r);
     setReport(p);
+    setExceptions(x);
+    setOutcome(sim.provisioningOutcome);
     setLoaded(true);
   }
   const byText = (a: string, b: string) => a.localeCompare(b);
@@ -142,12 +141,14 @@ export default function Staff() {
         byText(a.title, b.title),
       price: (a, b) => a.price_cents - b.price_cents,
       seats: (a, b) => a.seats_available - b.seats_available,
-      status: (a, b) => Number(a.published) - Number(b.published),
+      status: (a, b) =>
+        statusOrder.indexOf(offeringStatus(a)) -
+        statusOrder.indexOf(offeringStatus(b)),
     },
     initial: { key: "start", direction: "asc" },
     matches: (c) =>
       c.title.toLowerCase().includes(query.toLowerCase()) &&
-      (status === "all" || (status === "published") === c.published),
+      (status === "all" || offeringStatus(c) === status),
   });
   const approvalsView = useTableView(requests, {
     compare: {
@@ -184,7 +185,7 @@ export default function Staff() {
       `approval-requests/${r.id}/decision`,
       { decision },
       decision === "approved"
-        ? "Request approved. The learner can now reserve a seat."
+        ? `Request approved. The learner has ${r.approval_valid_days} ${r.approval_valid_days === 1 ? "day" : "days"} to reserve a seat.`
         : "Request declined.",
     );
   useEffect(() => {
@@ -204,37 +205,36 @@ export default function Staff() {
       setBusy(false);
     }
   }
-  async function save() {
-    setBusy(true);
-    setError("");
-    try {
-      await api("offerings", {
-        role: "staff",
-        body: {
-          title: form.title,
-          category: form.category,
-          summary: form.summary,
-          description: form.description,
-          format: form.format,
-          courseType: form.courseType,
-          ...(form.courseType === "cohort"
-            ? { startDate: form.startDate, endDate: form.endDate }
-            : {}),
-          priceCents: Math.round(Number(form.price) * 100),
-          capacity: Number(form.capacity),
-          approvalRequired: form.approvalRequired,
-        },
-      });
-      await refresh();
-      setOpen(false);
-      setForm(initial);
-      setMessage("Draft offering saved.");
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  }
+  const rowActions = (c: StaffOffering) => (
+    <>
+      <Button
+        onClick={() => {
+          setEditing(c);
+          setFormOpen(true);
+        }}
+        aria-label={`Edit ${c.title}`}
+      >
+        Edit
+      </Button>
+      {c.published ? (
+        <Button
+          color="error"
+          onClick={() => setUnpublishing(c)}
+          aria-label={`Unpublish ${c.title}`}
+        >
+          Unpublish
+        </Button>
+      ) : (
+        <Button
+          disabled={busy}
+          onClick={() => publish(c)}
+          aria-label={`Publish ${c.title}`}
+        >
+          Publish
+        </Button>
+      )}
+    </>
+  );
   return (
     <>
       <Stack
@@ -261,11 +261,11 @@ export default function Staff() {
           API documentation
         </Button>
       </Stack>
-      <Alert severity="info" sx={{ mt: 3 }}>
+      <Alert severity="info" role="note" sx={{ mt: 3 }}>
         Demo staff access is enabled locally. Production SSO, roles and
         integration checks are not connected.
       </Alert>
-      {error && !open && (
+      {error && !formOpen && (
         <Alert severity="error" sx={{ mt: 2 }}>
           {error}
         </Alert>
@@ -288,11 +288,14 @@ export default function Staff() {
         value={tab}
         onChange={(_, value) => setTab(value)}
         variant="scrollable"
+        scrollButtons="auto"
+        allowScrollButtonsMobile
         sx={{ mt: 3, mb: 3, borderBottom: 1, borderColor: "divider" }}
         aria-label="Staff workspace"
       >
         <Tab label="Offerings" />
         <Tab label={`Approvals (${requests.length})`} />
+        <Tab label={`Exceptions (${exceptions.length})`} />
         <Tab label="Activity" />
       </Tabs>
       {!loaded && !error && <LoadingCards label="Loading staff workspace" />}
@@ -314,7 +317,8 @@ export default function Staff() {
               startIcon={<AddIcon />}
               onClick={() => {
                 setError("");
-                setOpen(true);
+                setEditing(undefined);
+                setFormOpen(true);
               }}
             >
               New offering
@@ -337,6 +341,7 @@ export default function Staff() {
               <MenuItem value="all">All statuses</MenuItem>
               <MenuItem value="published">Published</MenuItem>
               <MenuItem value="draft">Draft</MenuItem>
+              <MenuItem value="unpublished">Unpublished</MenuItem>
             </TextField>
             <SortSelect
               view={offeringsView}
@@ -347,6 +352,7 @@ export default function Staff() {
                 "price:desc": "Price: high to low",
                 "seats:asc": "Fewest seats left",
                 "status:asc": "Drafts first",
+                "status:desc": "Published first",
               }}
             />
           </Stack>
@@ -369,9 +375,9 @@ export default function Staff() {
                     {c.title}
                   </Typography>
                   <Chip
-                    label={c.published ? "Published" : "Draft"}
+                    label={statusLabels[offeringStatus(c)]}
                     variant="outlined"
-                    color={c.published ? "success" : "default"}
+                    color={statusColors[offeringStatus(c)]}
                   />
                 </Stack>
                 <Typography variant="body2" color="text.secondary">
@@ -379,20 +385,16 @@ export default function Staff() {
                   {c.approval_required ? " · Approval required" : ""}
                 </Typography>
                 <Typography variant="body2" sx={{ mt: 1 }}>
-                  {courseStart(c)} · {money(c.price_cents)} ·{" "}
-                  {c.seats_available} / {c.capacity} seats
+                  {courseStart(c)}
+                  {c.enrollment_closes_on
+                    ? ` · enrollment ${c.enrollment_open ? "closes" : "closed"} ${date(c.enrollment_closes_on)}`
+                    : ""}{" "}
+                  · {money(c.price_cents)} · {c.seats_available} / {c.capacity}{" "}
+                  seats
                 </Typography>
-                {!c.published && (
-                  <Button
-                    variant="outlined"
-                    disabled={busy}
-                    onClick={() => publish(c)}
-                    aria-label={`Publish ${c.title}`}
-                    sx={{ mt: 1.5 }}
-                  >
-                    Publish
-                  </Button>
-                )}
+                <Stack direction="row" sx={{ gap: 1, mt: 1.5 }}>
+                  {rowActions(c)}
+                </Stack>
               </Paper>
             ))}
           </Stack>
@@ -440,6 +442,16 @@ export default function Staff() {
                     </TableCell>
                     <TableCell sx={{ whiteSpace: "nowrap" }}>
                       {courseStart(c)}
+                      {c.enrollment_closes_on && (
+                        <Typography
+                          variant="caption"
+                          color="text.secondary"
+                          sx={{ display: "block" }}
+                        >
+                          Enrollment {c.enrollment_open ? "closes" : "closed"}{" "}
+                          {date(c.enrollment_closes_on)}
+                        </Typography>
+                      )}
                     </TableCell>
                     <TableCell>{money(c.price_cents)}</TableCell>
                     <TableCell>
@@ -447,21 +459,15 @@ export default function Staff() {
                     </TableCell>
                     <TableCell>
                       <Chip
-                        label={c.published ? "Published" : "Draft"}
+                        label={statusLabels[offeringStatus(c)]}
                         variant="outlined"
-                        color={c.published ? "success" : "default"}
+                        color={statusColors[offeringStatus(c)]}
                       />
                     </TableCell>
                     <TableCell>
-                      {!c.published && (
-                        <Button
-                          disabled={busy}
-                          onClick={() => publish(c)}
-                          aria-label={`Publish ${c.title}`}
-                        >
-                          Publish
-                        </Button>
-                      )}
+                      <Stack direction="row" sx={{ gap: 0.5 }}>
+                        {rowActions(c)}
+                      </Stack>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -638,6 +644,16 @@ export default function Staff() {
         </>
       )}
       {loaded && tab === 2 && (
+        <StaffExceptions
+          rows={exceptions}
+          outcome={outcome}
+          onChanged={async (text) => {
+            await refresh().catch((e) => setError(e.message));
+            setMessage(text);
+          }}
+        />
+      )}
+      {loaded && tab === 3 && (
         <>
           <Stack
             direction="row"
@@ -657,7 +673,8 @@ export default function Staff() {
           <Typography sx={{ mb: 2 }} color="text.secondary">
             {report?.simulated_orders || 0} simulated orders ·{" "}
             {report?.simulated_enrollments || 0} simulated enrollments ·{" "}
-            {report?.pending_operations || 0} pending operations
+            {report?.pending_operations || 0} pending operations ·{" "}
+            {report?.open_exceptions || 0} open exceptions
           </Typography>
           <Stack direction={{ xs: "column", sm: "row" }} sx={{ gap: 2, mb: 2 }}>
             <TextField
@@ -742,164 +759,25 @@ export default function Staff() {
           <TablePager view={activityView} label="Activity" />
         </>
       )}
-      <Dialog
-        open={open}
-        onClose={() => {
-          if (!busy) {
-            setOpen(false);
-            setError("");
-          }
+      <OfferingForm
+        open={formOpen}
+        offering={editing}
+        onClose={() => setFormOpen(false)}
+        onSaved={async (text) => {
+          setFormOpen(false);
+          await refresh().catch((e) => setError(e.message));
+          setMessage(text);
         }}
-        fullWidth
-        maxWidth="sm"
-      >
-        <DialogTitle>Create sample offering</DialogTitle>
-        <DialogContent>
-          <Stack spacing={2} sx={{ mt: 1 }}>
-            {error && (
-              <Alert severity="error" role="alert">
-                {error}
-              </Alert>
-            )}
-            <TextField
-              autoFocus
-              required
-              label="Course title"
-              value={form.title}
-              onChange={(e) => setForm({ ...form, title: e.target.value })}
-            />
-            <TextField
-              select
-              label="Category"
-              value={form.category}
-              onChange={(e) => setForm({ ...form, category: e.target.value })}
-            >
-              {["Technology", "Leadership", "Healthcare", "Ministry"].map(
-                (c) => (
-                  <MenuItem key={c} value={c}>
-                    {c}
-                  </MenuItem>
-                ),
-              )}
-            </TextField>
-            <TextField
-              required
-              label="Short summary"
-              value={form.summary}
-              onChange={(e) => setForm({ ...form, summary: e.target.value })}
-            />
-            <TextField
-              required
-              label="Description"
-              multiline
-              rows={3}
-              value={form.description}
-              onChange={(e) =>
-                setForm({ ...form, description: e.target.value })
-              }
-            />
-            <TextField
-              select
-              label="Course type"
-              value={form.courseType}
-              onChange={(e) => setForm({ ...form, courseType: e.target.value })}
-              slotProps={{ select: { native: true } }}
-            >
-              <option value="cohort">Scheduled — set start date</option>
-              <option value="self_paced">Self-paced — start anytime</option>
-            </TextField>
-            <TextField
-              label="Format"
-              value={form.format}
-              onChange={(e) => setForm({ ...form, format: e.target.value })}
-            />
-            {form.courseType === "cohort" ? (
-              <Stack
-                direction="row"
-                sx={{
-                  gap: 2,
-                }}
-              >
-                <TextField
-                  required
-                  fullWidth
-                  type="date"
-                  label="Start date"
-                  slotProps={{ inputLabel: { shrink: true } }}
-                  value={form.startDate}
-                  onChange={(e) =>
-                    setForm({ ...form, startDate: e.target.value })
-                  }
-                />
-                <TextField
-                  required
-                  fullWidth
-                  type="date"
-                  label="End date"
-                  slotProps={{ inputLabel: { shrink: true } }}
-                  value={form.endDate}
-                  onChange={(e) =>
-                    setForm({ ...form, endDate: e.target.value })
-                  }
-                />
-              </Stack>
-            ) : (
-              <Typography variant="body2" color="text.secondary">
-                Learners can start anytime. No cohort dates are required.
-              </Typography>
-            )}
-
-            <Stack
-              direction="row"
-              sx={{
-                gap: 2,
-              }}
-            >
-              <TextField
-                required
-                fullWidth
-                type="number"
-                label="Price (USD)"
-                value={form.price}
-                onChange={(e) => setForm({ ...form, price: e.target.value })}
-              />
-              <TextField
-                required
-                fullWidth
-                type="number"
-                label="Seat capacity"
-                value={form.capacity}
-                onChange={(e) => setForm({ ...form, capacity: e.target.value })}
-              />
-            </Stack>
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={form.approvalRequired}
-                  onChange={(e) =>
-                    setForm({ ...form, approvalRequired: e.target.checked })
-                  }
-                />
-              }
-              label="Approval required before payment"
-            />
-          </Stack>
-        </DialogContent>
-        <DialogActions>
-          <Button
-            disabled={busy}
-            onClick={() => {
-              setOpen(false);
-              setError("");
-            }}
-          >
-            Cancel
-          </Button>
-          <Button variant="contained" disabled={busy} onClick={save}>
-            {busy ? "Saving…" : "Save draft"}
-          </Button>
-        </DialogActions>
-      </Dialog>
+      />
+      <UnpublishDialog
+        offering={unpublishing}
+        onClose={() => setUnpublishing(undefined)}
+        onDone={async (text) => {
+          setUnpublishing(undefined);
+          await refresh().catch((e) => setError(e.message));
+          setMessage(text);
+        }}
+      />
     </>
   );
 }

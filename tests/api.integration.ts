@@ -323,6 +323,571 @@ async function main() {
     console.log(
       "PASS: payment blocked before approval and operation ownership isolation",
     );
+
+    const recoveryStaff: Principal = {
+      actor: `integration-staff-${randomUUID()}`,
+      scopes: [
+        "catalog:write",
+        "approvals:decide",
+        "reports:read",
+        "exceptions:resolve",
+      ],
+    };
+    actors.push(recoveryStaff.actor);
+    const previousOutcome = (await service.simulation()).provisioningOutcome;
+    // Queue one paid registration with a chosen simulated outcome, then restore
+    // the shared setting immediately (each operation keeps its own outcome).
+    async function paidWith(outcome: any) {
+      const offeringId = await seed(false);
+      const who = await learner();
+      const reg: any = await service.register(who, randomUUID(), offeringId);
+      await service.setSimulation(recoveryStaff, randomUUID(), outcome);
+      try {
+        const op: any = await service.payment(who, randomUUID(), reg.id);
+        assert.equal(op.simulated_outcome, outcome);
+        return { reg, op };
+      } finally {
+        await service.setSimulation(
+          recoveryStaff,
+          randomUUID(),
+          previousOutcome,
+        );
+      }
+    }
+    async function waitFor(id: string, status: string) {
+      for (let i = 0; i < 60; i++) {
+        const row = await db.query(
+          "SELECT status FROM entitlements WHERE id=$1",
+          [id],
+        );
+        if (row.rows[0].status === status) return;
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
+      assert.fail(`Registration ${id} did not reach ${status}`);
+    }
+    const actions = async (id: string) =>
+      (
+        await db.query(
+          "SELECT action FROM audit_events WHERE object_id=$1 ORDER BY id",
+          [id],
+        )
+      ).rows.map((r) => r.action);
+
+    const identity = await paidWith("identity_failure");
+    await waitFor(identity.reg.id, "exception");
+    const failedOp = (
+      await db.query("SELECT * FROM operations WHERE id=$1", [identity.op.id])
+    ).rows[0];
+    assert.equal(failedOp.status, "failed");
+    assert.equal(failedOp.attempts, 3);
+    assert.equal(failedOp.stage, "identity");
+    assert.match(failedOp.error, /identity/i);
+    const identityEvents = await actions(identity.reg.id);
+    assert.equal(
+      identityEvents.filter(
+        (a) => a === "prototype.provisioning_retry_scheduled",
+      ).length,
+      2,
+    );
+    assert.ok(identityEvents.includes("prototype.provisioning_failed"));
+    const queue: any[] = await service.exceptions();
+    const listed = queue.find((row) => row.id === identity.reg.id);
+    assert.ok(
+      listed && listed.history.length >= 4 && listed.learner_email === null,
+    );
+    assert.equal(
+      (await http("exceptions", process.env.LEARNER_API_TOKEN)).status,
+      403,
+    );
+    assert.equal(
+      (await http("exceptions", process.env.AUTOMATION_API_TOKEN)).status,
+      200,
+    );
+    assert.equal(
+      (
+        await http(
+          `exceptions/${identity.reg.id}/retry`,
+          process.env.AUTOMATION_API_TOKEN,
+          { reason: "Automation must not recover" },
+        )
+      ).status,
+      403,
+    );
+    assert.equal(
+      (
+        await http(
+          `exceptions/${identity.reg.id}/retry`,
+          process.env.STAFF_API_TOKEN,
+          { reason: "short" },
+        )
+      ).status,
+      400,
+    );
+    assert.equal(
+      (
+        await http("prototype/simulation", process.env.AUTOMATION_API_TOKEN, {
+          provisioningOutcome: "normal",
+        })
+      ).status,
+      403,
+    );
+    await service.recover(
+      recoveryStaff,
+      randomUUID(),
+      identity.reg.id,
+      "retry",
+      "Identity record corrected by IT (integration test).",
+    );
+    await assert.rejects(
+      service.recover(
+        recoveryStaff,
+        randomUUID(),
+        identity.reg.id,
+        "retry",
+        "Second retry must be rejected.",
+      ),
+      /not awaiting recovery/,
+    );
+    await waitFor(identity.reg.id, "enrolled");
+    assert.ok(
+      (await actions(identity.reg.id)).includes("exception.retry_requested"),
+    );
+    console.log(
+      "PASS: simulated identity failure, bounded retries, exception queue, scoped staff retry and recovery",
+    );
+
+    const canvas = await paidWith("canvas_failure");
+    await waitFor(canvas.reg.id, "exception");
+    assert.equal(
+      (
+        await db.query("SELECT stage FROM operations WHERE id=$1", [
+          canvas.op.id,
+        ])
+      ).rows[0].stage,
+      "canvas",
+    );
+    await service.recover(
+      recoveryStaff,
+      randomUUID(),
+      canvas.reg.id,
+      "resolve",
+      "Canvas admin enrolled the learner manually (integration test).",
+    );
+    assert.equal(
+      (
+        await db.query("SELECT status FROM entitlements WHERE id=$1", [
+          canvas.reg.id,
+        ])
+      ).rows[0].status,
+      "enrolled",
+    );
+    const manual = (
+      await db.query(
+        "SELECT details FROM audit_events WHERE object_id=$1 AND action='exception.resolved_manually'",
+        [canvas.reg.id],
+      )
+    ).rows[0];
+    assert.equal(manual.details.stage, "canvas");
+    assert.match(manual.details.reason, /manually/);
+
+    const transient = await paidWith("transient");
+    await waitFor(transient.reg.id, "enrolled");
+    const transientEvents = await actions(transient.reg.id);
+    assert.equal(
+      transientEvents.filter(
+        (a) => a === "prototype.provisioning_retry_scheduled",
+      ).length,
+      1,
+    );
+    assert.ok(!transientEvents.includes("prototype.provisioning_failed"));
+    assert.equal(
+      (await service.simulation()).provisioningOutcome,
+      previousOutcome,
+    );
+    console.log(
+      "PASS: Canvas failure with audited manual resolution; temporary failure recovers automatically",
+    );
+
+    // Enrollment window: Scheduled courses close a staff-set number of days after the start date.
+    const started = (
+      await db.query(
+        `INSERT INTO offerings(title,category,summary,description,format,start_date,end_date,price_cents,capacity,published,course_type)
+        VALUES ('Isolated integration test','Technology','Test sample summary','Test sample description only','Online',current_date-10,current_date+30,100,5,true,'cohort') RETURNING id,version`,
+      )
+    ).rows[0];
+    ids.push(started.id);
+    const late = await learner();
+    await assert.rejects(
+      service.register(late, randomUUID(), started.id),
+      /Enrollment closed on/,
+    );
+    const widened: any = await service.updateSettings(
+      recoveryStaff,
+      randomUUID(),
+      started.id,
+      {
+        version: started.version,
+        approvalValidDays: 7,
+        enrollmentCloseDays: 14,
+        canvasCourseUrl: null,
+      },
+    );
+    const lateSeat: any = await service.register(
+      late,
+      randomUUID(),
+      started.id,
+    );
+    assert.equal(lateSeat.status, "reserved");
+    await assert.rejects(
+      service.updateSettings(recoveryStaff, randomUUID(), started.id, {
+        version: started.version,
+        approvalValidDays: 7,
+        enrollmentCloseDays: 0,
+        canvasCourseUrl: null,
+      }),
+      /changed/,
+    );
+    await service.updateSettings(recoveryStaff, randomUUID(), started.id, {
+      version: widened.version,
+      approvalValidDays: 7,
+      enrollmentCloseDays: 0,
+      canvasCourseUrl: null,
+    });
+    assert.equal(
+      ((await service.register(late, randomUUID(), started.id)) as any).id,
+      lateSeat.id,
+      "a current reservation is returned unchanged after enrollment closes",
+    );
+    const settingsHttp = await http(
+      `offerings/${started.id}/settings`,
+      process.env.STAFF_API_TOKEN,
+      {
+        version: 99,
+        approvalValidDays: 0,
+        enrollmentCloseDays: 7,
+        canvasCourseUrl: "http://insecure.example.edu",
+      },
+    );
+    assert.equal(settingsHttp.status, 400);
+    console.log(
+      "PASS: enrollment window closes after the start date, staff-adjustable and version-checked",
+    );
+
+    // Approval validity, lapse and repeat requests.
+    const gatedOffering = await seed(true);
+    const asker = await learner();
+    const ask: any = await service.register(asker, randomUUID(), gatedOffering);
+    const approved: any = await service.decide(
+      recoveryStaff,
+      randomUUID(),
+      ask.id,
+      "approved",
+    );
+    const days =
+      (new Date(approved.approval_expires_at).getTime() - Date.now()) /
+      86400000;
+    assert.ok(days > 6.9 && days <= 7, `approval lasts 7 days (got ${days})`);
+    await db.query(
+      "UPDATE entitlements SET approval_expires_at=now()-interval '1 minute' WHERE id=$1",
+      [ask.id],
+    );
+    await waitFor(ask.id, "approval_expired");
+    const again: any = await service.register(
+      asker,
+      randomUUID(),
+      gatedOffering,
+    );
+    assert.equal(again.status, "awaiting_approval");
+    assert.equal(again.approval_expires_at, null);
+    assert.ok((await actions(ask.id)).includes("approval.expired"));
+    assert.ok((await actions(ask.id)).includes("approval.requested_again"));
+    await service.decide(recoveryStaff, randomUUID(), ask.id, "declined");
+    const retried: any = await service.register(
+      asker,
+      randomUUID(),
+      gatedOffering,
+    );
+    assert.equal(
+      retried.status,
+      "awaiting_approval",
+      "declined learners can request again",
+    );
+    const gatedVersion = (
+      await db.query("SELECT version FROM offerings WHERE id=$1", [
+        gatedOffering,
+      ])
+    ).rows[0].version;
+    await service.updateSettings(recoveryStaff, randomUUID(), gatedOffering, {
+      version: gatedVersion,
+      approvalValidDays: 2,
+      enrollmentCloseDays: 7,
+      canvasCourseUrl: "https://canvas.example.edu/courses/9999",
+    });
+    const shorter: any = await service.decide(
+      recoveryStaff,
+      randomUUID(),
+      ask.id,
+      "approved",
+    );
+    const shorterDays =
+      (new Date(shorter.approval_expires_at).getTime() - Date.now()) / 86400000;
+    assert.ok(
+      shorterDays > 1.9 && shorterDays <= 2,
+      "changed validity applies to new approvals",
+    );
+    console.log(
+      "PASS: approvals last the staff-set period, lapse to approval_expired, and declined or lapsed learners can request again",
+    );
+
+    // Canvas link appears only once enrollment completes.
+    const seat: any = await service.register(
+      asker,
+      randomUUID(),
+      gatedOffering,
+    );
+    assert.equal(seat.status, "reserved");
+    const before: any[] = await service.learning(asker);
+    assert.equal(before.find((r) => r.id === seat.id).canvas_course_url, null);
+    await service.payment(asker, randomUUID(), seat.id);
+    await waitFor(seat.id, "enrolled");
+    const after: any[] = await service.learning(asker);
+    assert.equal(
+      after.find((r) => r.id === seat.id).canvas_course_url,
+      "https://canvas.example.edu/courses/9999",
+    );
+    console.log(
+      "PASS: Canvas course link is returned only after enrollment completes",
+    );
+
+    // Offering management: edits, protected published terms, quoted prices, unpublishing.
+    const managed = await seed(false);
+    const editBody = async (overrides: any = {}) => {
+      const o = (
+        await db.query(
+          "SELECT *,to_char(start_date,'YYYY-MM-DD') AS sd,to_char(end_date,'YYYY-MM-DD') AS ed FROM offerings WHERE id=$1",
+          [managed],
+        )
+      ).rows[0];
+      return {
+        version: o.version,
+        title: o.title,
+        category: o.category,
+        summary: o.summary,
+        description: o.description,
+        format: o.format,
+        courseType: o.course_type,
+        startDate: o.sd,
+        endDate: o.ed,
+        capacity: o.capacity,
+        priceCents: o.price_cents,
+        approvalRequired: o.approval_required,
+        approvalValidDays: o.approval_valid_days,
+        enrollmentCloseDays: o.enrollment_close_days,
+        canvasCourseUrl: o.canvas_course_url ?? undefined,
+        ...overrides,
+      };
+    };
+    await assert.rejects(
+      service.edit(
+        recoveryStaff,
+        randomUUID(),
+        managed,
+        await editBody({ title: "Renamed integration test" }),
+      ),
+      /reason/,
+      "published edits need a reason",
+    );
+    await assert.rejects(
+      service.edit(
+        recoveryStaff,
+        randomUUID(),
+        managed,
+        await editBody({
+          courseType: "self_paced",
+          startDate: undefined,
+          endDate: undefined,
+          reason: "Switch to self-paced (test)",
+        }),
+      ),
+      /Course type cannot change/,
+    );
+    await assert.rejects(
+      service.edit(
+        recoveryStaff,
+        randomUUID(),
+        managed,
+        await editBody({
+          approvalRequired: true,
+          reason: "Require approval now (test)",
+        }),
+      ),
+      /approval requirement/,
+    );
+    const buyer = await learner();
+    const quoted: any = await service.register(buyer, randomUUID(), managed);
+    assert.equal(quoted.quoted_price_cents, 100);
+    await assert.rejects(
+      service.edit(
+        recoveryStaff,
+        randomUUID(),
+        managed,
+        await editBody({
+          startDate: "2099-01-08",
+          reason: "Move the start date (test)",
+        }),
+      ),
+      /Dates cannot change/,
+    );
+    const repriced: any = await service.edit(
+      recoveryStaff,
+      randomUUID(),
+      managed,
+      await editBody({
+        priceCents: 250,
+        capacity: 2,
+        reason: "Annual price update (integration test)",
+      }),
+    );
+    assert.equal(repriced.price_cents, 250);
+    const history: any[] = await service.prices(managed);
+    assert.equal(history[0].price_cents, 250);
+    assert.match(history[0].reason, /Annual price update/);
+    await assert.rejects(
+      db.query(
+        "UPDATE offering_prices SET price_cents=1 WHERE offering_id=$1",
+        [managed],
+      ),
+      /append-only/,
+    );
+    const edited = (
+      await db.query(
+        "SELECT details FROM audit_events WHERE object_id=$1 AND action='offering.edited'",
+        [managed],
+      )
+    ).rows[0];
+    assert.deepEqual(edited.details.changes.price_cents, {
+      before: 100,
+      after: 250,
+    });
+    const second = await learner();
+    const secondSeat: any = await service.register(
+      second,
+      randomUUID(),
+      managed,
+    );
+    assert.equal(
+      secondSeat.quoted_price_cents,
+      250,
+      "new reservations use the new price",
+    );
+    await assert.rejects(
+      service.edit(
+        recoveryStaff,
+        randomUUID(),
+        managed,
+        await editBody({
+          capacity: 1,
+          reason: "Shrink below seats in use (test)",
+        }),
+      ),
+      /seats in use/,
+    );
+    const firstOrderOp: any = await service.payment(
+      buyer,
+      randomUUID(),
+      quoted.id,
+    );
+    const firstOrder = (
+      await db.query(
+        "SELECT amount_cents FROM orders WHERE entitlement_id=$1",
+        [quoted.id],
+      )
+    ).rows[0];
+    assert.equal(
+      firstOrder.amount_cents,
+      100,
+      "earlier reservation keeps its quoted price",
+    );
+    assert.ok(firstOrderOp.id);
+    console.log(
+      "PASS: offering edits are version-checked and audited; published terms are protected; price history is append-only and reservations keep their quoted price",
+    );
+
+    const pricesHttp = await http(
+      `offerings/${managed}/prices`,
+      process.env.STAFF_API_TOKEN,
+    );
+    assert.equal(pricesHttp.status, 200);
+    assert.equal(
+      (await http(`offerings/${managed}/prices`, process.env.LEARNER_API_TOKEN))
+        .status,
+      403,
+    );
+    const currentVersion = (
+      await db.query("SELECT version FROM offerings WHERE id=$1", [managed])
+    ).rows[0].version;
+    assert.equal(
+      (
+        await http(
+          `offerings/${managed}/unpublish`,
+          process.env.STAFF_API_TOKEN,
+          { version: currentVersion, reason: "short" },
+        )
+      ).status,
+      400,
+    );
+    const hidden: any = await service.unpublish(
+      recoveryStaff,
+      randomUUID(),
+      managed,
+      currentVersion,
+      "Course cancelled by the program (integration test).",
+    );
+    assert.equal(hidden.published, false);
+    assert.equal(hidden.active_registrations, 2);
+    await assert.rejects(service.detail(managed), /not found/);
+    await assert.rejects(
+      service.register(await learner(), randomUUID(), managed),
+      /not available/,
+    );
+    await assert.rejects(
+      service.payment(second, randomUUID(), secondSeat.id),
+      /no longer open/,
+      "unpublishing stops new payments",
+    );
+    await waitFor(quoted.id, "enrolled");
+    const unpublishedAudit = (
+      await db.query(
+        "SELECT details FROM audit_events WHERE object_id=$1 AND action='offering.unpublished'",
+        [managed],
+      )
+    ).rows[0];
+    assert.match(unpublishedAudit.details.reason, /cancelled/);
+    assert.ok(
+      hidden.unpublished_at,
+      "unpublished offerings are distinguishable from drafts",
+    );
+    await assert.rejects(
+      service.edit(
+        recoveryStaff,
+        randomUUID(),
+        managed,
+        await editBody({ title: "Edited after unpublishing" }),
+      ),
+      /reason/,
+      "previously published offerings keep the reason requirement",
+    );
+    const republished: any = await service.publish(
+      recoveryStaff,
+      randomUUID(),
+      managed,
+      hidden.version,
+    );
+    assert.equal(republished.published, true);
+    assert.equal(republished.unpublished_at, null);
+    console.log(
+      "PASS: unpublishing needs a reason, hides the offering and stops new registrations and payments while paid enrollment completes",
+    );
   } finally {
     await db.query(
       "DELETE FROM operations WHERE entitlement_id IN (SELECT id FROM entitlements WHERE offering_id=ANY($1::uuid[]))",

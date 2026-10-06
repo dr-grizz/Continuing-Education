@@ -8,6 +8,7 @@ import {
   IsString,
   IsEmail,
   IsUUID,
+  IsUrl,
   Max,
   MaxLength,
   Min,
@@ -52,6 +53,54 @@ export class OfferingDto {
   @ApiProperty() @IsInt() @Min(1) @Max(10000) capacity!: number;
   @ApiProperty() @IsInt() @Min(0) @Max(1000000) priceCents!: number;
   @ApiProperty() @IsBoolean() approvalRequired!: boolean;
+  @ApiPropertyOptional({
+    default: 7,
+    description:
+      "Days an approval stays valid before the learner must reserve.",
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(365)
+  approvalValidDays?: number;
+  @ApiPropertyOptional({
+    default: 7,
+    description:
+      "Scheduled courses: days after the start date when enrollment closes.",
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(365)
+  enrollmentCloseDays?: number;
+  @ApiPropertyOptional({
+    description: "HTTPS link to the mapped Canvas course.",
+  })
+  @IsOptional()
+  @IsUrl({ protocols: ["https"], require_protocol: true })
+  @MaxLength(500)
+  canvasCourseUrl?: string;
+}
+export class OfferingSettingsDto {
+  @ApiProperty() @IsInt() @Min(1) version!: number;
+  @ApiProperty({ minimum: 1, maximum: 365 })
+  @IsInt()
+  @Min(1)
+  @Max(365)
+  approvalValidDays!: number;
+  @ApiProperty({ minimum: 0, maximum: 365 })
+  @IsInt()
+  @Min(0)
+  @Max(365)
+  enrollmentCloseDays!: number;
+  @ApiPropertyOptional({
+    nullable: true,
+    description: "HTTPS link to the mapped Canvas course; null removes it.",
+  })
+  @IsOptional()
+  @IsUrl({ protocols: ["https"], require_protocol: true })
+  @MaxLength(500)
+  canvasCourseUrl?: string | null;
 }
 export class PublishDto {
   @ApiProperty() @IsInt() @Min(1) version!: number;
@@ -78,4 +127,54 @@ export class DemoUserDto {
   @IsEmail()
   @MaxLength(254)
   email!: string;
+}
+export const provisioningOutcomes = [
+  "normal",
+  "delayed",
+  "transient",
+  "identity_failure",
+  "canvas_failure",
+] as const;
+export type ProvisioningOutcome = (typeof provisioningOutcomes)[number];
+export class SimulationDto {
+  @ApiProperty({
+    enum: provisioningOutcomes,
+    description:
+      "PROTOTYPE ONLY: outcome applied to provisioning queued after this change.",
+  })
+  @IsIn(provisioningOutcomes)
+  provisioningOutcome!: ProvisioningOutcome;
+}
+export class ExceptionActionDto {
+  @ApiProperty({
+    description: "Why staff are taking this action; recorded in the audit log.",
+    minLength: 10,
+    maxLength: 500,
+  })
+  @IsString()
+  @MinLength(10)
+  @MaxLength(500)
+  reason!: string;
+}
+export class OfferingEditDto extends OfferingDto {
+  @ApiProperty({ description: "Current version, for conflict detection." })
+  @IsInt()
+  @Min(1)
+  version!: number;
+  @ApiPropertyOptional({
+    description:
+      "Required (10–500 characters) when the offering is published; recorded in the audit log.",
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  reason?: string;
+}
+export class UnpublishDto {
+  @ApiProperty() @IsInt() @Min(1) version!: number;
+  @ApiProperty({ minLength: 10, maxLength: 500 })
+  @IsString()
+  @MinLength(10)
+  @MaxLength(500)
+  reason!: string;
 }
