@@ -25,6 +25,54 @@ npm run dev
 
 Stop application processes with Ctrl+C. `docker compose stop db` stops PostgreSQL without removing its persistent volume. Do not use `down -v` unless you intend to erase the prototype data. Setup and migration preserve existing environments/data; seed runs once.
 
+## Database migrations
+
+[Prisma Migrate](docs/adr/0002-prisma-orm.md) is the single migration authority. `npm run db:migrate` is the only command that changes the schema of a shared or existing database.
+
+| Command | Purpose |
+| --- | --- |
+| `npm run db:migrate` | Adopt a legacy database (once), then apply reviewed migrations with `prisma migrate deploy`. Safe to repeat; concurrent runs wait for each other. |
+| `npm run db:migrate:status` | Show applied and pending migrations. |
+| `npm run db:migrate:draft -- <name>` | Draft a migration from `prisma/schema.prisma` changes, using a disposable shadow database. |
+| `npm run db:generate` | Regenerate the typed client (also runs on `npm ci`). |
+| `npm run test:migrations` | Migration tests on disposable databases. |
+
+- **New empty database:** `npm run db:migrate` applies `prisma/migrations/0_baseline`, which creates the schema, checks, the price-history trigger and the synthetic seed.
+- **Existing database (legacy migrations 001–007):** take a backup (below), then run `npm run db:migrate`.
+  - It applies any missing legacy migration, verifies 001–007, and records the baseline as applied without replaying it.
+  - Records are untouched, and `schema_migrations` remains as history.
+  - A database with application tables but no migration history is refused; investigate it instead of baselining it.
+- **Backups:** before adopting or applying a risky migration, back up to the ignored `backups/` folder:
+
+  ```sh
+  docker compose exec -T db pg_dump -U portal -d continuing_education -Fc > backups/pre-change.dump
+  ```
+
+  Test a restore into a separate database with `pg_restore`. Never restore over the main database without a decision to discard its current data.
+- **Writing a migration:**
+  1. Edit `prisma/schema.prisma`, then run `npm run db:migrate:draft -- short_name`.
+  2. Review the SQL.
+  3. Add by hand anything Prisma does not model: CHECK constraints, functions, triggers and data backfills.
+  4. Keep the file wrapped in `BEGIN`/`COMMIT`; Prisma does not add a transaction.
+  5. Apply it with `npm run db:migrate`.
+
+  Never run `prisma migrate dev`, `prisma db push` or `prisma migrate reset` against the main database; they can propose a reset.
+- **Backfills and incompatible changes:** use expand → backfill → contract.
+  1. Add the new column or table.
+  2. Backfill in the same migration, or in a follow-up migration.
+  3. Switch the code over.
+  4. Remove the old structure in a later migration.
+
+  Do not rename or drop a column in the same release that stops using it.
+- **Failed migration:** `migrate deploy` refuses to continue while a migration is marked failed.
+  1. Inspect the database. A migration without `BEGIN`/`COMMIT` can leave partial changes.
+  2. Undo any partial change by hand.
+  3. Run `npx prisma migrate resolve --rolled-back <name>`.
+  4. Fix or replace the migration file. Ship a corrected migration under a new name if the old one was already shared.
+  5. Run `npm run db:migrate`.
+
+  There is no automatic undo. A mistake that was applied successfully is fixed with a new corrective migration, or by restoring a backup.
+
 ## Try the prototype
 
 1. Browse/search courses and view a course detail page.
@@ -54,6 +102,7 @@ Public catalog requests need no token. The read-only automation token cannot cre
 npm run typecheck
 npm run build
 npm test
+npm run test:migrations
 ```
 
 Integration tests require the website, API and PostgreSQL running. They check authorization, validation, payment-before-approval prevention, idempotency and concurrent final-seat reservation against isolated test records, then remove those records. Production UI/SSO, refunds, transfers, lifecycle automation, exception recovery and live integrations remain future work. See `docs/implementation-plan.md` and `docs/adr/0001-local-prototype.md`.

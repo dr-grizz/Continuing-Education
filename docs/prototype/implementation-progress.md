@@ -164,6 +164,48 @@ Automated accessibility scanning and a real screen-reader session remain outstan
 
 ## Latest implementation record
 
+October 6, 2026: converted four status and type columns to PostgreSQL enums (issue #2 follow-up).
+- **Migration:** `prisma/migrations/1_status_enums` converts `course_type`, `entitlements.status`, `operations.status` and `operations.simulated_outcome` in place, replacing four value-list checks and recreating the schedule rule. Prisma's draft would have dropped and re-added the columns, deleting their data, so the migration was rewritten by hand.
+- **Code:** request validation now reads the allowed values from the generated `CourseType` and `SimulatedOutcome` enums, and raw SQL casts parameters written to enum columns.
+- **Verification:**
+  - Migration tests 9/9: enum types exist, invalid values are rejected, statuses survive adoption, there is no drift, and the structure is identical at 183 elements.
+  - On the main database, after a backup, all 10 tables were unchanged row for row and the columns use the enum types.
+  - The integration suite passes 14/14, and the catalog and My learning render unchanged.
+
+October 6, 2026: issue #2 Phase 2 (queries and transactions on Prisma), on branch `prisma-adoption`.
+- **Single client:** `src/domain/prisma.ts` creates one `PrismaClient` over the existing `pg` pool, keeping the local-only guard. It provides `transaction()` (interactive, maxWait 10 s, timeout 20 s), `sql()` (raw SQL with bound parameters) and `offeringColumns()`, which avoids duplicate date columns in raw selects.
+- **Service:**
+  - Routine reads and simple writes use the typed client.
+  - Locking and computed SQL stays raw inside the same transaction: offering and registration row locks, advisory locks for idempotency, final-seat counts, the registration upsert, approval expiry, the enrollment window and seat counts, and the audit-label joins.
+  - The auth guard and API startup check use Prisma. Startup now requires the Prisma baseline.
+- **Worker:** each step runs in one transaction, keeping `FOR UPDATE SKIP LOCKED` claiming.
+- **Probe findings** from a rolled-back probe transaction: Prisma cannot read `void`, so advisory locks are wrapped, and uncast counts return bigint. All other parameter and result types behaved as they did under `pg`.
+- **TypedSQL** was not adopted because it needs a database during generation; raw rows are typed from the generated models instead.
+- **Verification:**
+  - The integration suite passes 14/14, covering concurrency, idempotent payment/retry, cross-user rejection and worker-driven flows. The migration suite passes 9/9.
+  - Worker crash drill: the worker was force-killed (`kill -9`) during a delayed job, and after restart the job completed exactly once (1 order, 1 audit event per step).
+  - Browser smoke test: sign-in form, catalog, course page registration, payment to enrolled with the Canvas link, all staff tabs, and price history in the edit dialog.
+  - API, worker and auth code no longer query `pg` directly.
+
+October 6, 2026: issue #2 Phase 1 (Prisma migration foundation), on branch `prisma-adoption`.
+- **Packages and decision:** pinned Prisma 7.10.0 (`prisma`, `@prisma/client`, `@prisma/adapter-pg`), recorded in [ADR 0002](../adr/0002-prisma-orm.md).
+- **Schema and baseline:** introspected `prisma/schema.prisma`, keeping snake_case fields. The baseline `prisma/migrations/0_baseline` reproduces legacy migrations 001–007 exactly, including the checks, the price-history trigger and the seed.
+- **Commands:** a single migration command `npm run db:migrate` (advisory lock, guarded adoption, `migrate deploy`), plus `db:migrate:status`, `db:migrate:draft` (disposable shadow database) and `db:generate`. The old `scripts/migrate.ts` runner moved to `scripts/legacy-migrations.ts` for history and catch-up.
+- **Migration tests:** `npm run test:migrations`, 9 tests on disposable databases:
+  - fresh install
+  - repeat no-op
+  - adoption preserving records
+  - fresh/adopted structure identical (187 elements)
+  - 001–003 catch-up
+  - unknown state refused
+  - concurrent runs serialized
+  - no drift against `schema.prisma`
+  - failed-migration recovery plus a data-preserving schema change
+
+  Finding: Prisma does not wrap migrations in a transaction, so drafted migrations add `BEGIN`/`COMMIT`.
+- **Main database adoption:** backed up first (git-ignored `backups/`), then adopted. Every row in all 10 tables matches the backup restored into a disposable database, the structure matches a fresh baseline, and a second run is a no-op.
+- **Checks:** the app suite (14/14), typecheck and build pass. Application queries are unchanged until Phase 2.
+
 October 6, 2026 (final): unpublished offerings now have their own status. Migration `007_unpublished_status.sql` adds `offerings.unpublished_at`, which unpublishing sets and publishing clears, backfilled from audit events. Staff see Draft, Published or Unpublished chips and filter options. Unpublished offerings keep the reason requirement and protected terms when edited. The integration suite is extended (14/14 pass), and the browser check covered all three labels, the Unpublished filter and the edit note, using a temporarily unpublished synthetic course that was then republished.
 
 October 6, 2026 (later): completed staff offering management and the offering form.

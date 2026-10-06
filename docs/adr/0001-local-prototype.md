@@ -1,6 +1,6 @@
 # ADR 0001: Local API-first prototype
 
-Status: accepted for local prototyping only, October 1, 2026.
+Status: accepted for local prototyping only, October 1, 2026. Data access and migrations superseded by [ADR 0002](0002-prisma-orm.md) on October 6, 2026.
 
 Use Next.js/React, MIT-licensed Material UI components, a NestJS REST API with OpenAPI documentation, PostgreSQL in Docker Compose, and a separate database-backed worker. Keep source in this repository under `src/`. Pin dependency versions and commit the lockfile.
 

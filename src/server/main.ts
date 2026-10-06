@@ -23,7 +23,7 @@ import {
   DocumentBuilder,
   SwaggerModule,
 } from "@nestjs/swagger";
-import { db } from "../domain/db";
+import { prisma, sql } from "../domain/prisma";
 import { PrototypeGuard, requireScope } from "./auth";
 import {
   DemoUserDto,
@@ -280,7 +280,12 @@ class WorkflowController {
 })
 class AppModule {}
 async function main() {
-  await db.query("SELECT 1 FROM schema_migrations LIMIT 1");
+  // Refuse to start until npm run db:migrate has recorded the Prisma baseline.
+  const migrated = await sql(
+    prisma,
+    "SELECT 1 AS ok FROM _prisma_migrations WHERE migration_name='0_baseline' AND finished_at IS NOT NULL AND rolled_back_at IS NULL",
+  ).catch(() => []);
+  if (!migrated.length) throw new Error("Run npm run db:migrate first.");
   for (const name of [
     "LEARNER_API_TOKEN",
     "STAFF_API_TOKEN",

@@ -6,7 +6,8 @@ import {
   UnauthorizedException,
 } from "@nestjs/common";
 export type Principal = { actor: string; scopes: string[]; learnerId?: string };
-import { db, DEMO_LEARNER } from "../domain/db";
+import { DEMO_LEARNER } from "../domain/db";
+import { prisma } from "../domain/prisma";
 @Injectable()
 export class PrototypeGuard implements CanActivate {
   async canActivate(context: ExecutionContext) {
@@ -49,13 +50,13 @@ export class PrototypeGuard implements CanActivate {
         )
       )
         throw new UnauthorizedException("Invalid demo learner.");
-      const found = await db.query("SELECT id FROM learners WHERE id=$1", [
-        learnerId,
-      ]);
-      if (!found.rowCount)
-        throw new UnauthorizedException("Demo learner not found.");
-      req.principal.learnerId = found.rows[0].id;
-      req.principal.actor = `demo-learner:${found.rows[0].id}`;
+      const found = await prisma.learners.findUnique({
+        where: { id: learnerId },
+        select: { id: true },
+      });
+      if (!found) throw new UnauthorizedException("Demo learner not found.");
+      req.principal.learnerId = found.id;
+      req.principal.actor = `demo-learner:${found.id}`;
     }
     return true;
   }

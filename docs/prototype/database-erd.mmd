@@ -1,4 +1,7 @@
 %% Actual local PostgreSQL schema, including migration 007, verified on October 6, 2026.
+%% Since issue #2 the schema is defined in prisma/schema.prisma and migrated by Prisma Migrate
+%% (baseline 0_baseline = legacy 001-007; 1_status_enums converts four columns to enums). _prisma_migrations (Prisma history) is not drawn;
+%% schema_migrations is kept as read-only legacy history.
 %% offering_prices is append-only (update trigger); rows cascade only when their offering is deleted.
 %% Only enforced foreign-key relationships are drawn.
 %% audit_events.object_id is a polymorphic reference, not an FK.
@@ -24,7 +27,7 @@ erDiagram
         text summary
         text description
         jsonb outcomes
-        text course_type "cohort or self_paced"
+        course_type course_type "Enum: cohort, self_paced"
         text format
         date start_date "Required for cohort; null for self_paced"
         date end_date "Required for cohort; null for self_paced"
@@ -43,7 +46,7 @@ erDiagram
         uuid id PK
         uuid learner_id FK "Unique with offering_id"
         uuid offering_id FK "Unique with learner_id"
-        text status "Includes approval_expired"
+        entitlement_status status "Enum; includes approval_expired"
         timestamptz reserved_until "Nullable"
         timestamptz approval_expires_at "Nullable"
         integer quoted_price_cents "Nullable; price at reservation"
@@ -59,11 +62,11 @@ erDiagram
     operations {
         uuid id PK
         uuid entitlement_id FK, UK
-        text status
+        operation_status status "Enum: pending, running, succeeded, failed"
         text stage
         timestamptz next_run "Nullable"
         text error "Nullable"
-        text simulated_outcome "Prototype: normal, delayed, transient, identity_failure, canvas_failure"
+        simulated_outcome simulated_outcome "Enum (prototype): normal, delayed, transient, identity_failure, canvas_failure"
         integer attempts "Automatic attempts at current stage"
         boolean delay_applied
         timestamptz failed_at "Nullable; set when retries are exhausted"
