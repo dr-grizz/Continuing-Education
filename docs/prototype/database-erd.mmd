@@ -1,4 +1,7 @@
 %% Actual local PostgreSQL schema, including migration 007, verified on October 6, 2026.
+%% Since issue #2 the schema is defined in prisma/schema.prisma and migrated by Prisma Migrate
+%% (baseline 0_baseline = legacy 001-007). _prisma_migrations (Prisma history) is not drawn;
+%% schema_migrations is kept as read-only legacy history.
 %% offering_prices is append-only (update trigger); rows cascade only when their offering is deleted.
 %% Only enforced foreign-key relationships are drawn.
 %% audit_events.object_id is a polymorphic reference, not an FK.

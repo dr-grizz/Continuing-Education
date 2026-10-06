@@ -1,0 +1,129 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+  // The server and worker compile to CommonJS (tsconfig.server.json).
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model audit_events {
+  id         BigInt   @id @default(autoincrement())
+  actor      String
+  action     String
+  object_id  String?  @db.Uuid
+  details    Json     @default("{}")
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+}
+
+model commands {
+  actor       String
+  key         String
+  fingerprint String
+  response    Json
+
+  @@id([actor, key])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model entitlements {
+  id                  String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  learner_id          String      @db.Uuid
+  offering_id         String      @db.Uuid
+  status              String
+  reserved_until      DateTime?   @db.Timestamptz(6)
+  created_at          DateTime    @default(now()) @db.Timestamptz(6)
+  approval_expires_at DateTime?   @db.Timestamptz(6)
+  quoted_price_cents  Int?
+  learners            learners    @relation(fields: [learner_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "entitlements_learner_fk")
+  offerings           offerings   @relation(fields: [offering_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  operations          operations?
+  orders              orders?
+
+  @@unique([learner_id, offering_id])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model learners {
+  id           String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email        String?        @unique
+  created_at   DateTime       @default(now()) @db.Timestamptz(6)
+  entitlements entitlements[]
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model offering_prices {
+  id           BigInt    @id @default(autoincrement())
+  offering_id  String    @db.Uuid
+  price_cents  Int
+  effective_at DateTime  @default(now()) @db.Timestamptz(6)
+  actor        String
+  reason       String?
+  offerings    offerings @relation(fields: [offering_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([offering_id, id], map: "offering_prices_offering")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model offerings {
+  id                    String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  title                 String
+  category              String
+  summary               String
+  description           String
+  outcomes              Json              @default("[]")
+  format                String
+  start_date            DateTime?         @db.Date
+  end_date              DateTime?         @db.Date
+  price_cents           Int
+  capacity              Int
+  approval_required     Boolean           @default(false)
+  published             Boolean           @default(false)
+  version               Int               @default(1)
+  created_at            DateTime          @default(now()) @db.Timestamptz(6)
+  course_type           String            @default("cohort")
+  approval_valid_days   Int               @default(7)
+  enrollment_close_days Int               @default(7)
+  canvas_course_url     String?
+  unpublished_at        DateTime?         @db.Timestamptz(6)
+  entitlements          entitlements[]
+  offering_prices       offering_prices[]
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model operations {
+  id                String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  entitlement_id    String       @unique @db.Uuid
+  status            String       @default("pending")
+  stage             String       @default("identity")
+  next_run          DateTime?    @default(now()) @db.Timestamptz(6)
+  error             String?
+  created_at        DateTime?    @default(now()) @db.Timestamptz(6)
+  simulated_outcome String       @default("normal")
+  attempts          Int          @default(0)
+  delay_applied     Boolean      @default(false)
+  failed_at         DateTime?    @db.Timestamptz(6)
+  entitlements      entitlements @relation(fields: [entitlement_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model orders {
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  entitlement_id String       @unique @db.Uuid
+  amount_cents   Int
+  payment_status String       @default("simulated_paid")
+  created_at     DateTime     @default(now()) @db.Timestamptz(6)
+  entitlements   entitlements @relation(fields: [entitlement_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model prototype_settings {
+  key        String   @id
+  value      String
+  updated_at DateTime @default(now()) @db.Timestamptz(6)
+}
+
+model schema_migrations {
+  version    String    @id
+  applied_at DateTime? @default(now()) @db.Timestamptz(6)
+}

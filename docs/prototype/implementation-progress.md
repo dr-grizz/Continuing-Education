@@ -164,6 +164,25 @@ Automated accessibility scanning and a real screen-reader session remain outstan
 
 ## Latest implementation record
 
+October 6, 2026: issue #2 Phase 1 (Prisma migration foundation), on branch `prisma-adoption`.
+- **Packages and decision:** pinned Prisma 7.10.0 (`prisma`, `@prisma/client`, `@prisma/adapter-pg`), recorded in [ADR 0002](../adr/0002-prisma-orm.md).
+- **Schema and baseline:** introspected `prisma/schema.prisma`, keeping snake_case fields. The baseline `prisma/migrations/0_baseline` reproduces legacy migrations 001–007 exactly, including the checks, the price-history trigger and the seed.
+- **Commands:** a single migration command `npm run db:migrate` (advisory lock, guarded adoption, `migrate deploy`), plus `db:migrate:status`, `db:migrate:draft` (disposable shadow database) and `db:generate`. The old `scripts/migrate.ts` runner moved to `scripts/legacy-migrations.ts` for history and catch-up.
+- **Migration tests:** `npm run test:migrations`, 9 tests on disposable databases:
+  - fresh install
+  - repeat no-op
+  - adoption preserving records
+  - fresh/adopted structure identical (187 elements)
+  - 001–003 catch-up
+  - unknown state refused
+  - concurrent runs serialized
+  - no drift against `schema.prisma`
+  - failed-migration recovery plus a data-preserving schema change
+
+  Finding: Prisma does not wrap migrations in a transaction, so drafted migrations add `BEGIN`/`COMMIT`.
+- **Main database adoption:** backed up first (git-ignored `backups/`), then adopted. Every row in all 10 tables matches the backup restored into a disposable database, the structure matches a fresh baseline, and a second run is a no-op.
+- **Checks:** the app suite (14/14), typecheck and build pass. Application queries are unchanged until Phase 2.
+
 October 6, 2026 (final): unpublished offerings now have their own status. Migration `007_unpublished_status.sql` adds `offerings.unpublished_at`, which unpublishing sets and publishing clears, backfilled from audit events. Staff see Draft, Published or Unpublished chips and filter options. Unpublished offerings keep the reason requirement and protected terms when edited. The integration suite is extended (14/14 pass), and the browser check covered all three labels, the Unpublished filter and the edit note, using a temporarily unpublished synthetic course that was then republished.
 
 October 6, 2026 (later): completed staff offering management and the offering form.

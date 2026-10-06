@@ -4,15 +4,20 @@
   "private": true,
   "scripts": {
     "setup": "node scripts/setup.mjs",
+    "postinstall": "prisma generate",
     "db:up": "docker compose up -d --wait db",
-    "db:migrate": "ts-node -P tsconfig.server.json scripts/migrate.ts",
+    "db:migrate": "ts-node -P tsconfig.server.json scripts/db-migrate.ts",
+    "db:migrate:status": "prisma migrate status",
+    "db:migrate:draft": "ts-node -P tsconfig.server.json scripts/db-draft-migration.ts",
+    "db:generate": "prisma generate",
     "dev": "concurrently -k -n web,api,worker \"npm run dev:web\" \"npm run dev:api\" \"npm run dev:worker\"",
     "dev:web": "next dev src/web --hostname 127.0.0.1 --port 3000",
     "dev:api": "ts-node -P tsconfig.server.json src/server/main.ts",
     "dev:worker": "ts-node -P tsconfig.server.json src/worker/main.ts",
     "typecheck": "tsc -p tsconfig.server.json --noEmit && tsc -p src/web/tsconfig.json --noEmit",
     "build": "tsc -p tsconfig.server.json && next build src/web",
-    "test": "ts-node -P tsconfig.server.json tests/api.integration.ts"
+    "test": "ts-node -P tsconfig.server.json tests/api.integration.ts",
+    "test:migrations": "ts-node -P tsconfig.server.json tests/migrations.integration.ts"
   },
   "engines": {
     "node": ">=22"
@@ -28,6 +33,8 @@
     "@nestjs/core": "12.1.2",
     "@nestjs/platform-express": "12.1.2",
     "@nestjs/swagger": "12.0.2",
+    "@prisma/adapter-pg": "7.10.0",
+    "@prisma/client": "7.10.0",
     "class-transformer": "0.5.1",
     "class-validator": "0.15.1",
     "dotenv": "18.0.5",
@@ -45,6 +52,7 @@
     "@types/react-dom": "19.3.0",
     "concurrently": "10.0.5",
     "prettier": "3.9.9",
+    "prisma": "7.10.0",
     "ts-node": "10.9.2",
     "typescript": "5.9.3"
   }
