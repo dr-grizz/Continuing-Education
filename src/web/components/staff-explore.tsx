@@ -31,6 +31,7 @@ const sections: {
   noun: string;
   max: number;
 }[] = [
+  { key: "courses", legend: "Featured courses", noun: "course", max: 5 },
   { key: "pathways", legend: "Featured pathways", noun: "pathway", max: 3 },
   {
     key: "collections",
@@ -38,7 +39,6 @@ const sections: {
     noun: "collection",
     max: 3,
   },
-  { key: "courses", legend: "Featured courses", noun: "course", max: 5 },
 ];
 
 export function StaffExplore({

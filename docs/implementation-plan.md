@@ -168,7 +168,7 @@ The dashboards:
 
 ### Explore landing tab
 
-- **What:** the catalog opens on an **Explore** tab beside the complete **Courses**, **Collections** and **Pathways** tabs. It features up to 3 pathways, 3 collections and 5 courses, and signed-in learners get a personalized **For you** section first: the next course that is not registered in each followed pathway, registrations needing action, and saved courses.
+- **What:** the catalog opens on an **Explore** tab beside the complete **Courses**, **Collections** and **Pathways** tabs. It features up to 5 courses first, then 3 pathways and 3 collections, and signed-in learners get a personalized **For you** section first: the next course that is not registered in each followed pathway, registrations needing action, and saved courses.
 - **Selection:** staff with `catalog:write` choose and order the picks on **Staff → Explore page**, saved as one audited change. Empty spots fill automatically (open scheduled courses by soonest start, then the newest self-paced courses; newest collections and pathways). Only published items can be picked, and unpublishing removes a pick. Popularity ranking was rejected: with little data it is noise, and it keeps the same items on top.
 - **Prototype (October 7, 2026):** built as above. The former hard-coded three-course spotlight was replaced; its picks were carried over as the first featured courses.
 - **Open:** whether Marketing or the Content editor role (F2) should own the picks; "Continue your pathway" switches to completion-based progress after the Canvas connection (F11).

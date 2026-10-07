@@ -225,7 +225,8 @@ export default function Catalog() {
       (t !== "pathways" || allPathways.length > 0),
   );
   const current = visibleTabs.includes(tab) ? tab : "explore";
-  // Counts are hidden on phones so all four tabs fit without scrolling.
+  // Counts are hidden on phones so all four tabs fit without scrolling. Each
+  // label is one span, because MUI stacks a tab's label children in a column.
   const count = (n: number) => (
     <Box component="span" sx={{ display: { xs: "none", sm: "inline" } }}>
       &nbsp;({n})
@@ -233,9 +234,9 @@ export default function Catalog() {
   );
   const tabLabel: Record<CatalogTab, React.ReactNode> = {
     explore: "Explore",
-    courses: <>Courses{!loading && count(offerings.length)}</>,
-    collections: <>Collections{count(allCollections.length)}</>,
-    pathways: <>Pathways{count(allPathways.length)}</>,
+    courses: <span>Courses{!loading && count(offerings.length)}</span>,
+    collections: <span>Collections{count(allCollections.length)}</span>,
+    pathways: <span>Pathways{count(allPathways.length)}</span>,
   };
   // "See all" links switch tabs and move focus to the selected tab.
   function openTab(next: CatalogTab) {
@@ -308,6 +309,28 @@ export default function Catalog() {
             {!explore && (
               <LoadingCards label="Loading featured courses" count={3} />
             )}
+            {explore && explore.courses.length > 0 && (
+              <Box
+                component="section"
+                aria-labelledby="featured-courses"
+                sx={{ mb: 5 }}
+              >
+                <Typography
+                  id="featured-courses"
+                  variant="h5"
+                  component="h2"
+                  sx={{ mb: 2 }}
+                >
+                  Featured courses
+                </Typography>
+                <Box sx={cardGrid}>
+                  {explore.courses.map((o) => (
+                    <CourseCard key={o.id} offering={o} layout="grid" />
+                  ))}
+                </Box>
+                {seeAll("courses", `See all courses (${offerings.length})`)}
+              </Box>
+            )}
             {explore && explore.pathways.length > 0 && (
               <Box
                 component="section"
@@ -357,24 +380,6 @@ export default function Catalog() {
                   "collections",
                   `See all collections (${allCollections.length})`,
                 )}
-              </Box>
-            )}
-            {explore && explore.courses.length > 0 && (
-              <Box component="section" aria-labelledby="featured-courses">
-                <Typography
-                  id="featured-courses"
-                  variant="h5"
-                  component="h2"
-                  sx={{ mb: 2 }}
-                >
-                  Featured courses
-                </Typography>
-                <Box sx={cardGrid}>
-                  {explore.courses.map((o) => (
-                    <CourseCard key={o.id} offering={o} layout="grid" />
-                  ))}
-                </Box>
-                {seeAll("courses", `See all courses (${offerings.length})`)}
               </Box>
             )}
           </>
