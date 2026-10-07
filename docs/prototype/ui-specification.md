@@ -201,7 +201,7 @@ Mock sign-in. The Email field (`autoComplete="username"`) and Password field (`c
 
 - Signed out: a panel with a sign-in button.
 - Signed in: the session email, then registrations in two `h2` sections of outlined cards (category, `h3` linked title, schedule, status chip, and the status-specific content from the table above). The page polls every 2.5 seconds.
-  - **Available to you:** enrolled courses; ready now (self-paced or already started) first, then upcoming by start date.
+  - **Available to you:** enrolled courses. Those with a Canvas link come first, then those ready now (self-paced or already started), then upcoming by start date. Enrolled cards show no progress steps, only the Canvas link or the "link will appear" note.
   - **Registrations:** everything else in progress (approval, reservation, payment, preparing access, support review); declined and expired requests last.
   - When the worker enrolls a course, its card moves to Available to you. If focus was inside that card, focus follows it to its next action (Open course in Canvas) and the status region announces the change.
 - **Pathways you follow** (`h2`, shown when the learner follows any): one card per pathway with an `h3` link to its page and an ordered list of its published courses, each with the learner's registration status or "Not registered". A **Next** chip marks the first course that is not registered (or whose request expired, lapsed or was declined). No completion progress until Canvas.

@@ -196,9 +196,9 @@ export default function LearningPage() {
       setBusy("");
     }
   }
-  // Enrolled courses come first ("Available to you"): ready now (self-paced or
-  // already started), then upcoming by start date. Everything else is a
-  // registration in progress, with closed requests last.
+  // Enrolled courses come first ("Available to you"): those with a Canvas link
+  // first, then ready now (self-paced or already started), then upcoming by
+  // start date. Everything else is a registration in progress, closed last.
   const today = new Date().toISOString().slice(0, 10);
   const readyNow = (row: Learning) =>
     !row.start_date || row.start_date <= today;
@@ -206,6 +206,8 @@ export default function LearningPage() {
     .filter((row) => row.status === "enrolled")
     .sort(
       (a, b) =>
+        Number(Boolean(b.canvas_course_url)) -
+          Number(Boolean(a.canvas_course_url)) ||
         Number(readyNow(b)) - Number(readyNow(a)) ||
         (a.start_date ?? "").localeCompare(b.start_date ?? "") ||
         a.title.localeCompare(b.title),
@@ -364,40 +366,41 @@ export default function LearningPage() {
       )}
       {["provisioning", "enrolled", "exception"].includes(row.status) && (
         <>
-          <Stepper
-            activeStep={
-              row.status === "enrolled" ? 3 : row.stage === "canvas" ? 2 : 1
-            }
-            alternativeLabel
-            sx={{ mb: 3 }}
-          >
-            {[
-              "Payment recorded",
-              "Identity prepared",
-              "Enrollment verified",
-            ].map((label, index) => {
-              // Mark the step that failed when provisioning needs staff review.
-              const failed =
-                row.status === "exception" &&
-                index === (row.stage === "canvas" ? 2 : 1);
-              return (
-                <Step key={label}>
-                  <StepLabel
-                    error={failed}
-                    optional={
-                      failed ? (
-                        <Typography variant="caption" color="error">
-                          Needs staff review
-                        </Typography>
-                      ) : undefined
-                    }
-                  >
-                    {label}
-                  </StepLabel>
-                </Step>
-              );
-            })}
-          </Stepper>
+          {/* Enrolled courses need no progress steps; the course link is enough. */}
+          {row.status !== "enrolled" && (
+            <Stepper
+              activeStep={row.stage === "canvas" ? 2 : 1}
+              alternativeLabel
+              sx={{ mb: 3 }}
+            >
+              {[
+                "Payment recorded",
+                "Identity prepared",
+                "Enrollment verified",
+              ].map((label, index) => {
+                // Mark the step that failed when provisioning needs staff review.
+                const failed =
+                  row.status === "exception" &&
+                  index === (row.stage === "canvas" ? 2 : 1);
+                return (
+                  <Step key={label}>
+                    <StepLabel
+                      error={failed}
+                      optional={
+                        failed ? (
+                          <Typography variant="caption" color="error">
+                            Needs staff review
+                          </Typography>
+                        ) : undefined
+                      }
+                    >
+                      {label}
+                    </StepLabel>
+                  </Step>
+                );
+              })}
+            </Stepper>
+          )}
           {row.status === "exception" ? (
             <Alert severity="warning" role="note">
               We couldn’t finish setting up your course access. Your simulated
@@ -484,8 +487,8 @@ export default function LearningPage() {
             Available to you
           </Typography>
           <Typography color="text.secondary" sx={{ mt: 0.5 }}>
-            Courses you are enrolled in: ready now first, then upcoming by start
-            date.
+            Courses you are enrolled in. Courses you can open in Canvas are
+            listed first.
           </Typography>
           <Stack spacing={3} sx={{ mt: 2 }}>
             {available.map(renderCard)}

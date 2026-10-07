@@ -167,6 +167,8 @@ A real screen-reader session, forced colors and cross-browser checks remain outs
 
 ## Latest implementation record
 
+October 7, 2026: enrolled courses in My learning show no progress steps, and courses with a Canvas link are listed first under Available to you, then ready now, then upcoming. Checked in the browser with a synthetic learner who has three linked and two unlinked enrolled courses.
+
 October 7, 2026: My learning grouped, and For you removed from the catalog (branch `curation`).
 
 - **My learning:** registrations are split into **Available to you** (enrolled courses, ready now first, then upcoming by start date) and **Registrations** (everything in progress, with declined and expired requests last), above Pathways you follow and Saved courses. Followed pathways mark the **Next** course: the first not registered, or whose request expired, lapsed or was declined.
