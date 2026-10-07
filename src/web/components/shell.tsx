@@ -65,7 +65,14 @@ export default function Shell({ children }: { children: React.ReactNode }) {
       <AppBar
         position="static"
         elevation={0}
-        sx={{ bgcolor: brand.navy, color: brand.onNavy }}
+        sx={{
+          bgcolor: brand.navy,
+          color: brand.onNavy,
+          // Keep the brand bar in forced-color modes: the logo is white artwork
+          // and the gold underline marks the current page (navy/white is high
+          // contrast already).
+          "@media (forced-colors: active)": { forcedColorAdjust: "none" },
+        }}
       >
         <Container maxWidth="lg">
           <Toolbar

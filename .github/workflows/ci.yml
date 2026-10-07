@@ -81,9 +81,9 @@ jobs:
           done
       - name: Integration tests
         run: npm test
-      - name: Install the Playwright browser
-        run: npx playwright install --with-deps chromium
-      - name: Accessibility scans (axe)
+      - name: Install the Playwright browsers
+        run: npx playwright install --with-deps chromium firefox webkit
+      - name: Accessibility checks (axe in Chrome, Firefox and WebKit; forced colors; reflow and text resizing)
         run: npm run test:a11y
       - name: Server logs
         if: failure()

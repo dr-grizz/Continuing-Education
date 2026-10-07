@@ -119,7 +119,12 @@ npm run test:migrations
 npm run test:a11y
 ```
 
-`npm run test:a11y` runs axe (WCAG 2.2 A and AA rules) with Playwright against the catalog, sign-in, course detail, My learning, the staff sign-in screen, every staff tab and the main staff dialogs, in light, dark and phone layouts. Run `npx playwright install chromium` once first. Scans catch only part of WCAG; they do not replace the keyboard and screen-reader review in the checklist below.
+`npm run test:a11y` runs the automated accessibility checks with Playwright. Run `npx playwright install chromium firefox webkit` once first.
+- **axe (WCAG 2.2 A and AA):** the catalog tabs, sign-in, course detail, collection pages, My learning, the placeholder Canvas dialog, the staff sign-in screen, every staff tab and the main staff dialogs. They run in Chrome (light, dark and phone layouts), Firefox and WebKit.
+- **Forced colors** (Windows High Contrast): the header, the selected tab, the selected layout, filled buttons and focus rings stay visible.
+- **Reflow and text resizing:** no page scrolls horizontally at 320 px wide (400% zoom), with 200% text, or with increased text spacing.
+
+Run one group with `--project`, for example `npm run test:a11y -- --project=firefox`. The checks catch only part of WCAG; the [VoiceOver review script](docs/prototype/screen-reader-review.md) covers what needs a person. Remove a synthetic learner and their records with `npm run db:remove-test-learner -- <email>` (reserved test domains only).
 
 **Continuous integration:** `.github/workflows/ci.yml` runs all of the above on every pull request, against a throwaway PostgreSQL service with synthetic data. It never deploys or connects to external systems. Pull requests and pushes that change only documentation (`docs/**` or Markdown files) skip it; start it by hand from the Actions tab if needed. If the scans fail, the job uploads the Playwright report.
 
