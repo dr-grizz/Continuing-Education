@@ -24,6 +24,19 @@ const staffTabs = [
   "Staff",
   "Roles",
 ];
+const staffSlugs: Record<string, string> = {
+  Dashboard: "",
+  Offerings: "offerings",
+  Collections: "collections",
+  "Explore page": "explore",
+  Approvals: "approvals",
+  Exceptions: "exceptions",
+  Activity: "activity",
+  Transactions: "transactions",
+  Learners: "learners",
+  Staff: "staff",
+  Roles: "roles",
+};
 const overflow = (page: Page) =>
   page.evaluate(() => {
     const width = document.documentElement.clientWidth;
@@ -95,7 +108,9 @@ for (const [name, apply] of conditions)
       await apply(page);
       const problems: string[] = [];
       for (const tab of staffTabs) {
-        await page.getByRole("tab", { name: new RegExp(`^${tab}\\b`) }).click();
+        await page.goto(`/staff/${staffSlugs[tab]}`);
+        await expect(page.getByRole("heading", { level: 1 })).toHaveText(tab);
+        await apply(page);
         await settle(page);
         const found = await overflow(page);
         if (found) problems.push(`${tab}: ${found}`);

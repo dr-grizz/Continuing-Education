@@ -224,7 +224,11 @@ Mock sign-in. The Email field (`autoComplete="username"`) and Password field (`c
   - Without `approvals:decide`, Approvals shows "Approver role required" in place of the decision buttons.
   - Without `exceptions:resolve`, Exceptions shows "Support or IT/Canvas role required" instead of Review.
   - Without `prototype:simulate`, the simulation select is disabled with an explanation.
-- **Header and tabs:** the header keeps the API documentation link. Tabs are **Dashboard** (default), Offerings, **Collections**, **Explore page**, Approvals (count), Exceptions (count), Activity, **Learners**, **Staff** (staff administrators only) and **Roles**. The tab row scrolls on phones, with scroll arrows shown.
+- **Admin layout (October 7, 2026):** staff pages use the full window width (the shell drops its centered container and outer padding under `/staff`).
+  - **Sidebar** (`nav`, `aria-label="Staff sections"`): grouped links, each group a labelled list. Overview: Dashboard. Catalog: Offerings, Collections, Explore page. Learners: Approvals (count), Exceptions (count), Learners. Finance: Transactions (`payments:read`). Administration: Staff (`staff:manage`), Roles, Activity. Only permitted sections appear.
+  - The current link has `aria-current="page"` and the selected style, which uses `Highlight` in forced colors. On `md` and up the sidebar is sticky and collapses to a 72px icon rail (each link named, with a tooltip; remembered in `localStorage`). Below `md` it is a drawer opened by **Staff sections**, which closes on navigation.
+  - **Addresses:** each section is its own route via `staff/[[...section]]`: `/staff` (Dashboard), `/staff/offerings`, `/staff/collections`, `/staff/explore`, `/staff/approvals`, `/staff/exceptions`, `/staff/learners`, `/staff/transactions`, `/staff/staff` (with `?role=` for the Roles → Manage people filter), `/staff/roles` and `/staff/activity`. Unknown or not-permitted addresses are replaced by `/staff`. Back and forward work.
+  - **Header:** a "Staff workspace" overline, an `h1` with the section name, and a compact session panel (name, email, role chips, mock sign-in note, **Switch staff member**, **API docs**). Moving between sections focuses the `h1` and sets the document title to "{Section} · Staff".
 
 - **Collections:**
   - `h2` "Collections and pathways" with a one-line explanation and **New collection** (catalog managers).

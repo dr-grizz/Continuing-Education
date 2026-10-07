@@ -167,6 +167,20 @@ A real screen-reader session, forced colors and cross-browser checks remain outs
 
 ## Latest implementation record
 
+October 7, 2026: admin-style staff layout (branch `staff-admin-layout`, stacked on `stripe-checkout`).
+
+- **Layout:** staff pages are full width, with a grouped left sidebar (Overview, Catalog, Learners, Finance, Administration) in place of the 12-tab row. The sidebar collapses to an icon rail on desktop and becomes a drawer on phones. A compact session panel replaces the large header.
+- **Addresses:** each section is its own address via `staff/[[...section]]` (for example `/staff/transactions`), so Back, bookmarks and shared links work. Not-permitted or unknown sections go to `/staff`. The Roles → Manage people filter is kept in `?role=`.
+- **Accessibility:**
+  - Links with `aria-current="page"` rather than tabs; groups are labelled lists.
+  - Focus moves to the section heading on navigation, and the document title names the section.
+  - The selected item uses `Highlight` in forced colors.
+  - The scans found group labels placed inside the lists, which was fixed, and Explore page panels overflowing at 200% text next to the sidebar; they now wrap to fewer columns.
+- **Verification:**
+  - In the browser, from the keyboard: sidebar navigation (address, title and focus), Back, the collapsed rail, an Approver redirected away from Transactions, and the phone drawer at 375px (no horizontal scrolling).
+  - Roles → Manage people opens `/staff/staff?role=finance` with the filter applied.
+  - Accessibility checks 131/131; they now open staff sections by address and check the current sidebar item in forced colors.
+
 October 7, 2026: missed-webhook reconciliation and staff Transactions with refund requests (branch `stripe-checkout`).
 
 - **Reconciliation:** every 30 seconds the worker checks Checkout sessions more than a minute past expiry with Stripe. Paid ones are recorded exactly as the webhook would (actor `stripe-reconciliation`); still-open ones are expired in Stripe. A seat is not released while one of its sessions is unresolved (cap: one day past expiry).

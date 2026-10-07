@@ -60,3 +60,22 @@ test("keyboard focus stays visible on tabs", async ({ page }) => {
   // Drawn inside the tab, because the tab row clips overflow.
   expect(parseFloat(focused.offset)).toBeLessThan(0);
 });
+test("the current staff section stays marked", async ({ page }) => {
+  await page.request.post("/api/staff-session", {
+    data: { email: "admin@cuce.test" },
+  });
+  await page.goto("/staff/offerings");
+  const current = page
+    .getByRole("navigation", { name: "Staff sections" })
+    .locator('[aria-current="page"]');
+  await expect(current).toHaveText("Offerings");
+  const css = await current.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return {
+      adjust: style.forcedColorAdjust,
+      background: style.backgroundColor,
+    };
+  });
+  expect(css.adjust).toBe("none");
+  expect(css.background).not.toBe("rgba(0, 0, 0, 0)");
+});
