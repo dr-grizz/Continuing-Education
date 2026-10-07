@@ -158,6 +158,7 @@ test.describe("staff workspace", () => {
     "Approvals",
     "Exceptions",
     "Activity",
+    "Transactions",
     "Learners",
     "Staff",
     "Roles",

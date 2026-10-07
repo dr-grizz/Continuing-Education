@@ -5,11 +5,17 @@ import { StaffRole } from "../generated/prisma/enums";
 export const roleScopes: Record<StaffRole, readonly string[]> = {
   approver: ["approvals:decide"],
   catalog_manager: ["catalog:write"],
-  support: ["exceptions:resolve", "prototype:simulate", "learners:manage"],
-  // Refunds and reconciliation actions arrive with M5; read-only until then.
-  finance: ["reports:sales"],
+  support: [
+    "exceptions:resolve",
+    "prototype:simulate",
+    "learners:manage",
+    "payments:read",
+    "refunds:request",
+  ],
+  // Finance issues refunds in the Stripe Dashboard; the portal only requests them.
+  finance: ["reports:sales", "payments:read", "refunds:request"],
   it_canvas_admin: ["exceptions:resolve", "prototype:simulate"],
-  staff_admin: ["staff:manage"],
+  staff_admin: ["staff:manage", "payments:read"],
   // Reserved for the planned sales page editor; no endpoint uses it yet.
   content_editor: ["content:write"],
 };
@@ -41,12 +47,13 @@ export const roleDescriptions: Record<StaffRole, string> = {
   catalog_manager:
     "Creates, edits, publishes and unpublishes offerings, including prices and policies.",
   support:
-    "Recovers failed provisioning, manages learner account access and runs the prototype provisioning simulation.",
+    "Recovers failed provisioning, manages learner account access, views transactions and requests refunds, and runs the prototype provisioning simulation.",
   finance:
-    "Views sales dashboards, orders, reports and activity. Refund and reconciliation actions arrive with M5.",
+    "Views sales dashboards, transactions, reports and activity. Requests refunds and completes them in the Stripe Dashboard.",
   it_canvas_admin:
     "Recovers identity and Canvas failures, including recording manual enrollment.",
-  staff_admin: "Adds staff members, assigns roles and deactivates access.",
+  staff_admin:
+    "Adds staff members, assigns roles and deactivates access; views transactions.",
   content_editor:
     "Chooses the learner Explore tab picks and will edit customizable sales pages once the sales page editor exists.",
 };
@@ -62,6 +69,9 @@ export const scopeDescriptions: Record<string, string> = {
   "prototype:simulate": "Change the prototype provisioning simulation",
   "staff:manage": "Manage staff members and their roles",
   "learners:manage": "Deactivate or reactivate learner accounts",
+  "payments:read": "View transactions (read-only)",
+  "refunds:request":
+    "Request a refund; Finance completes it in the Stripe Dashboard",
   "content:write":
     "Choose the Explore tab picks; edit sales pages (planned, no editing screens yet)",
 };

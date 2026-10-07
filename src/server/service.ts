@@ -616,8 +616,21 @@ export class PortalService {
     return created.id;
   }
   // Signed Stripe webhook events (the caller verifies the signature). Each
-  // event is handled once; only a webhook marks a Stripe payment paid.
+  // event is handled once; only Stripe (by webhook or reconciliation) marks a
+  // Stripe payment paid.
   async stripeEvent(event: Stripe.Event) {
+    // Newer API versions omit the refund list from charge.refunded; look up
+    // the latest refund ID first (best effort, outside the transaction).
+    let refundId: string | null = null;
+    if (event.type === "charge.refunded") {
+      const charge = event.data.object as Stripe.Charge;
+      refundId = charge.refunds?.data?.[0]?.id ?? null;
+      if (!refundId && stripeEnabled)
+        refundId = await stripe.refunds
+          .list({ charge: charge.id, limit: 1 })
+          .then((list) => list.data[0]?.id ?? null)
+          .catch(() => null);
+    }
     return transaction(async (tx) => {
       const [fresh] = await sql<{ id: string }>(
         tx,
@@ -629,101 +642,322 @@ export class PortalService {
       if (
         event.type === "checkout.session.completed" ||
         event.type === "checkout.session.async_payment_succeeded"
-      ) {
-        const session = event.data.object as Stripe.Checkout.Session;
-        if (session.payment_status !== "paid") return { received: true };
-        const [stored] = await sql<{
-          entitlement_id: string;
-          amount_cents: number;
-          status: string;
-        }>(
+      )
+        await this.applyPaidSession(
           tx,
-          "SELECT entitlement_id,amount_cents,status FROM checkout_sessions WHERE id=$1 FOR UPDATE",
-          session.id,
+          event.data.object as Stripe.Checkout.Session,
+          "stripe-webhook",
         );
-        if (!stored)
-          throw new BadRequestException(
-            `Unknown Checkout session ${session.id}.`,
-          );
-        if (stored.status === "complete") return { received: true };
-        if (
-          session.metadata?.entitlement_id !== stored.entitlement_id ||
-          session.amount_total !== stored.amount_cents ||
-          session.currency !== "usd"
-        )
-          throw new BadRequestException(
-            "Checkout session does not match its reservation.",
-          );
-        await tx.checkout_sessions.update({
-          where: { id: session.id },
-          data: { status: "complete", completed_at: new Date() },
-        });
-        const [registration] = await sql<{ status: string }>(
+      else if (event.type === "checkout.session.expired")
+        await this.applyExpiredSession(
           tx,
-          "SELECT status FROM entitlements WHERE id=$1::uuid FOR UPDATE",
-          stored.entitlement_id,
+          (event.data.object as Stripe.Checkout.Session).id,
+          "stripe-webhook",
         );
-        const paymentIntentId =
-          typeof session.payment_intent === "string"
-            ? session.payment_intent
-            : (session.payment_intent?.id ?? null);
-        if (
-          registration.status === "reserved" ||
-          registration.status === "expired"
-        )
-          // Payment is authoritative: a seat that expired while Stripe was
-          // confirming is honored and flagged for staff.
-          await this.recordPayment(
-            tx,
-            stored.entitlement_id,
-            stored.amount_cents,
-            {
-              actor: "stripe-webhook",
-              action: "payment.stripe_paid",
-              stripe: { sessionId: session.id, paymentIntentId },
-              details: {
-                checkout_session_id: session.id,
-                payment_intent_id: paymentIntentId,
-                ...(registration.status === "expired"
-                  ? { late_after_expiry: true }
-                  : {}),
-              },
-            },
-          );
-        else
-          await audit(
-            tx,
-            "stripe-webhook",
-            "payment.stripe_unmatched",
-            stored.entitlement_id,
-            {
-              checkout_session_id: session.id,
-              registration_status: registration.status,
-            },
-          );
-      } else if (event.type === "checkout.session.expired") {
-        const session = event.data.object as Stripe.Checkout.Session;
-        const updated = await tx.checkout_sessions.updateMany({
-          where: { id: session.id, status: "open" },
-          data: { status: "expired" },
-        });
-        if (updated.count) {
-          const stored = await tx.checkout_sessions.findUnique({
-            where: { id: session.id },
-          });
-          await audit(
-            tx,
-            "stripe-webhook",
-            "payment.checkout_expired",
-            stored?.entitlement_id ?? null,
-            { checkout_session_id: session.id },
-          );
-        }
-      }
-      // Other events (refunds and disputes) are stored for reconciliation and
-      // handled when the refund workflow is built (decision P5).
+      else if (event.type === "charge.refunded")
+        await this.applyRefund(
+          tx,
+          event.data.object as Stripe.Charge,
+          refundId,
+        );
+      // Other events (disputes) are stored for reconciliation until P5 is decided.
       return { received: true };
     });
+  }
+  private async applyPaidSession(
+    tx: Tx,
+    session: Stripe.Checkout.Session,
+    actor: string,
+  ) {
+    if (session.payment_status !== "paid") return;
+    const [stored] = await sql<{
+      entitlement_id: string;
+      amount_cents: number;
+      status: string;
+    }>(
+      tx,
+      "SELECT entitlement_id,amount_cents,status FROM checkout_sessions WHERE id=$1 FOR UPDATE",
+      session.id,
+    );
+    if (!stored)
+      throw new BadRequestException(`Unknown Checkout session ${session.id}.`);
+    if (stored.status === "complete") return;
+    if (
+      session.metadata?.entitlement_id !== stored.entitlement_id ||
+      session.amount_total !== stored.amount_cents ||
+      session.currency !== "usd"
+    )
+      throw new BadRequestException(
+        "Checkout session does not match its reservation.",
+      );
+    await tx.checkout_sessions.update({
+      where: { id: session.id },
+      data: { status: "complete", completed_at: new Date() },
+    });
+    const [registration] = await sql<{ status: string }>(
+      tx,
+      "SELECT status FROM entitlements WHERE id=$1::uuid FOR UPDATE",
+      stored.entitlement_id,
+    );
+    const paymentIntentId =
+      typeof session.payment_intent === "string"
+        ? session.payment_intent
+        : (session.payment_intent?.id ?? null);
+    if (registration.status === "reserved" || registration.status === "expired")
+      // Payment is authoritative: a seat that expired while Stripe was
+      // confirming is honored and flagged for staff.
+      await this.recordPayment(tx, stored.entitlement_id, stored.amount_cents, {
+        actor,
+        action: "payment.stripe_paid",
+        stripe: { sessionId: session.id, paymentIntentId },
+        details: {
+          checkout_session_id: session.id,
+          payment_intent_id: paymentIntentId,
+          ...(registration.status === "expired"
+            ? { late_after_expiry: true }
+            : {}),
+        },
+      });
+    else
+      await audit(
+        tx,
+        actor,
+        "payment.stripe_unmatched",
+        stored.entitlement_id,
+        {
+          checkout_session_id: session.id,
+          registration_status: registration.status,
+        },
+      );
+  }
+  private async applyExpiredSession(tx: Tx, sessionId: string, actor: string) {
+    const updated = await tx.checkout_sessions.updateMany({
+      where: { id: sessionId, status: "open" },
+      data: { status: "expired" },
+    });
+    if (!updated.count) return;
+    const stored = await tx.checkout_sessions.findUnique({
+      where: { id: sessionId },
+    });
+    await audit(
+      tx,
+      actor,
+      "payment.checkout_expired",
+      stored?.entitlement_id ?? null,
+      { checkout_session_id: sessionId },
+    );
+  }
+  // charge.refunded from Stripe: Finance refunded in the Stripe Dashboard.
+  // Records the refunded amount and closes any open portal request. Course
+  // access is unchanged until decision P5 says otherwise.
+  private async applyRefund(
+    tx: Tx,
+    charge: Stripe.Charge,
+    refundId: string | null,
+  ) {
+    const paymentIntentId =
+      typeof charge.payment_intent === "string"
+        ? charge.payment_intent
+        : (charge.payment_intent?.id ?? null);
+    const [order] = paymentIntentId
+      ? await sql<{ id: string; amount_cents: number; entitlement_id: string }>(
+          tx,
+          "SELECT id,amount_cents,entitlement_id FROM orders WHERE stripe_payment_intent_id=$1 FOR UPDATE",
+          paymentIntentId,
+        )
+      : [];
+    if (!order) {
+      await audit(tx, "stripe-webhook", "payment.refund_unmatched", null, {
+        charge_id: charge.id,
+        payment_intent_id: paymentIntentId,
+      });
+      return;
+    }
+    const refunded = Math.min(charge.amount_refunded, order.amount_cents);
+    await tx.orders.update({
+      where: { id: order.id },
+      data: { refunded_cents: refunded, refunded_at: new Date() },
+    });
+    const closed = await tx.refund_requests.updateMany({
+      where: { order_id: order.id, status: "requested" },
+      data: {
+        status: "refunded",
+        resolved_at: new Date(),
+        resolved_by: "stripe-webhook",
+        stripe_refund_id: refundId,
+      },
+    });
+    await audit(
+      tx,
+      "stripe-webhook",
+      "payment.refunded",
+      order.entitlement_id,
+      {
+        order_id: order.id,
+        refunded_cents: refunded,
+        full: refunded === order.amount_cents,
+        ...(closed.count ? {} : { without_portal_request: true }),
+      },
+    );
+  }
+  // Read-only transaction list for staff with payments:read.
+  async transactions() {
+    return sql<{
+      id: string;
+      created_at: Date;
+      amount_cents: number;
+      refunded_cents: number;
+      refunded_at: Date | null;
+      provider: string;
+      stripe_payment_intent_id: string | null;
+      learner_email: string | null;
+      offering_title: string;
+      registration_status: string;
+      request_id: string | null;
+      request_status: string | null;
+      request_reason: string | null;
+      request_created_at: Date | null;
+      requested_by_email: string | null;
+    }>(
+      prisma,
+      `SELECT o.id,o.created_at,o.amount_cents,o.refunded_cents,o.refunded_at,o.provider,o.stripe_payment_intent_id,
+         l.email AS learner_email,f.title AS offering_title,e.status AS registration_status,
+         r.id AS request_id,r.status AS request_status,r.reason AS request_reason,r.created_at AS request_created_at,
+         s.email AS requested_by_email
+       FROM orders o JOIN entitlements e ON e.id=o.entitlement_id
+       JOIN learners l ON l.id=e.learner_id JOIN offerings f ON f.id=e.offering_id
+       LEFT JOIN LATERAL (SELECT * FROM refund_requests q WHERE q.order_id=o.id ORDER BY q.created_at DESC LIMIT 1) r ON true
+       LEFT JOIN staff_members s ON r.requested_by='staff:'||s.id::text
+       ORDER BY o.created_at DESC LIMIT 500`,
+    );
+  }
+  // A refund request: nothing is refunded here. Finance issues the refund in
+  // the Stripe Dashboard, and charge.refunded marks the request refunded.
+  async requestRefund(
+    principal: Principal,
+    key: string,
+    orderId: string,
+    reason: string,
+  ) {
+    return this.command(
+      principal,
+      key,
+      { action: "refund.request", orderId, reason },
+      async (tx) => {
+        const [order] = await sql<{
+          id: string;
+          provider: string;
+          amount_cents: number;
+          refunded_cents: number;
+          entitlement_id: string;
+        }>(
+          tx,
+          "SELECT id,provider,amount_cents,refunded_cents,entitlement_id FROM orders WHERE id=$1::uuid FOR UPDATE",
+          orderId,
+        );
+        if (!order) throw new NotFoundException("Transaction not found.");
+        if (order.provider !== "stripe")
+          throw new ConflictException(
+            "This was a simulated payment; there is nothing to refund in Stripe.",
+          );
+        if (order.refunded_cents >= order.amount_cents)
+          throw new ConflictException("This payment is already refunded.");
+        const open = await tx.refund_requests.findFirst({
+          where: { order_id: orderId, status: "requested" },
+        });
+        if (open)
+          throw new ConflictException(
+            "A refund request for this payment is already waiting for Finance.",
+          );
+        const request = await tx.refund_requests.create({
+          data: {
+            order_id: orderId,
+            amount_cents: order.amount_cents - order.refunded_cents,
+            reason: reason.trim(),
+            requested_by: principal.actor,
+          },
+        });
+        await audit(
+          tx,
+          principal.actor,
+          "refund.requested",
+          order.entitlement_id,
+          {
+            order_id: orderId,
+            amount_cents: request.amount_cents,
+            reason: request.reason,
+          },
+        );
+        return request;
+      },
+    );
+  }
+  async cancelRefundRequest(
+    principal: Principal,
+    key: string,
+    requestId: string,
+    reason: string,
+  ) {
+    return this.command(
+      principal,
+      key,
+      { action: "refund.cancel", requestId, reason },
+      async (tx) => {
+        const updated = await tx.refund_requests.updateMany({
+          where: { id: requestId, status: "requested" },
+          data: {
+            status: "cancelled",
+            resolved_at: new Date(),
+            resolved_by: principal.actor,
+            resolution_note: reason.trim(),
+          },
+        });
+        if (!updated.count)
+          throw new ConflictException(
+            "This request is no longer waiting. Refresh and retry.",
+          );
+        const request = await tx.refund_requests.findUniqueOrThrow({
+          where: { id: requestId },
+          include: { orders: { select: { entitlement_id: true } } },
+        });
+        await audit(
+          tx,
+          principal.actor,
+          "refund.request_cancelled",
+          request.orders.entitlement_id,
+          { order_id: request.order_id, reason: reason.trim() },
+        );
+        const { orders, ...rest } = request;
+        return rest;
+      },
+    );
+  }
+  // Sessions past their expiry that no webhook resolved (the listener was
+  // down, or a delivery was lost) are checked with Stripe directly. Paid ones
+  // are recorded exactly as the webhook would; expired ones release their hold.
+  async reconcileCheckouts(limit = 10) {
+    if (!stripeEnabled) return 0;
+    const due = await prisma.checkout_sessions.findMany({
+      where: {
+        status: "open",
+        expires_at: { lt: new Date(Date.now() - 60_000) },
+      },
+      orderBy: { expires_at: "asc" },
+      take: limit,
+      select: { id: true },
+    });
+    for (const { id } of due) {
+      let session = await stripe.checkout.sessions.retrieve(id);
+      // Stripe normally expires sessions itself; force it if one is still open.
+      if (session.status === "open")
+        session = await stripe.checkout.sessions.expire(id);
+      await transaction(async (tx) => {
+        if (session.status === "complete")
+          await this.applyPaidSession(tx, session, "stripe-reconciliation");
+        else await this.applyExpiredSession(tx, id, "stripe-reconciliation");
+      });
+    }
+    return due.length;
   }
   async learning(principal: Principal) {
     return sql<LearningRow>(

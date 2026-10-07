@@ -1939,6 +1939,187 @@ async function main() {
       console.log(
         "PASS: Stripe webhooks: signed events only, amount checked, paid once, enrollment queued, expiry recorded",
       );
+
+      // Transactions are read-only; refunds are requested here and issued in Stripe.
+      const paidOrder = (
+        await db.query("SELECT id FROM orders WHERE entitlement_id=$1", [
+          reservation.id,
+        ])
+      ).rows[0].id as string;
+      assert.equal(
+        (await http("staff/transactions", STAFF, undefined, approverId)).status,
+        403,
+        "approvers cannot see transactions",
+      );
+      const listed = await (
+        await http("staff/transactions", STAFF, undefined, financeId)
+      ).json();
+      const row = listed.find((t: any) => t.id === paidOrder);
+      assert.equal(row.provider, "stripe");
+      assert.equal(row.amount_cents, 100);
+      const refundPath = `staff/transactions/${paidOrder}/refund-requests`;
+      assert.equal(
+        (
+          await http(
+            refundPath,
+            STAFF,
+            { reason: "Learner withdrew before the start" },
+            approverId,
+          )
+        ).status,
+        403,
+        "requesting refunds needs refunds:request",
+      );
+      assert.equal(
+        (await http(refundPath, STAFF, { reason: "short" }, supportId)).status,
+        400,
+      );
+      const firstRequest = await (
+        await http(
+          refundPath,
+          STAFF,
+          { reason: "Learner withdrew before the start" },
+          supportId,
+        )
+      ).json();
+      assert.equal(firstRequest.status, "requested");
+      assert.equal(firstRequest.amount_cents, 100);
+      assert.equal(
+        (
+          await http(
+            refundPath,
+            STAFF,
+            { reason: "Duplicate request for the same payment" },
+            financeId,
+          )
+        ).status,
+        409,
+        "one waiting request per payment",
+      );
+      assert.equal(
+        (
+          await http(
+            `staff/refund-requests/${firstRequest.id}/cancel`,
+            STAFF,
+            { reason: "Requested on the wrong registration" },
+            supportId,
+          )
+        ).status,
+        200,
+      );
+      const secondRequest = await (
+        await http(
+          refundPath,
+          STAFF,
+          { reason: "Learner withdrew before the start" },
+          financeId,
+        )
+      ).json();
+      const simulatedOrder = (
+        await db.query(
+          "SELECT o.id FROM orders o JOIN entitlements e ON e.id=o.entitlement_id WHERE o.provider='simulated' AND e.offering_id=ANY($1::uuid[]) LIMIT 1",
+          [ids],
+        )
+      ).rows[0];
+      if (simulatedOrder)
+        assert.equal(
+          (
+            await http(
+              `staff/transactions/${simulatedOrder.id}/refund-requests`,
+              STAFF,
+              { reason: "Learner withdrew before the start" },
+              supportId,
+            )
+          ).status,
+          409,
+          "simulated payments cannot be refunded in Stripe",
+        );
+      assert.equal(
+        (
+          await postEvent(
+            stripeEvent("charge.refunded", {
+              id: `ch_test_${randomUUID().slice(0, 8)}`,
+              object: "charge",
+              payment_intent: paidSession.payment_intent,
+              amount_refunded: 100,
+              refunds: {
+                object: "list",
+                data: [{ id: "re_test_integration" }],
+              },
+            }),
+          )
+        ).status,
+        200,
+      );
+      const refundedOrder = (
+        await db.query("SELECT refunded_cents FROM orders WHERE id=$1", [
+          paidOrder,
+        ])
+      ).rows[0];
+      assert.equal(refundedOrder.refunded_cents, 100);
+      const closedRequest = (
+        await db.query(
+          "SELECT status,stripe_refund_id,resolved_by FROM refund_requests WHERE id=$1",
+          [secondRequest.id],
+        )
+      ).rows[0];
+      assert.equal(closedRequest.status, "refunded");
+      assert.equal(closedRequest.stripe_refund_id, "re_test_integration");
+      assert.equal(closedRequest.resolved_by, "stripe-webhook");
+      assert.equal(
+        (
+          await http(
+            refundPath,
+            STAFF,
+            { reason: "Another request after the refund" },
+            supportId,
+          )
+        ).status,
+        409,
+        "fully refunded payments cannot be requested again",
+      );
+      console.log(
+        "PASS: transactions are read-only for payments:read; refund requests are validated and closed by Stripe's charge.refunded",
+      );
+
+      // A lapsed reservation keeps its seat while its Checkout session is unresolved.
+      const held = await reserve(await learner(), await seed(false));
+      const heldSession = `cs_test_${randomUUID().replace(/-/g, "")}`;
+      await db.query(
+        "INSERT INTO checkout_sessions(id,entitlement_id,amount_cents,expires_at) VALUES ($1,$2,100,now()+interval '10 minutes')",
+        [heldSession, held.id],
+      );
+      await db.query(
+        "UPDATE entitlements SET reserved_until=now()-interval '1 minute' WHERE id=$1",
+        [held.id],
+      );
+      await new Promise((resolve) => setTimeout(resolve, 2500));
+      assert.equal(
+        (
+          await db.query("SELECT status FROM entitlements WHERE id=$1", [
+            held.id,
+          ])
+        ).rows[0].status,
+        "reserved",
+        "the worker keeps the seat while Checkout is unresolved",
+      );
+      await db.query(
+        "UPDATE checkout_sessions SET status='expired' WHERE id=$1",
+        [heldSession],
+      );
+      await new Promise((resolve) => setTimeout(resolve, 2500));
+      assert.equal(
+        (
+          await db.query("SELECT status FROM entitlements WHERE id=$1", [
+            held.id,
+          ])
+        ).rows[0].status,
+        "expired",
+        "the seat is released once the session is resolved",
+      );
+      console.log(
+        "PASS: seats are held while a Checkout session is unresolved and released after",
+      );
     }
     if (!process.env.STRIPE_SECRET_KEY) {
       const pending = await reserve(await learner(), await seed(false));

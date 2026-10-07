@@ -167,6 +167,18 @@ A real screen-reader session, forced colors and cross-browser checks remain outs
 
 ## Latest implementation record
 
+October 7, 2026: missed-webhook reconciliation and staff Transactions with refund requests (branch `stripe-checkout`).
+
+- **Reconciliation:** every 30 seconds the worker checks Checkout sessions more than a minute past expiry with Stripe. Paid ones are recorded exactly as the webhook would (actor `stripe-reconciliation`); still-open ones are expired in Stripe. A seat is not released while one of its sessions is unresolved (cap: one day past expiry).
+- **Transactions tab** (`payments:read`: Finance, Support, staff administrators): read-only list with search, status filter, sorting, paging, phone cards and **View in Stripe** links.
+- **Refund requests** (`refunds:request`: Finance, Support): **Request refund** and **Cancel request**, each with a reason. Nothing is refunded in the portal; Finance issues the refund in the Stripe Dashboard. `charge.refunded` records the refunded amount, marks the request refunded and stores the Stripe refund ID (looked up best-effort). Refunds made without a request are recorded and flagged. Assumptions until P5 is settled: full amount only, and course access unchanged.
+- **Database:** migration `9_refund_requests` adds refunded amounts on orders and the `refund_requests` table with checks. Backed up first.
+- **Verification:**
+  - Integration 23/23: the role gates, reason validation, one waiting request per payment, cancel, simulated payments refused, `charge.refunded` closing the request, and seats held while a session is unresolved.
+  - Migrations 9/9. Accessibility 130/130, including the Transactions tab.
+  - Against the sandbox: Finance requested a refund from the keyboard; the refund issued in Stripe (test mode) arrived through `stripe listen` and marked it Refunded with $149.00 refunded. A session with a simulated missed webhook was expired by reconciliation in both Stripe and the portal.
+  - Fixed during the check: focus dropped to the page after a refund action, because the opening button was replaced; it now moves to the row's new action.
+
 October 7, 2026: Stripe-hosted Checkout for the sandbox (branch `stripe-checkout`; [ADR 0005](../adr/0005-stripe-hosted-checkout.md)).
 
 - **Decisions:**

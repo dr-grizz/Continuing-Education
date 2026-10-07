@@ -19,6 +19,7 @@ const staffTabs = [
   "Approvals",
   "Exceptions",
   "Activity",
+  "Transactions",
   "Learners",
   "Staff",
   "Roles",

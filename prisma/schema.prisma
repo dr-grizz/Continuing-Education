@@ -151,16 +151,20 @@ model operations {
 
 /// Simulated payment record (not financial evidence). amount_cents is the quoted price.
 model orders {
-  id                         String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  entitlement_id             String          @unique @db.Uuid
+  id                         String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  entitlement_id             String            @unique @db.Uuid
   amount_cents               Int
-  payment_status             String          @default("simulated_paid")
-  created_at                 DateTime        @default(now()) @db.Timestamptz(6)
+  payment_status             String            @default("simulated_paid")
+  created_at                 DateTime          @default(now()) @db.Timestamptz(6)
   /// simulated (prototype command) or stripe (confirmed by a signed Checkout webhook).
-  provider                   PaymentProvider @default(simulated)
-  stripe_checkout_session_id String?         @unique
-  stripe_payment_intent_id   String?         @unique
-  entitlements               entitlements    @relation(fields: [entitlement_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  provider                   PaymentProvider   @default(simulated)
+  stripe_checkout_session_id String?           @unique
+  stripe_payment_intent_id   String?           @unique
+  /// Amount refunded in Stripe (from charge.refunded). CHECK orders_refunded_check: 0 to amount_cents.
+  refunded_cents             Int               @default(0)
+  refunded_at                DateTime?         @db.Timestamptz(6)
+  refund_requests            refund_requests[]
+  entitlements               entitlements      @relation(fields: [entitlement_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 }
 
 /// Prototype-only settings, for example provisioning_outcome for simulated failures.
@@ -381,4 +385,33 @@ enum CheckoutStatus {
   expired
 
   @@map("checkout_status")
+}
+
+/// A staff request to refund an order. The portal never refunds: Finance issues
+/// the refund in the Stripe Dashboard, and charge.refunded marks it refunded.
+/// CHECK refund_requests_reason_check: 10-500 characters.
+model refund_requests {
+  id               String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  order_id         String              @db.Uuid
+  amount_cents     Int
+  reason           String
+  status           RefundRequestStatus @default(requested)
+  requested_by     String
+  created_at       DateTime            @default(now()) @db.Timestamptz(6)
+  resolved_at      DateTime?           @db.Timestamptz(6)
+  resolved_by      String?
+  resolution_note  String?
+  stripe_refund_id String?
+  orders           orders              @relation(fields: [order_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([order_id])
+}
+
+/// Refund request lifecycle: requested, then refunded (by Stripe) or cancelled (by staff).
+enum RefundRequestStatus {
+  requested
+  refunded
+  cancelled
+
+  @@map("refund_request_status")
 }

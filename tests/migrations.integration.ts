@@ -180,6 +180,7 @@ async function main() {
       "entitlement_status",
       "operation_status",
       "payment_provider",
+      "refund_request_status",
       "simulated_outcome",
       "staff_role",
     ]);

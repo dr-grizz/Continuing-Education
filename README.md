@@ -85,7 +85,7 @@ Stop application processes with Ctrl+C. `docker compose stop db` stops PostgreSQ
    - Avery Approver can decide approvals but not edit offerings.
    - Casey Catalog Manager manages offerings, collections and pathways.
    - Sam Support and Ivy (IT/Canvas) recover exceptions.
-   - Fran Finance views reports, including sales on the **Dashboard** tab. Other staff see enrollment only.
+   - Fran Finance views reports, including sales on the **Dashboard** tab (other staff see enrollment only), and **Transactions**, where Finance and Support request refunds that Finance then issues in the Stripe Dashboard.
    - Cory Content Editor chooses the Explore tab picks (with catalog managers) and will edit sales pages once that editor exists.
    - The Demo Staff Administrator holds every role and manages people in the **Staff** and **Roles** tabs.
 

@@ -40,6 +40,7 @@ import {
 import { StaffRoles, StaffUsers } from "../../components/staff-admin";
 import { StaffCollections } from "../../components/staff-collections";
 import { StaffExplore } from "../../components/staff-explore";
+import { StaffTransactions } from "../../components/staff-transactions";
 import { StaffLearners } from "../../components/staff-learners";
 import { StaffDashboard } from "../../components/staff-dashboard";
 import {
@@ -116,6 +117,7 @@ type TabName =
   | "offerings"
   | "collections"
   | "explore"
+  | "transactions"
   | "approvals"
   | "exceptions"
   | "activity"
@@ -367,6 +369,9 @@ function StaffWorkspace({ session }: { session: Session }) {
         <Tab value="approvals" label={`Approvals (${requests.length})`} />
         <Tab value="exceptions" label={`Exceptions (${exceptions.length})`} />
         <Tab value="activity" label="Activity" />
+        {can("payments:read") && (
+          <Tab value="transactions" label="Transactions" />
+        )}
         <Tab value="learners" label="Learners" />
         {can("staff:manage") && <Tab value="users" label="Staff" />}
         <Tab value="roles" label="Roles" />
@@ -872,6 +877,12 @@ function StaffWorkspace({ session }: { session: Session }) {
         <StaffExplore
           canManage={canCatalog || can("content:write")}
           offerings={courses}
+          onChanged={setMessage}
+        />
+      )}
+      {tab === "transactions" && can("payments:read") && (
+        <StaffTransactions
+          canRequest={can("refunds:request")}
           onChanged={setMessage}
         />
       )}

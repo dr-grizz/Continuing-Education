@@ -29,6 +29,7 @@ import {
 import { prisma, sql } from "../domain/prisma";
 import { PrototypeGuard, requireAnyScope, requireScope } from "./auth";
 import {
+  RefundReasonDto,
   CollectionDto,
   ExploreDto,
   CollectionEditDto,
@@ -320,6 +321,43 @@ class WorkflowController {
     // Decided Oct 7, 2026: catalog managers and content editors both curate Explore.
     requireAnyScope(req, "catalog:write", "content:write");
     return this.portal.setExplore(req.principal, key, dto);
+  }
+  @Get("staff/transactions")
+  @ApiOperation({
+    summary:
+      "Transactions (orders) with refund status, read-only (payments:read)",
+  })
+  transactions(@Req() req: any) {
+    requireScope(req, "payments:read");
+    return this.portal.transactions();
+  }
+  @Post("staff/transactions/:id/refund-requests")
+  @ApiOperation({
+    summary:
+      "Request a refund; Finance issues it in the Stripe Dashboard (refunds:request)",
+  })
+  requestRefund(
+    @Req() req: any,
+    @Headers("idempotency-key") key: string,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body() dto: RefundReasonDto,
+  ) {
+    requireScope(req, "refunds:request");
+    return this.portal.requestRefund(req.principal, key, id, dto.reason);
+  }
+  @Post("staff/refund-requests/:id/cancel")
+  @HttpCode(200)
+  @ApiOperation({
+    summary: "Cancel a waiting refund request (refunds:request)",
+  })
+  cancelRefundRequest(
+    @Req() req: any,
+    @Headers("idempotency-key") key: string,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body() dto: RefundReasonDto,
+  ) {
+    requireScope(req, "refunds:request");
+    return this.portal.cancelRefundRequest(req.principal, key, id, dto.reason);
   }
   @Get("staff/collections")
   @ApiOperation({
