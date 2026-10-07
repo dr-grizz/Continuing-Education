@@ -4,7 +4,6 @@ import { useRouter } from "next/navigation";
 import { CollectionCard } from "../components/collection-card";
 import { CourseCard } from "../components/course-card";
 import { useDemoAuth } from "../components/demo-auth";
-import { ForYou } from "../components/for-you";
 import { LoadingCards } from "../components/loading";
 import {
   Alert,
@@ -380,7 +379,6 @@ export default function Catalog() {
       <Box {...panel("explore")}>
         {current === "explore" && (
           <>
-            {auth.email && <ForYou />}
             {!explore && (
               <LoadingCards label="Loading featured courses" count={3} />
             )}

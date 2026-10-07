@@ -159,13 +159,6 @@ Outlined `Paper`. Catalog cards add a hover and focus-within state: primary bord
 2. **Landing:** a signed-in learner who opens the bare home page from outside the site (empty or external referrer, a fresh navigation rather than a reload or back/forward, at most once per page load) is sent to My learning with `router.replace`. In-site links, URLs with a tab or filter, reloads and back/forward show the catalog.
 3. Tabs (each label is a single span, because MUI stacks a tab's label children; `aria-label="Catalog views"`, manual activation: arrow keys move, Enter or Space selects): **Explore** (default), **Courses**, **Collections**, **Pathways**. Counts follow the last three labels from `sm` up and are hidden on phones so all four tabs fit at 320–375px. A tab with nothing published is hidden. The tab is kept in the URL as `tab` (omitted for Explore). Each panel has `role="tabpanel"` and is labelled by its tab. A **List/Grid** toggle (`aria-label="Card layout"`) sits at the right of the tab row (below it on phones), applies to every tab, and is remembered in `localStorage`. Grid shows 1, 2 or 3 columns; list shows one card per row.
 4. **Explore:**
-   - Signed-in learners first see **For you** (`h2`):
-     - an info note when registrations need action (reserved or approved), linking to My learning
-     - **Continue your pathways** (`h3`): one card per followed pathway with its next course that is not registered (none, expired, lapsed or declined), "step N of M" and View course; or "You have registered for every course in this pathway"
-     - **Saved courses** (`h3`): up to three links and a link to My learning
-     - otherwise a one-line prompt to follow a pathway or save courses
-
-     It uses registration status only; there is no completion progress before Canvas.
    - **Featured courses** (up to 5), then **Featured pathways** (up to 3) and **Featured collections** (up to 3), each an `h2` section with a card grid (1, 2 or 3 columns) and a "See all {type} (n)" button. That button selects the matching tab and moves focus to it.
    - Items come from `GET /explore`: staff picks in their order, then automatic fill (open scheduled courses by soonest start, then the newest self-paced; newest collections and pathways). This replaced the former hard-coded three-course spotlight; its picks were carried over as the first featured courses.
 5. **Courses:**
@@ -207,8 +200,11 @@ Mock sign-in. The Email field (`autoComplete="username"`) and Password field (`c
 ### My learning (`/learning`)
 
 - Signed out: a panel with a sign-in button.
-- Signed in: the session email, then an `h2` **Registrations** with one outlined card per registration (category, `h3` linked title, schedule, status chip, and the status-specific content from the table above). The page polls every 2.5 seconds.
-- **Pathways you follow** (`h2`, shown when the learner follows any): one card per pathway with an `h3` link to its page and an ordered list of its published courses, each with the learner's registration status or "Not registered". No completion progress until Canvas.
+- Signed in: the session email, then registrations in two `h2` sections of outlined cards (category, `h3` linked title, schedule, status chip, and the status-specific content from the table above). The page polls every 2.5 seconds.
+  - **Available to you:** enrolled courses; ready now (self-paced or already started) first, then upcoming by start date.
+  - **Registrations:** everything else in progress (approval, reservation, payment, preparing access, support review); declined and expired requests last.
+  - When the worker enrolls a course, its card moves to Available to you. If focus was inside that card, focus follows it to its next action (Open course in Canvas) and the status region announces the change.
+- **Pathways you follow** (`h2`, shown when the learner follows any): one card per pathway with an `h3` link to its page and an ordered list of its published courses, each with the learner's registration status or "Not registered". A **Next** chip marks the first course that is not registered (or whose request expired, lapsed or was declined). No completion progress until Canvas.
 - **Saved courses** (`h2`, shown when the learner has any): one card per course with a linked `h3` title, schedule and price, and **Remove** (accessible name "Remove {course} from saved courses"). After removal, focus moves to the section heading and the status region announces it; removing the last course leaves the section with "No saved courses" and a Browse courses link.
 - Action errors stay inside the affected card. Successes show a snackbar ("Seat reserved for …", "Payment simulated for …").
 - Focus and announcements follow the Focus and Feedback patterns above. Action buttons carry `data-next-action`, and course headings are programmatic focus targets.

@@ -52,7 +52,7 @@ Local website: `http://127.0.0.1:3000/`. API documentation: `http://localhost:30
 - [x] Add sortable, searchable, paged staff tables with card layouts on phones.
 - [x] Add staff-curated collections and pathways: a catalog Collection filter, public collection and pathway pages, and "Part of" links on course pages.
 - [x] Let learners save courses privately and follow pathways, both shown in My learning; neither registers or charges.
-- [x] Open the catalog on an Explore tab (staff-picked pathways, collections and courses with automatic fill) and a personalized For you section, beside Courses, Collections and Pathways tabs.
+- [x] Open the catalog on an Explore tab (staff-picked courses, pathways and collections with automatic fill), beside Courses, Collections and Pathways tabs; group My learning into Available to you and Registrations.
 
 ### Learners and registration
 
@@ -166,6 +166,16 @@ A real screen-reader session, forced colors and cross-browser checks remain outs
 | UI asset attribution                  | [Image credits](image-credits.md) and [logo source](../../src/web/public/brand/SOURCE.txt) |
 
 ## Latest implementation record
+
+October 7, 2026: My learning grouped, and For you removed from the catalog (branch `curation`).
+
+- **My learning:** registrations are split into **Available to you** (enrolled courses, ready now first, then upcoming by start date) and **Registrations** (everything in progress, with declined and expired requests last), above Pathways you follow and Saved courses. Followed pathways mark the **Next** course: the first not registered, or whose request expired, lapsed or was declined.
+- **Focus:** when the worker enrolls a course, its card moves between groups. If focus was inside it, focus now follows the card to Open course in Canvas instead of dropping to the page.
+- **Catalog:** the For you section was removed from Explore. Its pathway next-step moved to My learning, which is now the signed-in landing page.
+- **Verification:**
+  - In the browser, as a synthetic learner with an enrolled course, a reservation, an approval request and a followed pathway: the grouping and order; the Next chip; and paying from the keyboard, where after the worker enrolled the course the card moved to Available to you with focus on its Canvas link and the change announced.
+  - Accessibility scans pass, with the former For you scan replaced by My learning with a followed pathway and a saved course.
+  - The walkthrough learner was removed afterwards.
 
 October 7, 2026: global list/grid layout and My learning as the signed-in landing page (branch `curation`).
 

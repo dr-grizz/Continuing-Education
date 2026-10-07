@@ -41,16 +41,27 @@ test.describe("learner pages", () => {
       await expect(page.getByRole("tab", { selected: true })).toBeVisible();
       await scan(page, `Catalog ${tab} tab`);
     });
-  test("explore with For you", async ({ page }) => {
+  test("my learning with pathways and saved courses", async ({ page }) => {
     await page.request.post("/api/demo-session", {
       data: { email: "a11y-scan@example.test" },
     });
-    // The bare home page sends signed-in learners to My learning.
-    await page.goto("/?tab=explore");
+    const pathway = await (
+      await page.request.get("/api/collections/data-informed-leader")
+    ).json();
+    const command = (path: string, data: object) =>
+      page.request.post(`/api/${path}`, {
+        data,
+        headers: { "Idempotency-Key": crypto.randomUUID() },
+      });
+    await command(`me/pathways/${pathway.id}`, { following: true });
+    await command(`me/saved-courses/${pathway.offerings[0].id}`, {
+      saved: true,
+    });
+    await page.goto("/learning");
     await expect(
-      page.getByRole("heading", { level: 2, name: "For you" }),
+      page.getByRole("heading", { level: 2, name: "Pathways you follow" }),
     ).toBeVisible();
-    await scan(page, "Explore with For you");
+    await scan(page, "My learning with pathways and saved courses");
   });
   test("catalog filtered by a pathway", async ({ page }) => {
     await page.goto("/?collection=data-informed-leader");
