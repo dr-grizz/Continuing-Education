@@ -1,10 +1,18 @@
 name: CI
 # Checks every pull request against a throwaway PostgreSQL service with
 # synthetic data. Nothing here deploys or connects to external systems.
+# Skipped when every changed file is documentation; any code, test or config
+# change runs the full job. Run it by hand with "Run workflow" if needed.
 on:
   pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
   push:
     branches: [main, prototype-checkpoint]
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
   workflow_dispatch:
 permissions:
   contents: read

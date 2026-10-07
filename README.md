@@ -121,7 +121,7 @@ npm run test:a11y
 
 `npm run test:a11y` runs axe (WCAG 2.2 A and AA rules) with Playwright against the catalog, sign-in, course detail, My learning, the staff sign-in screen, every staff tab and the main staff dialogs, in light, dark and phone layouts. Run `npx playwright install chromium` once first. Scans catch only part of WCAG; they do not replace the keyboard and screen-reader review in the checklist below.
 
-**Continuous integration:** `.github/workflows/ci.yml` runs all of the above on every pull request, against a throwaway PostgreSQL service with synthetic data. It never deploys or connects to external systems. If the scans fail, the job uploads the Playwright report.
+**Continuous integration:** `.github/workflows/ci.yml` runs all of the above on every pull request, against a throwaway PostgreSQL service with synthetic data. It never deploys or connects to external systems. Pull requests and pushes that change only documentation (`docs/**` or Markdown files) skip it; start it by hand from the Actions tab if needed. If the scans fail, the job uploads the Playwright report.
 
 Integration tests require the website, API and PostgreSQL running. Both the integration tests and the accessibility scans remove the records they create, so local runs leave the database unchanged. They check authorization, validation, payment-before-approval prevention, idempotency and concurrent final-seat reservation against isolated test records, then remove those records. Production UI/SSO, refunds, transfers, lifecycle automation, exception recovery and live integrations remain future work. See `docs/implementation-plan.md` and `docs/adr/0001-local-prototype.md`.
 
