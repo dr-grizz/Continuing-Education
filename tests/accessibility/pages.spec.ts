@@ -17,6 +17,13 @@ async function scan(page: Page, name: string) {
   await expect(page.locator(".MuiSkeleton-root")).toHaveCount(0, {
     timeout: 15_000,
   });
+  // Let dialog fades and other transitions finish: mid-fade text is partly
+  // transparent, which axe reports as low contrast (seen in WebKit on CI).
+  await page.waitForFunction(() =>
+    document
+      .getAnimations()
+      .every((animation) => animation.playState !== "running"),
+  );
   const { violations } = await new AxeBuilder({ page })
     .withTags(tags)
     .analyze();
