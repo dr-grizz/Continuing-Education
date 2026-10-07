@@ -28,6 +28,9 @@ Decided October 6, 2026, and implemented in the prototype (migration `005_enroll
 | Enrollment window | Scheduled courses close enrollment one week after the start date; staff can change the window | `enrollment_close_days` (default 7, range 0–365). Registration, approval requests and seat renewals are refused after the start date plus that many days. Registrations already in progress are unaffected. Self-paced courses never close |
 | Repeat requests | Declined learners may request approval again | Re-registering after a decline (or a lapsed approval) creates a new approval request (audited `approval.requested_again`) |
 | Course launch | Learners get a link to the Canvas course once their Canvas account and enrollment exist | `canvas_course_url` (optional HTTPS). Shown as **Open course in Canvas** only after enrollment completes; returned by the API only for enrolled registrations. Sample offerings use `canvas.example.edu` placeholders, which open a "not connected yet" dialog instead of a new tab; real course mappings await Canvas integration (M4) and need no code change |
+| Payment (decided Oct 7, 2026) | Stripe-hosted Checkout; one Stripe Product per offering; cards and wallets only; the signed webhook alone confirms payment | Sandbox when `STRIPE_SECRET_KEY` (test mode) is set, otherwise simulated. 31-minute sessions extend the 30-minute seat hold to their expiry plus 5 minutes. [ADR 0005](adr/0005-stripe-hosted-checkout.md) |
+| Tax (decided Oct 7, 2026) | The university does not collect tax on these courses | Stripe Tax off; Checkout shows no tax |
+| Refunds (decided in part Oct 7, 2026) | Portal staff initiate refund requests; Finance processes refunds in Stripe | The portal never issues refunds; refund events are stored until the request queue and access rules (P5) are built |
 
 ### Known prototype gaps
 

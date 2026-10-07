@@ -43,6 +43,14 @@ import {
   QueryDto,
 } from "./dto";
 import { Principal } from "./auth";
+import Stripe from "stripe";
+import {
+  CHECKOUT_MINUTES,
+  HOLD_GRACE_MINUTES,
+  stripe,
+  stripeEnabled,
+  webUrl,
+} from "./stripe";
 
 // Scheduled courses close enrollment a staff-set number of days after they start.
 const enrollmentWindow = `CASE WHEN o.course_type='cohort' THEN to_char(o.start_date+o.enrollment_close_days,'YYYY-MM-DD') END AS enrollment_closes_on,
@@ -384,35 +392,335 @@ export class PortalService {
           throw new ConflictException(
             "This course is no longer open for registration.",
           );
-        await tx.orders.create({
+        return this.recordPayment(tx, entitlementId, row.amount_cents, {
+          actor: principal.actor,
+          action: "prototype.payment_simulated",
+        });
+      },
+    );
+  }
+  // One path for every provider: the order, the registration's move to
+  // provisioning and the enrollment job happen together, or not at all.
+  private async recordPayment(
+    tx: Tx,
+    entitlementId: string,
+    amountCents: number,
+    payment: {
+      actor: string;
+      action: string;
+      stripe?: { sessionId: string; paymentIntentId: string | null };
+      details?: Prisma.InputJsonObject;
+    },
+  ) {
+    await tx.orders.create({
+      data: {
+        entitlement_id: entitlementId,
+        amount_cents: amountCents,
+        ...(payment.stripe
+          ? {
+              provider: "stripe" as const,
+              payment_status: "paid",
+              stripe_checkout_session_id: payment.stripe.sessionId,
+              stripe_payment_intent_id: payment.stripe.paymentIntentId,
+            }
+          : {}),
+      },
+    });
+    await tx.entitlements.update({
+      where: { id: entitlementId },
+      data: { status: "provisioning", reserved_until: null },
+    });
+    const setting = await tx.prototype_settings.findUnique({
+      where: { key: "provisioning_outcome" },
+    });
+    const op = await tx.operations.create({
+      data: {
+        entitlement_id: entitlementId,
+        // Set only through the validated simulation command; the enum column rejects anything else.
+        simulated_outcome: (setting?.value ?? "normal") as SimulatedOutcome,
+      },
+    });
+    await audit(tx, payment.actor, payment.action, entitlementId, {
+      amount_cents: amountCents,
+      ...(payment.details ?? {}),
+    });
+    return op;
+  }
+  paymentConfig() {
+    return { provider: stripeEnabled ? "stripe" : "simulated" };
+  }
+  // Stripe-hosted Checkout for a current reservation (ADR 0005). Reuses an open
+  // session; otherwise creates one that expires in 31 minutes and extends the
+  // seat hold to cover it, so a completed payment always finds its seat.
+  async checkout(principal: Principal, key: string, entitlementId: string) {
+    if (!stripeEnabled)
+      throw new ConflictException(
+        "Stripe is not configured. Add STRIPE_SECRET_KEY to .env, or use the simulated payment.",
+      );
+    return this.command(
+      principal,
+      key,
+      { action: "checkout", entitlementId },
+      async (tx) => {
+        const [row] = await sql<
+          entitlements & {
+            amount_cents: number;
+            published: boolean;
+            title: string;
+            email: string | null;
+          }
+        >(
+          tx,
+          `SELECT e.*,coalesce(e.quoted_price_cents,o.price_cents) AS amount_cents,o.published,o.title,l.email
+           FROM entitlements e JOIN offerings o ON o.id=e.offering_id JOIN learners l ON l.id=e.learner_id
+           WHERE e.id=$1::uuid AND e.learner_id=$2::uuid FOR UPDATE OF e`,
+          entitlementId,
+          principal.learnerId,
+        );
+        if (!row) throw new NotFoundException("Registration not found.");
+        if (
+          row.status !== "reserved" ||
+          !row.reserved_until ||
+          new Date(row.reserved_until).getTime() <= Date.now()
+        )
+          throw new ConflictException(
+            "A current seat reservation is required.",
+          );
+        if (!row.published)
+          throw new ConflictException(
+            "This course is no longer open for registration.",
+          );
+        const open = await tx.checkout_sessions.findFirst({
+          where: {
+            entitlement_id: entitlementId,
+            status: "open",
+            expires_at: { gt: new Date(Date.now() + 2 * 60_000) },
+          },
+          orderBy: { created_at: "desc" },
+        });
+        if (open) return { url: open.url, expires_at: open.expires_at };
+        const price = await this.stripePrice(
+          tx,
+          row.offering_id,
+          row.title,
+          row.amount_cents,
+        );
+        const expiresAt = new Date(Date.now() + CHECKOUT_MINUTES * 60_000);
+        const attempt = await tx.checkout_sessions.count({
+          where: { entitlement_id: entitlementId },
+        });
+        const metadata = {
+          entitlement_id: entitlementId,
+          offering_id: row.offering_id,
+          learner_id: row.learner_id,
+        };
+        const session = await stripe.checkout.sessions.create(
+          {
+            mode: "payment",
+            line_items: [{ price, quantity: 1 }],
+            // Cards, which include Apple Pay and Google Pay; no delayed methods
+            // such as bank debits, which would outlast the seat hold.
+            allowed_payment_method_types: ["card"],
+            client_reference_id: entitlementId,
+            ...(row.email ? { customer_email: row.email } : {}),
+            metadata,
+            payment_intent_data: { metadata },
+            expires_at: Math.floor(expiresAt.getTime() / 1000),
+            success_url: `${webUrl}/learning?checkout=success`,
+            cancel_url: `${webUrl}/learning?checkout=cancelled`,
+          },
+          { idempotencyKey: `checkout-${entitlementId}-${attempt + 1}` },
+        );
+        await tx.checkout_sessions.create({
           data: {
+            id: session.id,
             entitlement_id: entitlementId,
             amount_cents: row.amount_cents,
+            url: session.url,
+            expires_at: expiresAt,
           },
         });
         await tx.entitlements.update({
           where: { id: entitlementId },
-          data: { status: "provisioning", reserved_until: null },
-        });
-        const setting = await tx.prototype_settings.findUnique({
-          where: { key: "provisioning_outcome" },
-        });
-        const op = await tx.operations.create({
           data: {
-            entitlement_id: entitlementId,
-            // Set only through the validated simulation command; the enum column rejects anything else.
-            simulated_outcome: (setting?.value ?? "normal") as SimulatedOutcome,
+            reserved_until: new Date(
+              expiresAt.getTime() + HOLD_GRACE_MINUTES * 60_000,
+            ),
           },
         });
         await audit(
           tx,
           principal.actor,
-          "prototype.payment_simulated",
+          "payment.checkout_started",
           entitlementId,
+          { checkout_session_id: session.id, amount_cents: row.amount_cents },
         );
-        return op;
+        return { url: session.url, expires_at: expiresAt };
       },
     );
+  }
+  // One Stripe Product per offering and one Price per amount (decided Oct 7,
+  // 2026). Idempotency keys make retries safe; the product name follows edits.
+  private async stripePrice(
+    tx: Tx,
+    offeringId: string,
+    title: string,
+    amountCents: number,
+  ) {
+    let product = await tx.stripe_products.findUnique({
+      where: { offering_id: offeringId },
+    });
+    if (!product) {
+      const created = await stripe.products.create(
+        { name: title, metadata: { offering_id: offeringId } },
+        { idempotencyKey: `product-${offeringId}` },
+      );
+      product = await tx.stripe_products.create({
+        data: { offering_id: offeringId, stripe_product_id: created.id },
+      });
+    } else {
+      const current = await stripe.products.retrieve(product.stripe_product_id);
+      if (current.name !== title)
+        await stripe.products.update(product.stripe_product_id, {
+          name: title,
+        });
+    }
+    const known = await tx.stripe_prices.findUnique({
+      where: {
+        offering_id_price_cents: {
+          offering_id: offeringId,
+          price_cents: amountCents,
+        },
+      },
+    });
+    if (known) return known.stripe_price_id;
+    const created = await stripe.prices.create(
+      {
+        product: product.stripe_product_id,
+        unit_amount: amountCents,
+        currency: "usd",
+        metadata: { offering_id: offeringId },
+      },
+      { idempotencyKey: `price-${offeringId}-${amountCents}` },
+    );
+    await tx.stripe_prices.create({
+      data: {
+        stripe_price_id: created.id,
+        offering_id: offeringId,
+        price_cents: amountCents,
+      },
+    });
+    return created.id;
+  }
+  // Signed Stripe webhook events (the caller verifies the signature). Each
+  // event is handled once; only a webhook marks a Stripe payment paid.
+  async stripeEvent(event: Stripe.Event) {
+    return transaction(async (tx) => {
+      const [fresh] = await sql<{ id: string }>(
+        tx,
+        "INSERT INTO stripe_events(id,type) VALUES ($1,$2) ON CONFLICT DO NOTHING RETURNING id",
+        event.id,
+        event.type,
+      );
+      if (!fresh) return { received: true, duplicate: true };
+      if (
+        event.type === "checkout.session.completed" ||
+        event.type === "checkout.session.async_payment_succeeded"
+      ) {
+        const session = event.data.object as Stripe.Checkout.Session;
+        if (session.payment_status !== "paid") return { received: true };
+        const [stored] = await sql<{
+          entitlement_id: string;
+          amount_cents: number;
+          status: string;
+        }>(
+          tx,
+          "SELECT entitlement_id,amount_cents,status FROM checkout_sessions WHERE id=$1 FOR UPDATE",
+          session.id,
+        );
+        if (!stored)
+          throw new BadRequestException(
+            `Unknown Checkout session ${session.id}.`,
+          );
+        if (stored.status === "complete") return { received: true };
+        if (
+          session.metadata?.entitlement_id !== stored.entitlement_id ||
+          session.amount_total !== stored.amount_cents ||
+          session.currency !== "usd"
+        )
+          throw new BadRequestException(
+            "Checkout session does not match its reservation.",
+          );
+        await tx.checkout_sessions.update({
+          where: { id: session.id },
+          data: { status: "complete", completed_at: new Date() },
+        });
+        const [registration] = await sql<{ status: string }>(
+          tx,
+          "SELECT status FROM entitlements WHERE id=$1::uuid FOR UPDATE",
+          stored.entitlement_id,
+        );
+        const paymentIntentId =
+          typeof session.payment_intent === "string"
+            ? session.payment_intent
+            : (session.payment_intent?.id ?? null);
+        if (
+          registration.status === "reserved" ||
+          registration.status === "expired"
+        )
+          // Payment is authoritative: a seat that expired while Stripe was
+          // confirming is honored and flagged for staff.
+          await this.recordPayment(
+            tx,
+            stored.entitlement_id,
+            stored.amount_cents,
+            {
+              actor: "stripe-webhook",
+              action: "payment.stripe_paid",
+              stripe: { sessionId: session.id, paymentIntentId },
+              details: {
+                checkout_session_id: session.id,
+                payment_intent_id: paymentIntentId,
+                ...(registration.status === "expired"
+                  ? { late_after_expiry: true }
+                  : {}),
+              },
+            },
+          );
+        else
+          await audit(
+            tx,
+            "stripe-webhook",
+            "payment.stripe_unmatched",
+            stored.entitlement_id,
+            {
+              checkout_session_id: session.id,
+              registration_status: registration.status,
+            },
+          );
+      } else if (event.type === "checkout.session.expired") {
+        const session = event.data.object as Stripe.Checkout.Session;
+        const updated = await tx.checkout_sessions.updateMany({
+          where: { id: session.id, status: "open" },
+          data: { status: "expired" },
+        });
+        if (updated.count) {
+          const stored = await tx.checkout_sessions.findUnique({
+            where: { id: session.id },
+          });
+          await audit(
+            tx,
+            "stripe-webhook",
+            "payment.checkout_expired",
+            stored?.entitlement_id ?? null,
+            { checkout_session_id: session.id },
+          );
+        }
+      }
+      // Other events (refunds and disputes) are stored for reconciliation and
+      // handled when the refund workflow is built (decision P5).
+      return { received: true };
+    });
   }
   async learning(principal: Principal) {
     return sql<LearningRow>(

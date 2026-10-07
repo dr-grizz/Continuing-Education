@@ -10,7 +10,10 @@ import {
   ParseUUIDPipe,
   Post,
   Query,
+  RawBodyRequest,
   Req,
+  ServiceUnavailableException,
+  BadRequestException,
   UseGuards,
   ValidationPipe,
 } from "@nestjs/common";
@@ -50,6 +53,7 @@ import {
   RegistrationDto,
 } from "./dto";
 import { PortalService } from "./service";
+import { stripe, webhookSecret } from "./stripe";
 @ApiTags("Catalog")
 @Controller("api/v1")
 class CatalogController {
@@ -64,6 +68,13 @@ class CatalogController {
   }
   @Get("offerings/:id") detail(@Param("id", ParseUUIDPipe) id: string) {
     return this.portal.detail(id);
+  }
+  @Get("payments/config")
+  @ApiOperation({
+    summary: "Payment provider in use: stripe (sandbox Checkout) or simulated",
+  })
+  paymentConfig() {
+    return this.portal.paymentConfig();
   }
   @Get("explore")
   @ApiOperation({
@@ -189,6 +200,20 @@ class WorkflowController {
   ) {
     requireScope(req, "learner");
     return this.portal.payment(req.principal, key, id);
+  }
+  @Post("registrations/:id/checkout")
+  @HttpCode(200)
+  @ApiOperation({
+    summary:
+      "Start Stripe-hosted Checkout (sandbox) for a current reservation; returns the Checkout URL. The webhook, not the browser, confirms payment.",
+  })
+  checkout(
+    @Req() req: any,
+    @Headers("idempotency-key") key: string,
+    @Param("id", ParseUUIDPipe) id: string,
+  ) {
+    requireScope(req, "learner");
+    return this.portal.checkout(req.principal, key, id);
   }
   @Get("operations/:id") operation(
     @Req() req: any,
@@ -549,8 +574,38 @@ class WorkflowController {
     return this.portal.report();
   }
 }
+// Stripe calls this directly: no token, but every request must carry a valid
+// Stripe-Signature for STRIPE_WEBHOOK_SECRET over the raw request body.
+@ApiTags("Payments")
+@Controller("api/v1/webhooks")
+class WebhookController {
+  constructor(private readonly portal: PortalService) {}
+  @Post("stripe")
+  @HttpCode(200)
+  @ApiOperation({ summary: "Stripe webhook receiver (signed events only)" })
+  async stripeWebhook(
+    @Req() req: RawBodyRequest<{ headers: Record<string, string> }>,
+    @Headers("stripe-signature") signature: string,
+  ) {
+    if (!webhookSecret)
+      throw new ServiceUnavailableException(
+        "STRIPE_WEBHOOK_SECRET is not configured.",
+      );
+    let event;
+    try {
+      event = stripe.webhooks.constructEvent(
+        req.rawBody as Buffer,
+        signature,
+        webhookSecret,
+      );
+    } catch {
+      throw new BadRequestException("Invalid Stripe signature.");
+    }
+    return this.portal.stripeEvent(event);
+  }
+}
 @Module({
-  controllers: [CatalogController, WorkflowController],
+  controllers: [CatalogController, WorkflowController, WebhookController],
   providers: [PortalService, PrototypeGuard],
 })
 class AppModule {}
@@ -567,7 +622,8 @@ async function main() {
     "AUTOMATION_API_TOKEN",
   ])
     if (!process.env[name]) throw new Error("Run npm run setup first.");
-  const app = await NestFactory.create(AppModule);
+  // rawBody keeps the exact bytes Stripe signed, for webhook verification.
+  const app = await NestFactory.create(AppModule, { rawBody: true });
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -578,7 +634,7 @@ async function main() {
   const config = new DocumentBuilder()
     .setTitle("Continuing Education prototype API")
     .setDescription(
-      "Local synthetic data only. Authentication is a prototype token adapter, not production SSO. Payment and enrollment are simulated.",
+      "Local synthetic data only. Authentication is a prototype token adapter, not production SSO. Payment uses the Stripe sandbox when configured, otherwise a simulation; enrollment is simulated.",
     )
     .setVersion("1.0")
     .addBearerAuth()

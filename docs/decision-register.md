@@ -2,7 +2,7 @@
 
 Required by milestone M0 of the [implementation plan](implementation-plan.md#m0--establish-decisions-and-contracts): every decision needs an owner and a due date before integration work depends on it. This register is the single list. Details live in the linked ADR or plan section.
 
-Last updated: October 7, 2026. Summary: 40 decisions: 7 decided, 5 proposed, 28 open. A3 and F4 count as open because parts of them are undecided, although other parts are proposed or decided.
+Last updated: October 7, 2026. Summary: 41 decisions: 10 decided, 5 proposed, 26 open. A3, F4 and P5 count as open because parts of them are undecided, although other parts are proposed or decided.
 
 ## How to use this register
 
@@ -30,6 +30,7 @@ Last updated: October 7, 2026. Summary: 40 decisions: 7 decided, 5 proposed, 28 
 | A4 | Authentication provider: learner email code, passkeys and university SSO; staff on SSO with MFA; no custom authentication | **Open**. Interim: mock staff sign-in with real roles, built so SSO plugs in later | Security, IT Identity | | M1 exit (sign-in spike); production | [Plan: M1](implementation-plan.md#m1--foundation-and-interface-baseline), [ADR 0004](adr/0004-staff-roles-mock-sign-in.md) |
 | A5 | Job persistence and runtime: database-backed durable queue | **Proposed**: built in the prototype | Portal lead | | M3 | [ADR 0001](adr/0001-local-prototype.md) (prototype only) |
 | A6 | Data access and migrations: Prisma ORM | **Decided** Oct 6, 2026 | Portal lead | n/a | n/a | [ADR 0002](adr/0002-prisma-orm.md) |
+| A7 | Payment collection: Stripe-hosted Checkout (sandbox first), one Stripe Product per offering with a new Price per amount, cards and wallets only; the signed webhook alone confirms payment | **Decided** Oct 7, 2026 | Portal lead, Finance | n/a | Sandbox checkout | [ADR 0005](adr/0005-stripe-hosted-checkout.md) |
 
 ## Contracts
 
@@ -45,9 +46,9 @@ Last updated: October 7, 2026. Summary: 40 decisions: 7 decided, 5 proposed, 28 
 | --- | --- | --- | --- | --- | --- | --- |
 | P1 | Approval validity and repeat requests | **Decided** Oct 6, 2026: valid 7 days, staff-adjustable per offering; declined or lapsed learners may request again | Program Operations | n/a | n/a | [Plan: Policy decisions](implementation-plan.md#policy-decisions) |
 | P2 | Enrollment window | **Decided** Oct 6, 2026: Scheduled courses close 7 days after the start date, staff-adjustable; Self-paced never closes | Program Operations | n/a | n/a | [Plan: Policy decisions](implementation-plan.md#policy-decisions) |
-| P3 | Capacity and seat holds: hold length versus Stripe session expiry (30 minutes to 24 hours); whether delayed payment methods are allowed (recommendation: disabled for the pilot) | **Open** (atomic allocation itself is settled) | Finance, Program Operations | | M3 | [Plan: corrections](implementation-plan.md#corrections-and-decisions-required-from-v2) |
-| P4 | Tax treatment | **Open** | Finance | | Production (pilot checkout) | [Plan: M0](implementation-plan.md#m0--establish-decisions-and-contracts) |
-| P5 | Refunds and disputes: full, partial, pending and failed refunds; which revoke access; dispute opened versus dispute lost; refund during pending provisioning | **Open** | Finance, Program Operations | | M5; production | [Plan: corrections](implementation-plan.md#corrections-and-decisions-required-from-v2) |
+| P3 | Capacity and seat holds: hold length versus Stripe session expiry (30 minutes to 24 hours); whether delayed payment methods are allowed (recommendation: disabled for the pilot). **Decided Oct 7, 2026:** reservations hold a seat for 30 minutes; a Checkout session lasts 31 minutes (Stripe's minimum) and extends the hold to its expiry plus 5 minutes; cards and wallets only, no delayed methods; a payment confirmed after the hold lapsed is honored and flagged | **Decided** | Finance, Program Operations | | M3 | [Plan: corrections](implementation-plan.md#corrections-and-decisions-required-from-v2) |
+| P4 | Tax treatment. **Decided Oct 7, 2026:** as a higher-education institution the university does not collect tax on these courses; Stripe Tax stays off and Checkout shows no tax | **Decided** | Finance | | Production (pilot checkout) | [Plan: M0](implementation-plan.md#m0--establish-decisions-and-contracts) |
+| P5 | Refunds and disputes: full, partial, pending and failed refunds; which revoke access; dispute opened versus dispute lost; refund during pending provisioning. **Decided Oct 7, 2026:** portal staff initiate refund requests and the Finance department processes refunds in Stripe; the portal never issues refunds itself. Still open: who may request, access after a refund, partial refunds, disputes | **Decided** (who processes) / **Open** (the rest) | Finance, Program Operations | | M5; production | [Plan: corrections](implementation-plan.md#corrections-and-decisions-required-from-v2) |
 | P6 | Age restrictions | **Open** | Registrar, Legal | | Production | [Plan: scope and ownership](implementation-plan.md#scope-and-ownership) |
 | P7 | Retention and disposition of learner, identity and payment records | **Open** | IT, Registrar, Legal | | Production | [Plan: scope and ownership](implementation-plan.md#scope-and-ownership) |
 | P8 | Courtesy account expiry calculation, including paid provisioning still in progress | **Open** | IT Identity | | M5 | [Plan: corrections](implementation-plan.md#corrections-and-decisions-required-from-v2) |
@@ -99,6 +100,6 @@ These open items block work beyond simulation:
 - **C1** identity contract and **C2** Canvas mapping: real integration in M3 and M4.
 - **A4** authentication and **P9** recovery: the M1 sign-in spike.
 - **A3** hosting: any shared environment.
-- **P3** seat holds: sandbox checkout.
+- ~~**P3** seat holds~~: decided October 7, 2026, for sandbox checkout.
 
 Nearly all are owned outside engineering, so schedule them first.

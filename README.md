@@ -95,6 +95,21 @@ Stop application processes with Ctrl+C. `docker compose stop db` stops PostgreSQ
 
 Design uses standard MUI navigation, forms, tables, alerts and dialogs. The [UI specification](docs/prototype/ui-specification.md) records the theme tokens, layouts, patterns and page behavior. Colors, the font and text branding are provisional; institutional brand assets and course content need review.
 
+## Stripe sandbox (optional)
+
+Payments are simulated unless a Stripe **test-mode** key is configured ([ADR 0005](docs/adr/0005-stripe-hosted-checkout.md)). To use your sandbox:
+
+1. Add `STRIPE_SECRET_KEY=sk_test_…` to `.env` yourself; never commit or share it. Live keys are refused.
+2. Install the Stripe CLI (`brew install stripe/stripe-cli/stripe`), run `stripe login`, then forward webhooks and copy the printed `whsec_…` into `.env` as `STRIPE_WEBHOOK_SECRET`:
+
+   ```sh
+   stripe listen --forward-to http://127.0.0.1:3001/api/v1/webhooks/stripe
+   ```
+
+3. Restart `npm run dev`. Reserved seats in My learning now show **Pay with Stripe**. Pay with test card `4242 4242 4242 4242` (any future date, any CVC); `4000 0000 0000 9995` is declined.
+
+Only the signed webhook marks a payment paid; the page Stripe returns to is informational. No tax is collected. Refunds are processed by Finance in the Stripe Dashboard; the portal does not issue them.
+
 ## Automation
 
 The API uses `/api/v1`, server-side scope checks and `Idempotency-Key` on writes. Three random prototype tokens live in `.env`: learner, staff and read-only automation. Staff act as a mock-signed-in demo staff member whose roles decide their scopes; this is local convenience, not production security. Never expose this prototype publicly or add real learner data. API/worker refuse `NODE_ENV=production`.

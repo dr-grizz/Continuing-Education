@@ -3,6 +3,7 @@ import { strict as assert } from "node:assert";
 import { randomUUID } from "node:crypto";
 import { db, DEMO_LEARNER } from "../src/domain/db";
 import { PortalService } from "../src/server/service";
+import Stripe from "stripe";
 import { Principal } from "../src/server/auth";
 const service = new PortalService();
 const userIds: string[] = [];
@@ -13,6 +14,7 @@ const staffIds: string[] = [];
 const collectionIds: string[] = [];
 // Explore picks are site-wide; the test saves and restores them.
 const testStarted = new Date();
+const stripeEventIds: string[] = [];
 let explorePicks:
   { courses: string[]; collections: string[]; pathways: string[] } | undefined;
 let adminStaffId = "";
@@ -1778,7 +1780,186 @@ async function main() {
     console.log(
       "PASS: Explore shows staff picks first and fills the rest; only published items, by catalog managers or content editors; unpublishing removes a pick",
     );
+
+    // Stripe sandbox Checkout: signed fake webhook events, no network calls.
+    const paymentConfig = await (await http("payments/config")).json();
+    assert.ok(["stripe", "simulated"].includes(paymentConfig.provider));
+    const reserve = async (who: Principal, offeringId: string) =>
+      (await service.register(who, randomUUID(), offeringId)) as {
+        id: string;
+        status: string;
+        learner_id: string;
+      };
+    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+    if (!webhookSecret)
+      console.log(
+        "SKIP: Stripe webhook checks (STRIPE_WEBHOOK_SECRET not set)",
+      );
+    else {
+      const signer = new Stripe("sk_test_signing_only");
+      const postEvent = (event: object, secret = webhookSecret) => {
+        const payload = JSON.stringify(event);
+        return fetch("http://127.0.0.1:3001/api/v1/webhooks/stripe", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Stripe-Signature": signer.webhooks.generateTestHeaderString({
+              payload,
+              secret,
+            }),
+          },
+          body: payload,
+        });
+      };
+      const stripeEvent = (type: string, session: object) => {
+        const id = `evt_test_${randomUUID().replace(/-/g, "")}`;
+        stripeEventIds.push(id);
+        return { id, object: "event", type, data: { object: session } };
+      };
+      const payer = await learner();
+      const paidOffering = await seed(false);
+      const reservation = await reserve(payer, paidOffering);
+      const sessionId = `cs_test_${randomUUID().replace(/-/g, "")}`;
+      await db.query(
+        "INSERT INTO checkout_sessions(id,entitlement_id,amount_cents,expires_at) VALUES ($1,$2,100,now()+interval '31 minutes')",
+        [sessionId, reservation.id],
+      );
+      const paidSession = {
+        id: sessionId,
+        object: "checkout.session",
+        payment_status: "paid",
+        amount_total: 100,
+        currency: "usd",
+        metadata: { entitlement_id: reservation.id },
+        payment_intent: `pi_test_${randomUUID().slice(0, 8)}`,
+      };
+      assert.equal(
+        (
+          await postEvent(
+            stripeEvent("checkout.session.completed", paidSession),
+            "whsec_wrong",
+          )
+        ).status,
+        400,
+        "events with a bad signature are rejected",
+      );
+      const mismatch = stripeEvent("checkout.session.completed", {
+        ...paidSession,
+        amount_total: 99,
+      });
+      assert.equal(
+        (await postEvent(mismatch)).status,
+        400,
+        "an amount that differs from the reservation is rejected",
+      );
+      assert.equal(
+        (
+          await db.query(
+            "SELECT count(*)::int AS n FROM stripe_events WHERE id=$1",
+            [mismatch.id],
+          )
+        ).rows[0].n,
+        0,
+        "a rejected event is not marked handled, so Stripe retries it",
+      );
+      const completed = stripeEvent("checkout.session.completed", paidSession);
+      assert.equal((await postEvent(completed)).status, 200);
+      assert.equal(
+        (await (await postEvent(completed)).json()).duplicate,
+        true,
+        "a repeated delivery is ignored",
+      );
+      const order = (
+        await db.query(
+          "SELECT provider,amount_cents,stripe_checkout_session_id,stripe_payment_intent_id FROM orders WHERE entitlement_id=$1",
+          [reservation.id],
+        )
+      ).rows;
+      assert.equal(order.length, 1, "exactly one order");
+      assert.equal(order[0].provider, "stripe");
+      assert.equal(order[0].amount_cents, 100);
+      assert.equal(order[0].stripe_checkout_session_id, sessionId);
+      assert.equal(
+        order[0].stripe_payment_intent_id,
+        paidSession.payment_intent,
+      );
+      assert.equal(
+        (
+          await db.query("SELECT status FROM entitlements WHERE id=$1", [
+            reservation.id,
+          ])
+        ).rows[0].status,
+        "provisioning",
+      );
+      assert.equal(
+        (
+          await db.query(
+            "SELECT count(*)::int AS n FROM operations WHERE entitlement_id=$1",
+            [reservation.id],
+          )
+        ).rows[0].n,
+        1,
+        "enrollment is queued once",
+      );
+      assert.equal(
+        (
+          await db.query(
+            "SELECT actor FROM audit_events WHERE object_id=$1 AND action='payment.stripe_paid'",
+            [reservation.id],
+          )
+        ).rows[0]?.actor,
+        "stripe-webhook",
+      );
+      const lapsed = await reserve(await learner(), await seed(false));
+      const lapsedSession = `cs_test_${randomUUID().replace(/-/g, "")}`;
+      await db.query(
+        "INSERT INTO checkout_sessions(id,entitlement_id,amount_cents,expires_at) VALUES ($1,$2,100,now()+interval '31 minutes')",
+        [lapsedSession, lapsed.id],
+      );
+      assert.equal(
+        (
+          await postEvent(
+            stripeEvent("checkout.session.expired", {
+              id: lapsedSession,
+              object: "checkout.session",
+              payment_status: "unpaid",
+            }),
+          )
+        ).status,
+        200,
+      );
+      assert.equal(
+        (
+          await db.query("SELECT status FROM checkout_sessions WHERE id=$1", [
+            lapsedSession,
+          ])
+        ).rows[0].status,
+        "expired",
+      );
+      console.log(
+        "PASS: Stripe webhooks: signed events only, amount checked, paid once, enrollment queued, expiry recorded",
+      );
+    }
+    if (!process.env.STRIPE_SECRET_KEY) {
+      const pending = await reserve(await learner(), await seed(false));
+      await assert.rejects(
+        service.checkout(
+          {
+            actor: "integration-checkout",
+            learnerId: pending.learner_id,
+            scopes: ["learner"],
+          },
+          randomUUID(),
+          pending.id,
+        ),
+        /Stripe is not configured/,
+      );
+      console.log("PASS: checkout is refused while Stripe is not configured");
+    }
   } finally {
+    await db.query("DELETE FROM stripe_events WHERE id=ANY($1::text[])", [
+      stripeEventIds,
+    ]);
     // Restore the site-wide Explore picks, then remove this run's audit entries for them.
     if (explorePicks)
       await http("staff/explore", process.env.STAFF_API_TOKEN, explorePicks);
