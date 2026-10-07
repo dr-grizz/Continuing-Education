@@ -96,7 +96,7 @@ Local website: `http://127.0.0.1:3000/`. API documentation: `http://localhost:30
 Complete these using synthetic data and local services before moving to external integrations.
 
 1. [x] Add CI for format, type checks, build, migration tests and integration tests with an isolated database. Added October 7, 2026.
-2. [ ] Run a manual screen-reader review of sign-in, registration, status changes, staff forms, dialogs and tables. The automated scans were added October 7, 2026, and a [VoiceOver review script](screen-reader-review.md) is ready; the session itself is pending.
+2. [ ] **Deferred (October 7, 2026), required before the closed pilot:** run a manual screen-reader review of sign-in, registration, status changes, staff forms, dialogs and tables using the [VoiceOver review script](screen-reader-review.md). The automated checks are in place; the session itself is pending.
 3. [x] Build staff-curated collections, private saved courses and pathway browsing (decisions F3 and F4). Built October 7, 2026, on the recommended F3 answer and proposed F4 assumptions.
 4. [ ] Add automated checks for reservation expiry and renewal and for worker restart. A manual crash/restart drill passed on October 5 and 6, 2026.
 5. [x] Test zoom, forced colors and cross-browser behavior. Automated October 7, 2026: forced colors, reflow at 320 px, 200% text, text spacing, and axe in Firefox and WebKit. Error announcements are covered by the screen-reader script (task 2).

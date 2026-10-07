@@ -1,6 +1,6 @@
 # Screen-reader review script (VoiceOver)
 
-A manual review for the M1 accessibility exit gate. The automated checks (`npm run test:a11y`) cover axe rules, forced colors, reflow and text resizing; they cannot judge whether announcements make sense, so a person runs this script. Expect about 45 minutes.
+A manual review for the accessibility release gate. **Status: deferred on October 7, 2026; required before the closed pilot.** The automated checks (`npm run test:a11y`) cover axe rules, forced colors, reflow and text resizing; they cannot judge whether announcements make sense, so a person runs this script. Expect about 45 minutes.
 
 Record each step as **Pass**, **Fail** or **Note** in the Result column, with what was heard when it differs. Add findings to the [progress log](implementation-progress.md); do not create GitHub issues unless asked.
 
