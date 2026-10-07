@@ -30,12 +30,17 @@ export const auditLabels: Record<string, string> = {
   "collection.published": "Collection published",
   "collection.unpublished": "Collection unpublished",
   "explore.updated": "Explore page picks changed",
+  "payment.checkout_started": "Stripe checkout started",
+  "payment.checkout_expired": "Stripe checkout expired",
+  "payment.stripe_paid": "Payment received (Stripe)",
+  "payment.stripe_unmatched": "Stripe payment needs review",
 };
 export const actorLabels: Record<string, string> = {
   "demo-staff": "Staff (demo)",
   "demo-learner": "Legacy demo learner",
   "demo-automation": "Automation token",
   "prototype-worker": "Background worker",
+  "stripe-webhook": "Stripe (webhook)",
 };
 export const stageLabels: Record<string, string> = {
   identity: "Identity preparation",

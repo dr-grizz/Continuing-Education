@@ -118,7 +118,7 @@ These depend on approved contracts and policies in the [implementation plan](../
 
 - [ ] Confirm capacity and the remaining refund policy questions. Tax decided October 7, 2026: none collected (P4); seat holds decided (P3).
 - [ ] Separate reusable course products from offerings where needed; add validated Canvas mappings.
-- [x] Integrate Stripe test Checkout, durable session mappings and signed webhooks (October 7, 2026; ADR 0005). Pending: a run against the project's sandbox once its keys are in `.env`.
+- [x] Integrate Stripe test Checkout, durable session mappings and signed webhooks (October 7, 2026; ADR 0005). Verified against the project's sandbox the same day.
 - [ ] Test expired, abandoned, failed, duplicate and out-of-order payment events, including reconciliation before seat release. Duplicate, mismatched, badly signed and expired events are covered by integration tests; reconciliation of sessions without a webhook is pending.
 - [ ] Connect isolated Canvas services, verify authoritative enrollments and replace placeholder course links.
 - [ ] Build the completion dashboard from Canvas data (decision F11).
@@ -192,7 +192,11 @@ October 7, 2026: Stripe-hosted Checkout for the sandbox (branch `stripe-checkout
   - Integration 22/22. New groups post signed fake events: bad signature rejected, amount mismatch rejected and left for Stripe to retry, payment recorded once, enrollment queued once, expiry recorded, and checkout refused without a key.
   - Migration tests 9/9; record counts unchanged after the runs.
   - In the browser: the cancelled-return message with focus, and the simulated button without a key.
-  - Not yet run against the real sandbox: `STRIPE_SECRET_KEY` is not set. `.env` has a local placeholder webhook secret to replace with the value from `stripe listen`.
+  - **Sandbox run (October 7, 2026),** with the project's test key and `stripe listen`:
+    - A synthetic learner reserved Practical Data Analysis and paid $149.00 with test card 4242 on Stripe-hosted Checkout, then returned to My learning already enrolled.
+    - The portal has a `stripe` order with session and payment IDs. Stripe shows the payment succeeded for 14,900 cents USD with the registration in its metadata, and the "Practical Data Analysis" Product was created on first use.
+    - Expiring a session through the API delivered `checkout.session.expired`, and the portal marked it expired.
+    - Finding: the first Checkout page also offered Link (bank, Klarna and a "save my information" sign-up) despite the card-only filter. Link is now hidden with `wallet_options`, and the page shows only card and Apple Pay.
 
 October 7, 2026: accessibility baseline: forced colors, reflow, zoom and cross-browser checks (branch `a11y-baseline`).
 

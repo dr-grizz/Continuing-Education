@@ -521,6 +521,9 @@ export class PortalService {
             // Cards, which include Apple Pay and Google Pay; no delayed methods
             // such as bank debits, which would outlast the seat hold.
             allowed_payment_method_types: ["card"],
+            // Link would add its own bank and buy-now-pay-later options and a
+            // "save my information" sign-up; found in the first sandbox run.
+            wallet_options: { link: { display: "never" } },
             client_reference_id: entitlementId,
             ...(row.email ? { customer_email: row.email } : {}),
             metadata,
