@@ -45,7 +45,8 @@ test.describe("learner pages", () => {
     await page.request.post("/api/demo-session", {
       data: { email: "a11y-scan@example.test" },
     });
-    await page.goto("/");
+    // The bare home page sends signed-in learners to My learning.
+    await page.goto("/?tab=explore");
     await expect(
       page.getByRole("heading", { level: 2, name: "For you" }),
     ).toBeVisible();

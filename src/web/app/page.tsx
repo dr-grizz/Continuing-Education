@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { CollectionCard } from "../components/collection-card";
 import { CourseCard } from "../components/course-card";
 import { useDemoAuth } from "../components/demo-auth";
@@ -60,6 +61,11 @@ type CatalogTab = (typeof tabs)[number];
 const startKey = (o: Offering) => o.start_date ?? "";
 const plural = (count: number, one: string, many: string) =>
   `${count} ${count === 1 ? one : many}`;
+const cardList = {
+  display: "grid",
+  gap: 2,
+  gridTemplateColumns: "minmax(0, 1fr)",
+} as const;
 const cardGrid = {
   display: "grid",
   gap: 2,
@@ -69,8 +75,13 @@ const cardGrid = {
     md: "repeat(3, minmax(0, 1fr))",
   },
 } as const;
+// The landing redirect is considered once per page load, against the URL as
+// it first loaded (the URL is tidied before the session is known).
+let landingChecked = false;
+let initialSearch: string | undefined;
 export default function Catalog() {
   const auth = useDemoAuth();
+  const router = useRouter();
   const [offerings, setOfferings] = useState<Offering[]>([]),
     [selectedTopics, setSelectedTopics] = useState<string[]>([]),
     [search, setSearch] = useState(""),
@@ -86,6 +97,29 @@ export default function Catalog() {
     [collectionSlug, setCollectionSlug] = useState(""),
     [collection, setCollection] = useState<CollectionDetail>(),
     [urlReady, setUrlReady] = useState(false);
+  // Signed-in learners land on My learning when they open the bare home page
+  // from outside the site (a bookmark or typed address). In-site links, links
+  // to a tab or filter, reloads and back/forward still show the catalog.
+  useEffect(() => {
+    initialSearch ??= window.location.search;
+    if (landingChecked || !auth.ready) return;
+    landingChecked = true;
+    if (!auth.email || initialSearch) return;
+    const entry = performance.getEntriesByType("navigation")[0] as
+      PerformanceNavigationTiming | undefined;
+    let fromOutside = true;
+    try {
+      fromOutside =
+        !document.referrer ||
+        new URL(document.referrer).origin !== window.location.origin;
+    } catch {
+      /* An unreadable referrer counts as arriving from outside. */
+    }
+    const freshHomeLoad =
+      !entry ||
+      (entry.type === "navigate" && new URL(entry.name).pathname === "/");
+    if (fromOutside && freshHomeLoad) router.replace("/learning");
+  }, [auth.ready, auth.email, router]);
   // Keep the tab and filters in the URL so views can be shared and reloaded.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -281,26 +315,67 @@ export default function Catalog() {
         Explore non-credit courses for your work, leadership and service. Find a
         course, collection or pathway that fits your goals and your schedule.
       </Typography>
-      <Tabs
-        value={current}
-        onChange={(_, value: CatalogTab) => setTab(value)}
-        variant="scrollable"
-        scrollButtons="auto"
-        allowScrollButtonsMobile
-        aria-label="Catalog views"
-        sx={{ mt: 4, mb: 3, borderBottom: 1, borderColor: "divider" }}
+      {/* The layout toggle applies to every tab and is remembered in the browser. */}
+      <Stack
+        direction="row"
+        sx={{
+          mt: 4,
+          mb: 3,
+          borderBottom: 1,
+          borderColor: "divider",
+          alignItems: "center",
+          justifyContent: "space-between",
+          columnGap: 2,
+          flexWrap: { xs: "wrap", sm: "nowrap" },
+        }}
       >
-        {visibleTabs.map((t) => (
-          <Tab
-            key={t}
-            value={t}
-            label={tabLabel[t]}
-            id={`catalog-tab-${t}`}
-            aria-controls={`catalog-panel-${t}`}
-            sx={{ minWidth: 0, px: { xs: 1.25, sm: 2 } }}
-          />
-        ))}
-      </Tabs>
+        <Tabs
+          value={current}
+          onChange={(_, value: CatalogTab) => setTab(value)}
+          variant="scrollable"
+          scrollButtons="auto"
+          allowScrollButtonsMobile
+          aria-label="Catalog views"
+          sx={{ flex: "1 1 auto", minWidth: 0 }}
+        >
+          {visibleTabs.map((t) => (
+            <Tab
+              key={t}
+              value={t}
+              label={tabLabel[t]}
+              id={`catalog-tab-${t}`}
+              aria-controls={`catalog-panel-${t}`}
+              sx={{ minWidth: 0, px: { xs: 1.25, sm: 2 } }}
+            />
+          ))}
+        </Tabs>
+        <Box sx={{ py: 1, ml: { xs: "auto", sm: 0 } }}>
+          <ToggleButtonGroup
+            value={layout}
+            exclusive
+            size="small"
+            onChange={(_, value) => changeLayout(value)}
+            aria-label="Card layout"
+          >
+            <ToggleButton
+              value="list"
+              aria-label="List layout"
+              sx={{ gap: 0.75, textTransform: "none" }}
+            >
+              <ViewListIcon fontSize="small" />
+              List
+            </ToggleButton>
+            <ToggleButton
+              value="grid"
+              aria-label="Grid layout"
+              sx={{ gap: 0.75, textTransform: "none" }}
+            >
+              <GridViewIcon fontSize="small" />
+              Grid
+            </ToggleButton>
+          </ToggleButtonGroup>
+        </Box>
+      </Stack>
 
       <Box {...panel("explore")}>
         {current === "explore" && (
@@ -323,9 +398,9 @@ export default function Catalog() {
                 >
                   Featured courses
                 </Typography>
-                <Box sx={cardGrid}>
+                <Box sx={layout === "grid" ? cardGrid : cardList}>
                   {explore.courses.map((o) => (
-                    <CourseCard key={o.id} offering={o} layout="grid" />
+                    <CourseCard key={o.id} offering={o} layout={layout} />
                   ))}
                 </Box>
                 {seeAll("courses", `See all courses (${offerings.length})`)}
@@ -343,10 +418,11 @@ export default function Catalog() {
                 <Typography color="text.secondary" sx={{ mt: 0.5, mb: 2 }}>
                   Courses in a recommended order. Following is free.
                 </Typography>
-                <Box sx={cardGrid}>
+                <Box sx={layout === "grid" ? cardGrid : cardList}>
                   {explore.pathways.map((c) => (
                     <CollectionCard
                       key={c.id}
+                      layout={layout}
                       collection={c}
                       following={following.has(c.id)}
                     />
@@ -371,9 +447,9 @@ export default function Catalog() {
                 <Typography color="text.secondary" sx={{ mt: 0.5, mb: 2 }}>
                   Related courses grouped by theme.
                 </Typography>
-                <Box sx={cardGrid}>
+                <Box sx={layout === "grid" ? cardGrid : cardList}>
                   {explore.collections.map((c) => (
-                    <CollectionCard key={c.id} collection={c} />
+                    <CollectionCard key={c.id} collection={c} layout={layout} />
                   ))}
                 </Box>
                 {seeAll(
@@ -552,30 +628,6 @@ export default function Catalog() {
                     Clear filters
                   </Button>
                 )}
-                <ToggleButtonGroup
-                  value={layout}
-                  exclusive
-                  size="small"
-                  onChange={(_, value) => changeLayout(value)}
-                  aria-label="Course layout"
-                >
-                  <ToggleButton
-                    value="list"
-                    aria-label="List layout"
-                    sx={{ gap: 0.75, textTransform: "none" }}
-                  >
-                    <ViewListIcon fontSize="small" />
-                    List
-                  </ToggleButton>
-                  <ToggleButton
-                    value="grid"
-                    aria-label="Grid layout"
-                    sx={{ gap: 0.75, textTransform: "none" }}
-                  >
-                    <GridViewIcon fontSize="small" />
-                    Grid
-                  </ToggleButton>
-                </ToggleButtonGroup>
               </Stack>
             </Stack>
             {error && <Alert severity="error">{error}</Alert>}
@@ -588,11 +640,7 @@ export default function Catalog() {
             )}
             <Box
               data-layout={layout}
-              sx={
-                layout === "grid"
-                  ? cardGrid
-                  : { display: "grid", gap: 2, gridTemplateColumns: "1fr" }
-              }
+              sx={layout === "grid" ? cardGrid : cardList}
             >
               {filtered.map((o) => (
                 <CourseCard key={o.id} offering={o} layout={layout} />
@@ -612,9 +660,9 @@ export default function Catalog() {
               Related courses grouped by theme. Register for each course
               separately.
             </Typography>
-            <Box sx={cardGrid}>
+            <Box sx={layout === "grid" ? cardGrid : cardList}>
               {allCollections.map((c) => (
-                <CollectionCard key={c.id} collection={c} />
+                <CollectionCard key={c.id} collection={c} layout={layout} />
               ))}
             </Box>
           </>
@@ -631,10 +679,11 @@ export default function Catalog() {
               Courses in a recommended order. Following a pathway is free and
               does not register you.
             </Typography>
-            <Box sx={cardGrid}>
+            <Box sx={layout === "grid" ? cardGrid : cardList}>
               {allPathways.map((c) => (
                 <CollectionCard
                   key={c.id}
+                  layout={layout}
                   collection={c}
                   following={following.has(c.id)}
                 />

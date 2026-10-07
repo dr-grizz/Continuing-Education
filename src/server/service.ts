@@ -103,7 +103,6 @@ type CollectionSummary = {
   topics: string[];
   min_price_cents: number;
   max_price_cents: number;
-  course_titles: string[];
   featured_rank: number | null;
   created_at: Date;
 };
@@ -1350,8 +1349,7 @@ export class PortalService {
       prisma,
       `SELECT c.id,c.kind,c.slug,c.title,c.summary,c.featured_rank,c.created_at,count(o.id)::integer AS course_count,
          array_agg(DISTINCT o.category ORDER BY o.category) AS topics,
-         min(o.price_cents)::integer AS min_price_cents,max(o.price_cents)::integer AS max_price_cents,
-         array_agg(o.title ORDER BY i.position) AS course_titles
+         min(o.price_cents)::integer AS min_price_cents,max(o.price_cents)::integer AS max_price_cents
        FROM collections c JOIN collection_items i ON i.collection_id=c.id
        JOIN offerings o ON o.id=i.offering_id AND o.published
        WHERE c.published GROUP BY c.id ORDER BY c.kind,c.title`,

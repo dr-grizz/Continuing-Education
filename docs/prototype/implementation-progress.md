@@ -167,13 +167,30 @@ A real screen-reader session, forced colors and cross-browser checks remain outs
 
 ## Latest implementation record
 
+October 7, 2026: global list/grid layout and My learning as the signed-in landing page (branch `curation`).
+
+- **Layout toggle:** List/Grid moved from the Courses results header to the catalog tab row, so it applies to Explore, Courses, Collections and Pathways; it is still remembered in the browser. Collection and pathway cards gained a list layout, with details and the View button in a side column from `sm` up.
+- **Landing:**
+  - Signing in without a return page now goes to **My learning**, not the catalog.
+  - A signed-in learner who opens the bare home page from outside the site is sent to My learning. This happens only on a fresh visit (not a reload or back/forward), at most once per page load. In-site links such as **Courses**, and links to a tab or filter, still open the catalog.
+- **Pathway cards:** no longer list their courses; the pathway page shows them in order. The unused course titles were dropped from `GET /collections`.
+- **Fix:** a signed-in visit to a tab link such as `/?tab=explore` was redirected to My learning. The page tidies `?tab=explore` to `/` before the session is known, so the check now uses the address the page first loaded with. The accessibility scan of For you caught this.
+- **Fix:** sign-in now also returns to collection and pathway pages. Before, **Sign in to follow this pathway** dropped the learner on the home page, because only course pages and My learning were accepted.
+- **Verification:** in the browser:
+  - list layout on Explore and the Pathways tab
+  - form sign-in landing on My learning
+  - a fresh visit to `/` redirecting
+  - the header Courses link, a `?tab=` link and a reload of `/` all showing the catalog
+
+  Typecheck, the build and the accessibility scans pass; the Explore scan now opens `/?tab=explore`, since `/` redirects signed-in learners.
+
 October 7, 2026: Explore landing tab with a personalized For you section (branch `curation`).
 
 - **Catalog tabs:** the catalog now opens on **Explore**, beside complete **Courses**, **Collections** and **Pathways** tabs. The tab is kept in the URL, and empty tabs are hidden. Counts are hidden on phones so all four tabs fit at 375px. The Collection dropdown filter was removed; older `?collection=` links open the Courses tab with an "In: …" chip and a named Remove button.
 - **Explore:** featured courses (up to 5) first, then pathways (up to 3) and collections (up to 3), in the same order on the staff tab, each with "See all" buttons that select the matching tab and move focus to it. The hard-coded three-course spotlight was replaced, and its picks were carried over as the first featured courses.
 - **For you (signed-in learners):** the next course that is not registered in each followed pathway ("step N of M"), a note when registrations need action, and up to three saved courses. It uses registration status only; there is no completion data before Canvas.
 - **Database:** migration `7_featured_explore` adds `featured_rank` to offerings (1–5) and collections (1–3 per kind), with checks, seeded from the former spotlight and the sample collections. Unpublishing clears it. The main database was backed up first.
-- **API:** public `GET /explore` (staff picks in order, then automatic fill: open scheduled courses by soonest start, then the newest self-paced; newest collections and pathways). `GET /staff/explore` (`staff:read`) and `POST /staff/explore` (`catalog:write`, published items only, kind-checked, limits enforced, one audited `explore.updated` change). `GET /collections` now includes topics, price range and course titles in order.
+- **API:** public `GET /explore` (staff picks in order, then automatic fill: open scheduled courses by soonest start, then the newest self-paced; newest collections and pathways). `GET /staff/explore` (`staff:read`) and `POST /staff/explore` (`catalog:write`, published items only, kind-checked, limits enforced, one audited `explore.updated` change). `GET /collections` now includes topics and the price range.
 - **Staff:** an **Explore page** tab with three ordered lists. The ordering editor from the collection dialog was extracted into a shared `OrderedListEditor`. Its add select now stays enabled when full, because disabling it while focused dropped focus to the page; the menu then says "Limit of N reached".
 - **Accessibility fixes found during the work:**
   - The scans flagged an inline link distinguished only by color; links inside sentences are now always underlined, including three in states the scans do not reach.

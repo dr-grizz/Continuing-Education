@@ -156,8 +156,9 @@ Outlined `Paper`. Catalog cards add a hover and focus-within state: primary bord
 ### Catalog (`/`)
 
 1. Intro: overline, `h1` "Build skills. Keep learning.", one-sentence description.
-2. Tabs (each label is a single span, because MUI stacks a tab's label children; `aria-label="Catalog views"`, manual activation: arrow keys move, Enter or Space selects): **Explore** (default), **Courses**, **Collections**, **Pathways**. Counts follow the last three labels from `sm` up and are hidden on phones so all four tabs fit at 320–375px. A tab with nothing published is hidden. The tab is kept in the URL as `tab` (omitted for Explore). Each panel has `role="tabpanel"` and is labelled by its tab.
-3. **Explore:**
+2. **Landing:** a signed-in learner who opens the bare home page from outside the site (empty or external referrer, a fresh navigation rather than a reload or back/forward, at most once per page load) is sent to My learning with `router.replace`. In-site links, URLs with a tab or filter, reloads and back/forward show the catalog.
+3. Tabs (each label is a single span, because MUI stacks a tab's label children; `aria-label="Catalog views"`, manual activation: arrow keys move, Enter or Space selects): **Explore** (default), **Courses**, **Collections**, **Pathways**. Counts follow the last three labels from `sm` up and are hidden on phones so all four tabs fit at 320–375px. A tab with nothing published is hidden. The tab is kept in the URL as `tab` (omitted for Explore). Each panel has `role="tabpanel"` and is labelled by its tab. A **List/Grid** toggle (`aria-label="Card layout"`) sits at the right of the tab row (below it on phones), applies to every tab, and is remembered in `localStorage`. Grid shows 1, 2 or 3 columns; list shows one card per row.
+4. **Explore:**
    - Signed-in learners first see **For you** (`h2`):
      - an info note when registrations need action (reserved or approved), linking to My learning
      - **Continue your pathways** (`h3`): one card per followed pathway with its next course that is not registered (none, expired, lapsed or declined), "step N of M" and View course; or "You have registered for every course in this pathway"
@@ -167,13 +168,13 @@ Outlined `Paper`. Catalog cards add a hover and focus-within state: primary bord
      It uses registration status only; there is no completion progress before Canvas.
    - **Featured courses** (up to 5), then **Featured pathways** (up to 3) and **Featured collections** (up to 3), each an `h2` section with a card grid (1, 2 or 3 columns) and a "See all {type} (n)" button. That button selects the matching tab and moves focus to it.
    - Items come from `GET /explore`: staff picks in their order, then automatic fill (open scheduled courses by soonest start, then the newest self-paced; newest collections and pathways). This replaced the former hard-coded three-course spotlight; its picks were carried over as the first featured courses.
-4. **Courses:**
+5. **Courses:**
    - Filters (grid: 4 columns on `md`; on phones search and topics span the full row, with type and sort side by side): search by title or summary; topics (multi-select with checkboxes, where "All topics" resets); course type (All, Scheduled, Self-paced); sort (Soonest start with self-paced first, Price low→high, Price high→low, Title A–Z).
    - Filters are kept in the URL (`q`, `topics`, `type`, `sort`) with `history.replaceState`; default values are omitted.
    - Older links with `?collection=` open this tab filtered to that collection. They show an "In: {title}" chip, a **Remove** button named "Remove filter: {title}", and a link to the collection's page.
-   - Results header: list heading, live course count, "Clear filters" when any filter is active, and a List/Grid toggle remembered in `localStorage`.
+   - Results header: list heading, live course count and "Clear filters" when any filter is active.
    - Results: list cards (thumbnail 88–144px) or grid cards (16:9 image; 1, 2 or 3 columns). Each card shows the category, `h3` title, summary, format label, price, start, an "Approval required" chip when relevant, an "Enrollment closed" warning chip once a Scheduled course's enrollment window has passed, and "View course".
-5. **Collections** and **Pathways:** an `h2` ("All collections", "All pathways") with a one-line explanation and a card grid. A card shows the type overline, `h3` title, summary, course count, price range and topics, and "View collection" or "View pathway" (named with the title). Pathway cards preview the first three steps as an ordered list, with "and N more" outside the list. Followed pathways show a "Following" chip.
+6. **Collections** and **Pathways:** an `h2` ("All collections", "All pathways") with a one-line explanation and a card grid. A card shows the type overline, `h3` title, summary, course count, price range and topics, and "View collection" or "View pathway" (named with the title). Cards do not list their courses; the collection or pathway page does. Followed pathways show a "Following" chip. In list layout the course count, price range, topics and View button move to a right-hand column from `sm` up (stacked below a divider on phones).
 
 ### Course detail (`/courses/[id]`)
 
@@ -201,7 +202,7 @@ Outlined `Paper`. Catalog cards add a hover and focus-within state: primary bord
 
 ### Sign in (`/sign-in`)
 
-Mock sign-in. The Email field (`autoComplete="username"`) and Password field (`current-password`) carry helper text saying any password works and is not saved. Submitting returns the user to `returnTo` when it is provided.
+Mock sign-in. The Email field (`autoComplete="username"`) and Password field (`current-password`) carry helper text saying any password works and is not saved. Submitting returns the user to `returnTo` when it is a course page, a collection or pathway page, or My learning; otherwise the learner lands on **My learning**.
 
 ### My learning (`/learning`)
 

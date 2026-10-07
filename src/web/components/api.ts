@@ -37,8 +37,6 @@ export type CollectionSummary = CollectionRef & {
   topics: string[];
   min_price_cents: number;
   max_price_cents: number;
-  /** Published course titles, in order (the recommended order for pathways). */
-  course_titles: string[];
 };
 /** Learner Explore tab: staff picks first, then automatic fill. */
 export type ExploreData = {
