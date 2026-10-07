@@ -2,7 +2,7 @@
 
 Required by milestone M0 of the [implementation plan](implementation-plan.md#m0--establish-decisions-and-contracts): every decision needs an owner and a due date before integration work depends on it. This register is the single list. Details live in the linked ADR or plan section.
 
-Last updated: October 7, 2026. Summary: 38 decisions: 5 decided, 5 proposed, 28 open. A3 counts as open because hosting is undecided, although its framework choice is proposed.
+Last updated: October 7, 2026. Summary: 39 decisions: 5 decided, 5 proposed, 29 open. A3 counts as open because hosting is undecided, although its framework choice is proposed.
 
 ## How to use this register
 
@@ -79,7 +79,7 @@ Requested October 7, 2026; see the plan's [requested feature additions](implemen
 
 | ID | Decision | Status | Owner | Due | Blocks | Record |
 | --- | --- | --- | --- | --- | --- | --- |
-| F1 | Dashboards: which enrollment and sales metrics, who sees sales figures (new `reports:sales` scope), and how sales reconcile to Stripe | **Open** | Program Operations, Finance | | Enrollment: M4. Sales: M6 | [Plan: dashboards](implementation-plan.md#enrollment-and-sales-dashboards) |
+| F1 | Dashboards: which enrollment and sales metrics, who sees sales figures (new `reports:sales` scope), and how sales reconcile to Stripe. Proposed metrics follow the Teachable comparison: date and product filters, refunds and failed payments, CSV export; MRR and churn only with memberships. A sample dashboard is built in the prototype for review (Finance holds `reports:sales`) | **Open** | Program Operations, Finance | | Enrollment: M4. Sales: M6 | [Plan: dashboards](implementation-plan.md#enrollment-sales-and-completion-dashboards) |
 | F2 | Sales pages: who edits and approves content; allowed content blocks; testimonial consent. **Decided Oct 7, 2026:** add a Content editor staff role (scope `content:write`, reserved until the editor exists) | **Open** (role decided; content approval, blocks and consent still open) | Marketing, Program Operations | | Sales pages (after O4) | [Plan: sales pages](implementation-plan.md#customizable-sales-pages) |
 | F3 | Collections: staff-curated only, or also learner-created? Recommendation: staff-only collections plus a private learner **Saved courses** list; reconsider shareable learner lists later | **Open** (recommendation recorded) | Program Operations | | Collections, saved courses | [Plan: collections](implementation-plan.md#collections) |
 | F4 | Pathways: does following one register or charge; prerequisites or a recommended order; bundled pricing (a deferred "bundle"); certificates | **Open** | Program Operations, Registrar, Finance | | Pathways | [Plan: pathways](implementation-plan.md#pathways) |
@@ -89,6 +89,7 @@ Requested October 7, 2026; see the plan's [requested feature additions](implemen
 | F8 | Bulk enrollment: who may use it, invoice versus card, organizational seat reservations, Courtesy provisioning at volume, notifications | **Open** | Program Operations, Finance, IT Identity | | Bulk enrollment (after M4) | [Plan: bulk enrollment](implementation-plan.md#bulk-enrollment) |
 | F9 | User exports: who may export, which datasets and fields, handling and retention of files | **Open** | Security, Registrar | | Exports (M5) | [Plan: user exports](implementation-plan.md#user-exports) |
 | F10 | Release placement: whether any requested feature moves into the first release, overriding the deferral of subscriptions, group purchasing and bundles | **Open** | Sponsor | | Scope of the first release | [Plan: scope](implementation-plan.md#scope-and-ownership) |
+| F11 | Completion dashboard (after the Canvas connection): the completion signal (Canvas course completion, module requirements or grades), refresh method (scheduled pull or Canvas events), metrics, and who may see learner-level progress (for example instructors) | **Open** | Program Operations, Canvas Administration, Registrar | | Completion dashboard (M4+, after R2) | [Plan: dashboards](implementation-plan.md#enrollment-sales-and-completion-dashboards) |
 
 ## Critical path
 

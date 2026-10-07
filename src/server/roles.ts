@@ -7,7 +7,7 @@ export const roleScopes: Record<StaffRole, readonly string[]> = {
   catalog_manager: ["catalog:write"],
   support: ["exceptions:resolve", "prototype:simulate", "learners:manage"],
   // Refunds and reconciliation actions arrive with M5; read-only until then.
-  finance: [],
+  finance: ["reports:sales"],
   it_canvas_admin: ["exceptions:resolve", "prototype:simulate"],
   staff_admin: ["staff:manage"],
   // Reserved for the planned sales page editor; no endpoint uses it yet.
@@ -43,7 +43,7 @@ export const roleDescriptions: Record<StaffRole, string> = {
   support:
     "Recovers failed provisioning, manages learner account access and runs the prototype provisioning simulation.",
   finance:
-    "Views orders, reports and activity. Refund and reconciliation actions arrive with M5.",
+    "Views sales dashboards, orders, reports and activity. Refund and reconciliation actions arrive with M5.",
   it_canvas_admin:
     "Recovers identity and Canvas failures, including recording manual enrollment.",
   staff_admin: "Adds staff members, assigns roles and deactivates access.",
@@ -54,6 +54,7 @@ export const scopeDescriptions: Record<string, string> = {
   "staff:read":
     "View the staff workspace: offerings, approvals, exceptions, activity",
   "reports:read": "Read reports and the audit log",
+  "reports:sales": "View sales figures on the dashboard",
   "approvals:decide": "Approve or decline approval requests",
   "catalog:write": "Create, edit, publish and unpublish offerings",
   "exceptions:resolve": "Retry provisioning or record manual enrollment",

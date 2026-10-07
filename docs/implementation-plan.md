@@ -63,11 +63,12 @@ Defer subscriptions, group purchasing, bundles, automated transfers and LTI 1.3.
 
 ## Requested feature additions
 
-Requested October 7, 2026. These features extend the portal beyond the first release described above. Each lists its purpose, dependencies, risks and open decisions. Proposed milestones are in [Requested features by milestone](#requested-features-by-milestone), and the open decisions are tracked as F1–F10 in the [decision register](decision-register.md#product-features). None is approved for implementation until its decisions have owners.
+Requested October 7, 2026. These features extend the portal beyond the first release described above. Each lists its purpose, dependencies, risks and open decisions. Proposed milestones are in [Requested features by milestone](#requested-features-by-milestone), and the open decisions are tracked as F1–F11 in the [decision register](decision-register.md#product-features). None is approved for implementation until its decisions have owners.
 
 | Feature | Summary | Main dependencies | Proposed timing |
 | --- | --- | --- | --- |
-| Enrollment and sales dashboards | Staff views of enrollment and sales trends | Real orders (M3) and verified enrollments (M4); Finance reconciliation | Enrollment: M4. Sales: M6 |
+| Enrollment and sales dashboards | Staff views of enrollment and sales trends (compared with Teachable below) | Real orders (M3) and verified enrollments (M4); Finance reconciliation | Enrollment: M4. Sales: M6 |
+| Completion dashboard | Completion and progress by offering, cohort and pathway | **Canvas connection** (M4), completion evidence (R2, F11) | After the Canvas connection (M4+) |
 | Customizable sales pages | Staff-edited marketing pages for offerings, pathways and collections | Brand approval (O4); content and accessibility review | After M2, before the pilot |
 | Pathways | Staff-defined sequences of courses that learners follow | Catalog (M2); completion evidence (R2) for progress | Browse and follow: M2+. Progress: M4+ |
 | Collections | Staff-curated groupings such as Bible Minor, Christian Leadership and ACSI | Catalog (M2) | M2+ |
@@ -77,15 +78,55 @@ Requested October 7, 2026. These features extend the portal beyond the first rel
 | Bulk enrollment | Staff or organizations enroll many learners at once | Identity provisioning at scale (C1, M4); invoicing policy | After M4 |
 | User exports | Downloadable learner, registration and order data | Privacy, retention and export policy (P7); staff roles | M5 |
 
-### Enrollment and sales dashboards
+### Enrollment, sales and completion dashboards
+
+**Comparison with Teachable (reviewed October 7, 2026).** Teachable is the likely current platform (see migration scope O2). Its reporting is split in two:
+
+- **Sales Analytics Dashboard:**
+  - Built on Retool, a third-party tool. Only the school's primary owner can open it, and only on paid plans.
+  - Metrics: sales, conversions, refunds, failed payments, subscriptions, monthly recurring revenue (24 months), churn, lifetime value, free-to-paid conversion and time to convert, total students and first-time subscription enrollments.
+  - Filters by date range and product. The transactions, subscriptions and failed-payments tables export as CSV.
+- **Transactions page:** CSV exports emailed to the owner, including fees, tax, refunds, earnings and payouts.
+- **Per-course reports:** lesson completion, video engagement, quiz scores, leaderboards with enrollment and completion dates, and individual student progress. They filter by user tag and export as CSV.
+
+Teachable has **no separate enrollment dashboard**; enrollment counts sit inside its sales and course reports. Its completion data exists because it hosts the course content.
+
+**What this portal adopts from it:**
+
+- date-range and product filters, plus offering, collection and pathway filters
+- refunds and failed payments shown beside sales
+- CSV export of each underlying table, under the user-export rules
+- monthly recurring revenue and churn, only if memberships (F6) go ahead
+- free-to-paid conversion, only if free offerings are introduced
+
+**Where this portal deliberately differs:**
+
+- Access is by role scope, not one owner.
+- Dashboards are built into the portal, not an external tool, so permissions, audit and accessibility stay under our control.
+- Completion data comes from Canvas, not the portal.
+
+**Sample in the prototype (October 7, 2026):** a Staff → **Dashboard** tab (`GET /staff/dashboard`) demonstrates the enrollment and sales dashboards on prototype data. It has date-range and offering filters, KPI tiles, accessible single-series column charts with table views, offering tables with seat meters, CSV export of aggregates, and a completion placeholder. Sales appear only with the new `reports:sales` scope, granted to Finance. Refunds and failed payments show as not yet available.
+
+The dashboards:
 
 - **Enrollment dashboard** (Program Operations):
   - New registrations, approvals pending, seats filled versus capacity, enrolled versus provisioning versus exceptions, by offering, collection, pathway and date range.
   - It can use portal data alone, but "enrolled" must mean verified Canvas enrollment (M4).
 - **Sales dashboard** (Finance and Program Operations):
-  - Gross sales, refunds, discounts and net, by offering, coupon, membership and period.
+  - Gross sales, discounts, refunds, failed payments and net, by offering, coupon, membership and period, with first-time versus returning buyers.
   - Figures must reconcile to Stripe, which is the financial source of truth. The dashboard is operational insight, not financial evidence. Label any simulated or test-mode data.
-- **Access:** dashboards show aggregates. Drilling down to individual learners follows the user-export rules. Sales figures need a new `reports:sales` scope (for example, Finance and Program Operations); enrollment figures fit the existing `reports:read`.
+- **Completion dashboard** (Program Operations and instructors), a **separate feature, built only after the Canvas connection** (M4+):
+  - Course completion rate and completion over time, by offering, cohort and pathway.
+  - Learners not yet started, in progress and complete, with time to complete.
+  - Pathway progress across courses.
+  - Teachable's video and quiz analytics depend on hosting the content. Canvas keeps its own learning analytics, so the portal should link to Canvas reports rather than copy lesson-level data.
+  - The data source is Canvas: course completion, module requirements or grades, as decided in R2 and F11. Pull it on a schedule or through Canvas events; never infer completion from the offering end date.
+  - Learner-level views follow the export privacy rules (F9) and may need instructor-specific access.
+- **Access:**
+  - Dashboards show aggregates.
+  - Drilling down to individual learners follows the user-export rules.
+  - Sales figures need a new `reports:sales` scope (for example, Finance and Program Operations).
+  - Enrollment and completion figures fit the existing `reports:read`. A narrower instructor scope may be needed for completion.
 - **Accessibility:** charts need text alternatives and table views; colour must not be the only signal.
 
 ### Customizable sales pages
@@ -862,6 +903,7 @@ These placements are proposals, not commitments. Each feature starts only after 
 - **M4+:**
   - pathway progress, once completion evidence (R2) is approved
   - enrollment dashboard on verified enrollments
+  - **completion dashboard**, built only after the Canvas connection is live and the completion source (R2, F11) is approved
 - **M5:** user exports, after privacy approval (F9).
 - **M6:** sales dashboard, reconciled to Stripe.
 - **After the pilot:**

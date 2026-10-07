@@ -1346,6 +1346,54 @@ async function main() {
     console.log(
       "PASS: staff list and inspect learners; Support deactivates and reactivates access with a reason; deactivated learners are blocked; legacy learner protected",
     );
+
+    // Sample staff dashboard.
+    const asApprover = await (
+      await http(
+        `staff/dashboard?days=7&offeringId=${mgmtOffering}`,
+        STAFF,
+        undefined,
+        approverId,
+      )
+    ).json();
+    assert.equal(asApprover.sales, null, "sales need the reports:sales scope");
+    assert.equal(asApprover.enrollment.registrations, 1);
+    assert.equal(asApprover.enrollment.in_progress, 1);
+    assert.equal(
+      asApprover.enrollment.trend.length,
+      7,
+      "one bucket per day for 7 days",
+    );
+    assert.equal(
+      asApprover.enrollment.trend.reduce(
+        (sum: number, point: any) => sum + point.value,
+        0,
+      ),
+      1,
+    );
+    assert.equal(asApprover.completion.available, false);
+    const asFinance = await (
+      await http("staff/dashboard?days=30", STAFF, undefined, financeId)
+    ).json();
+    assert.ok(
+      asFinance.sales && typeof asFinance.sales.gross_cents === "number",
+    );
+    assert.equal(
+      asFinance.sales.trend.reduce(
+        (sum: number, point: any) => sum + point.value,
+        0,
+      ),
+      asFinance.sales.gross_cents,
+      "sales trend sums to gross",
+    );
+    assert.equal(
+      (await http("staff/dashboard?days=5", STAFF, undefined, financeId))
+        .status,
+      400,
+    );
+    console.log(
+      "PASS: dashboard reports enrollment to all staff, sales only to Finance, filtered by date range and offering",
+    );
   } finally {
     await db.query(
       "DELETE FROM operations WHERE entitlement_id IN (SELECT id FROM entitlements WHERE offering_id=ANY($1::uuid[]))",

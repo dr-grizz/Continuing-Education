@@ -19,7 +19,7 @@ Real authentication (university SSO with MFA for staff) is not available yet. Pr
     | Approver | `approvals:decide` |
     | Catalog manager | `catalog:write` |
     | Support | `exceptions:resolve`, `prototype:simulate` |
-    | Finance | none yet (refunds arrive in M5) |
+    | Finance | `reports:sales` (sales figures on the dashboard; refunds arrive in M5) |
     | IT/Canvas administrator | `exceptions:resolve`, `prototype:simulate` |
     | Staff administrator | `staff:manage` |
     | Content editor (added Oct 7, 2026) | `content:write`, reserved for the planned sales page editor; no endpoint uses it yet |
