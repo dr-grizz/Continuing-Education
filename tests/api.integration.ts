@@ -1155,7 +1155,21 @@ async function main() {
     const roles = await (
       await http("staff/roles", STAFF, undefined, approverId)
     ).json();
-    assert.equal(roles.length, 6);
+    assert.equal(roles.length, 7);
+    const contentId = await staffByEmail("content@cuce.test");
+    const contentMe = await (
+      await http("staff/me", STAFF, undefined, contentId)
+    ).json();
+    assert.deepEqual(
+      [...contentMe.scopes].sort(),
+      ["content:write", "reports:read", "staff:read"],
+      "content editors view the workspace and hold the reserved sales-page scope only",
+    );
+    assert.equal(
+      (await http("offerings", STAFF, draftBody, contentId)).status,
+      403,
+      "content editors cannot create or change offerings",
+    );
     assert.ok(
       roles
         .find((r: any) => r.role === "staff_admin")

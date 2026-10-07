@@ -10,6 +10,8 @@ export const roleScopes: Record<StaffRole, readonly string[]> = {
   finance: [],
   it_canvas_admin: ["exceptions:resolve", "prototype:simulate"],
   staff_admin: ["staff:manage"],
+  // Reserved for the planned sales page editor; no endpoint uses it yet.
+  content_editor: ["content:write"],
 };
 // Every active staff member can view the staff workspace and its reports.
 export const baseStaffScopes = ["staff:read", "reports:read"] as const;
@@ -21,6 +23,7 @@ export const roleLabels: Record<StaffRole, string> = {
   finance: "Finance",
   it_canvas_admin: "IT/Canvas administrator",
   staff_admin: "Staff administrator",
+  content_editor: "Content editor",
 };
 export const staffRoles = Object.values(StaffRole);
 
@@ -44,6 +47,8 @@ export const roleDescriptions: Record<StaffRole, string> = {
   it_canvas_admin:
     "Recovers identity and Canvas failures, including recording manual enrollment.",
   staff_admin: "Adds staff members, assigns roles and deactivates access.",
+  content_editor:
+    "Edits customizable sales pages. Planned: until the sales page editor exists, this role can view the workspace only.",
 };
 export const scopeDescriptions: Record<string, string> = {
   "staff:read":
@@ -55,4 +60,5 @@ export const scopeDescriptions: Record<string, string> = {
   "prototype:simulate": "Change the prototype provisioning simulation",
   "staff:manage": "Manage staff members and their roles",
   "learners:manage": "Deactivate or reactivate learner accounts",
+  "content:write": "Edit sales pages (planned; no editing screens yet)",
 };

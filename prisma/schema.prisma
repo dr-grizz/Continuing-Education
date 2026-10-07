@@ -207,7 +207,8 @@ enum SimulatedOutcome {
 }
 
 /// Staff role, mapped to permission scopes in src/server/roles.ts. The first five are the
-/// plan's M5 roles; staff_admin (manage staff and roles) is a prototype proposal.
+/// plan's M5 roles; staff_admin (manage staff and roles) is a prototype proposal;
+/// content_editor (sales pages) was added October 7, 2026.
 enum StaffRole {
   approver
   catalog_manager
@@ -215,6 +216,8 @@ enum StaffRole {
   finance
   it_canvas_admin
   staff_admin
+  /// Edits customizable sales pages (planned feature; reserved scope content:write).
+  content_editor
 
   @@map("staff_role")
 }

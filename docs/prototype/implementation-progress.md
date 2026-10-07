@@ -164,6 +164,21 @@ Automated accessibility scanning and a real screen-reader session remain outstan
 
 ## Latest implementation record
 
+October 7, 2026: requested feature additions and the Content editor role (branch `content-editor`).
+- **Plan:** a new [Requested feature additions](../implementation-plan.md#requested-feature-additions) section covers:
+  - enrollment and sales dashboards
+  - customizable sales pages
+  - pathways
+  - staff-curated collections and private saved courses
+  - memberships
+  - coupons
+  - bulk enrollment
+  - user exports
+
+  It also adds screen-inventory rows and milestone placement. Ten decisions (F1–F10) go into the decision register, including the release-placement question for features the first release defers.
+- **Content editor role:** migrations `4_content_editor_role` (the enum value, in its own migration) and `5_content_editor_demo` add Cory Content Editor (`content@cuce.test`) and give the demo administrator the role. The reserved `content:write` scope is unused until sales pages exist, so content editors are view-only today.
+- **Verification:** the main database was backed up first. Integration suite 17/17, with new assertions for the content editor's exact scopes and a 403 on creating offerings. Migration tests 9/9. A browser check covered the view-only workspace and the Roles tab card.
+
 October 7, 2026: learner management, plus two UI requests (branch `staff-roles`).
 - **Database:** migration `3_learner_access` adds `learners.active`, `deactivated_at` (CHECK: set exactly when inactive) and `version`. The main database was backed up before applying it.
 - **API:**

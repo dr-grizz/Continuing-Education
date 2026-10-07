@@ -18,7 +18,8 @@ export type StaffRole =
   | "support"
   | "finance"
   | "it_canvas_admin"
-  | "staff_admin";
+  | "staff_admin"
+  | "content_editor";
 export const roleLabels: Record<StaffRole, string> = {
   approver: "Approver",
   catalog_manager: "Catalog manager",
@@ -26,6 +27,7 @@ export const roleLabels: Record<StaffRole, string> = {
   finance: "Finance",
   it_canvas_admin: "IT/Canvas administrator",
   staff_admin: "Staff administrator",
+  content_editor: "Content editor",
 };
 export type StaffMember = {
   id: string;
