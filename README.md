@@ -79,7 +79,7 @@ Stop application processes with Ctrl+C. `docker compose stop db` stops PostgreSQ
 2. Register for an open course as the demo learner. In My learning, select **Simulate payment** and watch the worker prepare demo access.
 3. Request Healthcare Communication, then open **Staff**, sign in as a demo staff member with the Approver role, and approve it in **Approvals**. Return to My learning, reserve a seat and simulate payment.
 4. Use Staff to create a draft offering, publish it and inspect the audit activity. This needs the Catalog manager role.
-5. **Collections and pathways.** Filter the catalog by **Collection**, open the Data-Informed Leader pathway and select **Follow pathway**, then **Save course** on any course page. Both appear in My learning; neither registers you. As Casey Catalog Manager, use **Staff → Collections** to create, reorder and publish collections and pathways.
+5. **Explore, collections and pathways.** The catalog opens on **Explore**: featured pathways, collections and courses. Open the Data-Informed Leader pathway and select **Follow pathway**, then **Save course** on any course page. Signed in, Explore then shows **For you** with your next pathway course and saved courses; My learning lists both. Neither registers you. As Casey Catalog Manager, use **Staff → Collections** to create, reorder and publish collections and pathways, and **Staff → Explore page** to choose what Explore features.
 6. In **Staff → Exceptions**, set *Outcome for new payments* to a failure, then simulate a payment in My learning. Watch the automatic retries, then review the exception in Staff and retry provisioning or record a manual enrollment with a reason. Set the outcome back to *Normal* afterwards; it applies to every demo learner.
 7. **Try the roles.** Use **Switch staff member** to act as each demo staff member:
    - Avery Approver can decide approvals but not edit offerings.
@@ -132,7 +132,7 @@ Integration tests require the website, API and PostgreSQL running. They check au
 - [ ] **Accessibility:** verify keyboard operation, visible focus, focus order/return, skip navigation, and no keyboard traps.
 - [ ] **Accessibility:** check accessible names, form labels, heading structure, landmarks, image alternatives, selected states, and status/error announcements.
 - [ ] **Accessibility:** check text/control contrast, touch target sizes, narrow-screen reflow, and zoom behavior.
-- [ ] **Accessibility:** run `npm run test:a11y` (add new pages or dialogs to `tests/accessibility/pages.spec.ts`) and manually review the affected workflows with a screen reader. Before release, cover catalog/filtering, spotlight, sign-in, registration, learner status, and staff forms/dialogs/tables.
+- [ ] **Accessibility:** run `npm run test:a11y` (add new pages or dialogs to `tests/accessibility/pages.spec.ts`) and manually review the affected workflows with a screen reader. Before release, cover the catalog tabs and filtering, sign-in, registration, learner status, and staff forms/dialogs/tables.
 - [ ] Record evidence, fixes, unresolved findings, and checks not performed; do not describe untested checks as passing or a partial review as WCAG certification.
 
 Accessibility is part of every UI review. Scale checks to the change; a narrow UI change does not require repeating unrelated integration tests. The first manual catalog review is recorded in `docs/prototype/accessibility-check.txt`.

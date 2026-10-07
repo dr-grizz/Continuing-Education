@@ -29,6 +29,7 @@ export const auditLabels: Record<string, string> = {
   "collection.edited": "Collection edited",
   "collection.published": "Collection published",
   "collection.unpublished": "Collection unpublished",
+  "explore.updated": "Explore page picks changed",
 };
 export const actorLabels: Record<string, string> = {
   "demo-staff": "Staff (demo)",

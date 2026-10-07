@@ -11,6 +11,10 @@ const ids: string[] = [],
   httpKeys: string[] = [];
 const staffIds: string[] = [];
 const collectionIds: string[] = [];
+// Explore picks are site-wide; the test saves and restores them.
+const testStarted = new Date();
+let explorePicks:
+  { courses: string[]; collections: string[]; pathways: string[] } | undefined;
 let adminStaffId = "";
 // Staff-token calls act as a demo staff member: the seeded administrator unless
 // `staffAs` names another member, or nobody when `staffAs` is null (sign-in only).
@@ -1645,7 +1649,135 @@ async function main() {
     console.log(
       "PASS: staff curate collections and pathways; learners filter, save courses privately and follow pathways without registering",
     );
+
+    // Explore tab: staff picks first, automatic fill, published items only.
+    const currentPicks = await (
+      await http("staff/explore", STAFF, undefined, approverId)
+    ).json();
+    explorePicks = {
+      courses: currentPicks.courses.map((c: any) => c.id),
+      collections: currentPicks.collections.map((c: any) => c.id),
+      pathways: currentPicks.pathways.map((c: any) => c.id),
+    };
+    const featuredCourse = await seed(false);
+    const pickBody = {
+      courses: [featuredCourse],
+      collections: [],
+      pathways: [],
+    };
+    assert.equal(
+      (await http("staff/explore", STAFF, pickBody, approverId)).status,
+      403,
+      "changing Explore picks needs catalog:write",
+    );
+    assert.equal(
+      (
+        await http(
+          "staff/explore",
+          STAFF,
+          { ...pickBody, courses: [hiddenStep] },
+          catalogId,
+        )
+      ).status,
+      400,
+      "unpublished courses cannot be featured",
+    );
+    assert.equal(
+      (
+        await http(
+          "staff/explore",
+          STAFF,
+          { ...pickBody, pathways: [sampleCollection?.id ?? randomUUID()] },
+          catalogId,
+        )
+      ).status,
+      400,
+      "a collection cannot be featured as a pathway",
+    );
+    assert.equal(
+      (
+        await http(
+          "staff/explore",
+          STAFF,
+          {
+            ...pickBody,
+            courses: Array.from({ length: 6 }, () => randomUUID()),
+          },
+          catalogId,
+        )
+      ).status,
+      400,
+      "at most five featured courses",
+    );
+    assert.equal(
+      (await http("staff/explore", STAFF, pickBody, catalogId)).status,
+      200,
+    );
+    const explore = await (await http("explore")).json();
+    assert.equal(
+      explore.courses[0].id,
+      featuredCourse,
+      "staff picks come first",
+    );
+    assert.equal(explore.courses[0].featured, true);
+    assert.ok(
+      explore.courses.length <= 5 &&
+        explore.courses.slice(1).every((c: any) => c.featured === false),
+      "remaining spots fill automatically",
+    );
+    assert.ok(
+      explore.courses.every((c: any) => c.published && c.enrollment_open),
+    );
+    assert.ok(explore.pathways.every((p: any) => p.kind === "pathway"));
+    assert.ok(explore.collections.length <= 3 && explore.pathways.length <= 3);
+    const unpublishTarget = (
+      await db.query("SELECT version FROM offerings WHERE id=$1", [
+        featuredCourse,
+      ])
+    ).rows[0];
+    await http(
+      `offerings/${featuredCourse}/unpublish`,
+      STAFF,
+      {
+        version: unpublishTarget.version,
+        reason: "Integration test unpublish",
+      },
+      catalogId,
+    );
+    assert.equal(
+      (
+        await db.query("SELECT featured_rank FROM offerings WHERE id=$1", [
+          featuredCourse,
+        ])
+      ).rows[0].featured_rank,
+      null,
+      "unpublishing clears the featured position",
+    );
+    assert.ok(
+      !(await (await http("explore")).json()).courses.some(
+        (c: any) => c.id === featuredCourse,
+      ),
+    );
+    assert.equal(
+      (
+        await db.query(
+          "SELECT count(*)::int AS n FROM audit_events WHERE action='explore.updated' AND actor=$1",
+          [`staff:${catalogId}`],
+        )
+      ).rows[0].n >= 1,
+      true,
+    );
+    console.log(
+      "PASS: Explore shows staff picks first and fills the rest; only published items, by catalog managers; unpublishing removes a pick",
+    );
   } finally {
+    // Restore the site-wide Explore picks, then remove this run's audit entries for them.
+    if (explorePicks)
+      await http("staff/explore", process.env.STAFF_API_TOKEN, explorePicks);
+    await db.query(
+      "DELETE FROM audit_events WHERE action='explore.updated' AND created_at>=$1",
+      [testStarted],
+    );
     await db.query("DELETE FROM audit_events WHERE object_id=ANY($1::uuid[])", [
       collectionIds,
     ]);

@@ -300,3 +300,24 @@ export class FollowDto {
   @IsBoolean()
   following!: boolean;
 }
+// Staff picks for the learner Explore tab, in display order; empty spots fill automatically.
+export class ExploreDto {
+  @ApiProperty({ type: [String], description: "Up to 5 published courses" })
+  @IsArray()
+  @ArrayMaxSize(5)
+  @ArrayUnique()
+  @IsUUID(undefined, { each: true })
+  courses!: string[];
+  @ApiProperty({ type: [String], description: "Up to 3 published collections" })
+  @IsArray()
+  @ArrayMaxSize(3)
+  @ArrayUnique()
+  @IsUUID(undefined, { each: true })
+  collections!: string[];
+  @ApiProperty({ type: [String], description: "Up to 3 published pathways" })
+  @IsArray()
+  @ArrayMaxSize(3)
+  @ArrayUnique()
+  @IsUUID(undefined, { each: true })
+  pathways!: string[];
+}

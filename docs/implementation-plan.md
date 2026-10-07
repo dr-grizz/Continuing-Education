@@ -166,7 +166,13 @@ The dashboards:
 - **Prototype (October 7, 2026):** built as recommended. Staff-curated collections (draft, publish, unpublish, audited) appear as a catalog **Collection** filter, a public page and "Part of" links on course pages; unpublished courses in a collection stay hidden from learners. Learners save courses privately from the course page and manage them in My learning. Sample data: Christian Leadership, Technology at Work and the Data-Informed Leader pathway.
 - **ACSI:** if a collection reflects a partner or credential, such as ACSI professional development, confirm whether it implies eligibility rules, partner pricing or reporting obligations (F5). If it does, it is more than a display grouping.
 
-### Memberships
+### Explore landing tab
+
+- **What:** the catalog opens on an **Explore** tab beside the complete **Courses**, **Collections** and **Pathways** tabs. It features up to 3 pathways, 3 collections and 5 courses, and signed-in learners get a personalized **For you** section first: the next course that is not registered in each followed pathway, registrations needing action, and saved courses.
+- **Selection:** staff with `catalog:write` choose and order the picks on **Staff → Explore page**, saved as one audited change. Empty spots fill automatically (open scheduled courses by soonest start, then the newest self-paced courses; newest collections and pathways). Only published items can be picked, and unpublishing removes a pick. Popularity ranking was rejected: with little data it is noise, and it keeps the same items on top.
+- **Prototype (October 7, 2026):** built as above. The former hard-coded three-course spotlight was replaced; its picks were carried over as the first featured courses.
+- **Open:** whether Marketing or the Content editor role (F2) should own the picks; "Continue your pathway" switches to completion-based progress after the Canvas connection (F11).
+
 
 - **What:** a monthly or yearly fee that gives continuing access.
 - **Decisions (F6):**
@@ -242,6 +248,7 @@ This is a deliberate design recommendation: a complete component system reduces 
 | Dashboards (requested) | Enrollment and sales trends, filters, table alternatives to charts | Cards, Table, date inputs; MUI X Charts (Community) only with an ADR |
 | Sales page editor (requested) | Structured blocks, preview, publish, version history | Forms, Dialog, Stepper or Tabs; no free-form HTML |
 | Pathways and collections (requested) | Ordered or curated course lists, follow and progress, saved courses | List, Card, Chip, Stepper (pathway progress) |
+| Explore tab and For you (built in the prototype) | Staff-picked pathways, collections and courses with automatic fill; personalized next steps | Tabs, Card, Alert |
 | Coupons (requested) | Code rules, limits, usage | Table, forms, Dialog |
 | Bulk enrollment (requested) | CSV upload, per-row validation report, job progress | File input, Table, Alert, progress indicator |
 | Exports (requested) | Dataset and field selection, audit notice, download | Forms, Alert, Button |

@@ -10,7 +10,6 @@ import {
   DialogContent,
   DialogContentText,
   DialogTitle,
-  IconButton,
   Link,
   MenuItem,
   Paper,
@@ -24,11 +23,9 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
-import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
-import ArrowDownwardIcon from "@mui/icons-material/ArrowDownward";
-import CloseIcon from "@mui/icons-material/Close";
 import { api, CollectionKind } from "./api";
 import type { StaffOffering } from "./offering-form";
+import { OrderedListEditor } from "./ordered-list-editor";
 
 // Staff-curated collections and pathways (decisions F3 and F4). Catalog managers
 // create drafts, order courses and publish; other staff see the list read-only.
@@ -46,14 +43,6 @@ type StaffCollection = {
 const kindLabel = (kind: CollectionKind) =>
   kind === "pathway" ? "Pathway" : "Collection";
 const minimumCourses = (kind: CollectionKind) => (kind === "pathway" ? 2 : 1);
-const visuallyHidden = {
-  position: "absolute",
-  width: 1,
-  height: 1,
-  overflow: "hidden",
-  clip: "rect(0 0 0 0)",
-  whiteSpace: "nowrap",
-} as const;
 
 export function StaffCollections({
   canManage,
@@ -364,11 +353,8 @@ function CollectionDialog({
     [courseIds, setCourseIds] = useState<string[]>([]),
     [errors, setErrors] = useState<Partial<Record<Field, string>>>({}),
     [failure, setFailure] = useState(""),
-    [busy, setBusy] = useState(false),
-    [announcement, setAnnouncement] = useState("");
+    [busy, setBusy] = useState(false);
   const summaryRef = useRef<HTMLDivElement | null>(null);
-  const controls = useRef<Map<string, HTMLButtonElement>>(new Map());
-  const [pendingFocus, setPendingFocus] = useState<string>();
   useEffect(() => {
     if (!open) return;
     setKind(collection?.kind ?? "collection");
@@ -378,55 +364,12 @@ function CollectionDialog({
     setCourseIds(collection?.courses.map((c) => c.id) ?? []);
     setErrors({});
     setFailure("");
-    setAnnouncement("");
   }, [open, collection]);
   useEffect(() => {
     if (failure) summaryRef.current?.focus();
   }, [failure]);
-  // Reordering and removing re-render the list; keep focus on a sensible control.
-  useEffect(() => {
-    if (!pendingFocus) return;
-    // The select's id is on its visible combobox, not the hidden input.
-    if (pendingFocus === "add")
-      document.getElementById("collection-add-course")?.focus();
-    else controls.current.get(pendingFocus)?.focus();
-    setPendingFocus(undefined);
-  }, [courseIds, pendingFocus]);
   const byId = new Map(offerings.map((o) => [o.id, o]));
-  const titleOf = (id: string) =>
-    byId.get(id)?.title ??
-    collection?.courses.find((c) => c.id === id)?.title ??
-    "Unknown course";
   const published = collection?.published ?? false;
-  const available = offerings.filter((o) => !courseIds.includes(o.id));
-  function move(index: number, delta: number) {
-    const next = [...courseIds];
-    const [item] = next.splice(index, 1);
-    const target = index + delta;
-    next.splice(target, 0, item);
-    setCourseIds(next);
-    setAnnouncement(
-      `${titleOf(item)} moved to position ${target + 1} of ${next.length}.`,
-    );
-    // Stay on the same arrow unless the course reached the end of the list.
-    const direction =
-      (delta < 0 && target === 0) || (delta > 0 && target === next.length - 1)
-        ? delta < 0
-          ? "down"
-          : "up"
-        : delta < 0
-          ? "up"
-          : "down";
-    setPendingFocus(`${item}:${next.length > 1 ? direction : "remove"}`);
-  }
-  function remove(index: number) {
-    const id = courseIds[index];
-    const next = courseIds.filter((_, i) => i !== index);
-    setCourseIds(next);
-    setAnnouncement(`${titleOf(id)} removed.`);
-    const neighbour = next[index] ?? next[index - 1];
-    setPendingFocus(neighbour ? `${neighbour}:remove` : "add");
-  }
   function validate() {
     const found: Partial<Record<Field, string>> = {};
     if (title.trim().length < 3 || title.trim().length > 120)
@@ -488,7 +431,7 @@ function CollectionDialog({
     string,
   ][];
   const fieldId = (name: Field) =>
-    name === "courses" ? "collection-add-course" : `collection-${name}`;
+    name === "courses" ? "collection-courses-add" : `collection-${name}`;
   return (
     <Dialog
       open={open}
@@ -606,132 +549,32 @@ function CollectionDialog({
             }
             fullWidth
           />
-          <Box component="fieldset" sx={{ border: 0, p: 0, m: 0 }}>
-            <Typography component="legend" variant="subtitle2" sx={{ mb: 1 }}>
-              {kind === "pathway" ? "Courses in recommended order" : "Courses"}
-            </Typography>
-            {courseIds.length === 0 ? (
-              <Typography variant="body2" color="text.secondary">
-                No courses added yet.
-              </Typography>
-            ) : (
-              <Box
-                component="ol"
-                sx={{ listStyle: "none", m: 0, p: 0, display: "grid", gap: 1 }}
-              >
-                {courseIds.map((id, index) => {
-                  const course = byId.get(id);
-                  const name = titleOf(id);
-                  return (
-                    <Paper
-                      component="li"
-                      key={id}
-                      variant="outlined"
-                      sx={{
-                        p: 1,
-                        pl: 1.5,
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 1,
-                      }}
-                    >
-                      <Typography
-                        variant="body2"
-                        color="text.secondary"
-                        sx={{ minWidth: 20 }}
-                        aria-hidden="true"
-                      >
-                        {index + 1}.
-                      </Typography>
-                      <Box sx={{ flex: 1, minWidth: 0 }}>
-                        <Typography variant="body2">
-                          <Box component="span" sx={visuallyHidden}>
-                            {index + 1} of {courseIds.length}:{" "}
-                          </Box>
-                          {name}
-                        </Typography>
-                        {course && !course.published && (
-                          <Typography variant="caption" color="text.secondary">
-                            Not published; hidden from learners
-                          </Typography>
-                        )}
-                      </Box>
-                      <IconButton
-                        size="small"
-                        aria-label={`Move ${name} up`}
-                        disabled={index === 0}
-                        ref={(el) => {
-                          if (el) controls.current.set(`${id}:up`, el);
-                        }}
-                        onClick={() => move(index, -1)}
-                      >
-                        <ArrowUpwardIcon fontSize="small" />
-                      </IconButton>
-                      <IconButton
-                        size="small"
-                        aria-label={`Move ${name} down`}
-                        disabled={index === courseIds.length - 1}
-                        ref={(el) => {
-                          if (el) controls.current.set(`${id}:down`, el);
-                        }}
-                        onClick={() => move(index, 1)}
-                      >
-                        <ArrowDownwardIcon fontSize="small" />
-                      </IconButton>
-                      <IconButton
-                        size="small"
-                        aria-label={`Remove ${name}`}
-                        ref={(el) => {
-                          if (el) controls.current.set(`${id}:remove`, el);
-                        }}
-                        onClick={() => remove(index)}
-                      >
-                        <CloseIcon fontSize="small" />
-                      </IconButton>
-                    </Paper>
-                  );
-                })}
-              </Box>
-            )}
-            <TextField
-              select
-              id="collection-add-course"
-              label="Add a course"
-              value=""
-              onChange={(e) => {
-                const id = e.target.value;
-                if (!id) return;
-                setCourseIds([...courseIds, id]);
-                setAnnouncement(
-                  `${titleOf(id)} added as course ${courseIds.length + 1}.`,
-                );
-                if (errors.courses)
-                  setErrors({ ...errors, courses: undefined });
-              }}
-              disabled={available.length === 0}
-              error={Boolean(errors.courses)}
-              helperText={
-                errors.courses ??
-                (available.length === 0
-                  ? "Every course is already included."
-                  : kind === "pathway"
-                    ? "Publishing needs at least two published courses."
-                    : "Publishing needs at least one published course.")
-              }
-              fullWidth
-              sx={{ mt: 2 }}
-            >
-              {available.map((o) => (
-                <MenuItem key={o.id} value={o.id}>
-                  {o.title}
-                  {o.published ? "" : " (not published)"}
-                </MenuItem>
-              ))}
-            </TextField>
-            <Box role="status" sx={visuallyHidden}>
-              {announcement}
-            </Box>
-          </Box>
+          <OrderedListEditor
+            id="collection-courses"
+            legend={
+              kind === "pathway" ? "Courses in recommended order" : "Courses"
+            }
+            noun="course"
+            ids={courseIds}
+            options={offerings.map((o) => ({
+              id: o.id,
+              title: o.title,
+              note: o.published
+                ? undefined
+                : "Not published; hidden from learners",
+            }))}
+            onChange={(next) => {
+              setCourseIds(next);
+              if (errors.courses) setErrors({ ...errors, courses: undefined });
+            }}
+            emptyText="No courses added yet."
+            error={errors.courses}
+            helperText={
+              kind === "pathway"
+                ? "Publishing needs at least two published courses."
+                : "Publishing needs at least one published course."
+            }
+          />
         </Stack>
       </DialogContent>
       <DialogActions>

@@ -34,6 +34,17 @@ export type CollectionSummary = CollectionRef & {
   id: string;
   summary: string;
   course_count: number;
+  topics: string[];
+  min_price_cents: number;
+  max_price_cents: number;
+  /** Published course titles, in order (the recommended order for pathways). */
+  course_titles: string[];
+};
+/** Learner Explore tab: staff picks first, then automatic fill. */
+export type ExploreData = {
+  courses: Offering[];
+  collections: CollectionSummary[];
+  pathways: CollectionSummary[];
 };
 export type CollectionDetail = CollectionRef & {
   id: string;

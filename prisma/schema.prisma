@@ -117,6 +117,9 @@ model offerings {
   canvas_course_url     String?
   /// Set when unpublished, cleared when published again; distinguishes Unpublished from Draft.
   unpublished_at        DateTime?          @db.Timestamptz(6)
+  /// Position (1-5) among featured courses on the learner Explore tab; null when not featured.
+  /// CHECK offerings_featured_rank_check. Cleared on unpublish.
+  featured_rank         Int?
   entitlements          entitlements[]
   offering_prices       offering_prices[]
   collection_items      collection_items[]
@@ -262,6 +265,9 @@ model collections {
   version          Int                @default(1)
   created_at       DateTime           @default(now()) @db.Timestamptz(6)
   updated_at       DateTime           @default(now()) @db.Timestamptz(6)
+  /// Position (1-3) among featured collections or pathways (per kind) on the Explore tab;
+  /// null when not featured. CHECK collections_featured_rank_check. Cleared on unpublish.
+  featured_rank    Int?
   collection_items collection_items[]
   pathway_follows  pathway_follows[]
 }

@@ -1,6 +1,6 @@
-%% Actual local PostgreSQL schema, through migration 6_collections_pathways, verified on October 7, 2026.
+%% Actual local PostgreSQL schema, through migration 7_featured_explore, verified on October 7, 2026.
 %% Since issue #2 the schema is defined in prisma/schema.prisma and migrated by Prisma Migrate
-%% (baseline 0_baseline = legacy 001-007; 1_status_enums converts four columns to enums; 2_staff_roles adds staff_members; 3_learner_access adds learner access fields; 6_collections_pathways adds collections, collection_items, saved_courses and pathway_follows). _prisma_migrations (Prisma history) is not drawn;
+%% (baseline 0_baseline = legacy 001-007; 1_status_enums converts four columns to enums; 2_staff_roles adds staff_members; 3_learner_access adds learner access fields; 6_collections_pathways adds collections, collection_items, saved_courses and pathway_follows; 7_featured_explore adds featured_rank). _prisma_migrations (Prisma history) is not drawn;
 %% schema_migrations is kept as read-only legacy history.
 %% offering_prices is append-only (update trigger); rows cascade only when their offering is deleted.
 %% Only enforced foreign-key relationships are drawn.
@@ -48,6 +48,7 @@ erDiagram
         text canvas_course_url "Nullable; https only"
         boolean published
         timestamptz unpublished_at "Nullable; set when unpublished"
+        integer featured_rank "Nullable; Explore position 1-5, cleared on unpublish"
         integer version
         timestamptz created_at
     }
@@ -133,6 +134,7 @@ erDiagram
         integer version
         timestamptz created_at
         timestamptz updated_at
+        integer featured_rank "Nullable; Explore position 1-3 per kind"
     }
     collection_items {
         uuid collection_id PK,FK

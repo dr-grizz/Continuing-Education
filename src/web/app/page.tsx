@@ -1,8 +1,9 @@
 "use client";
 import { useEffect, useState } from "react";
-import Image from "next/image";
-import { courseImage } from "../components/course-images";
-import { FeaturedCourses } from "../components/featured-courses";
+import { CollectionCard } from "../components/collection-card";
+import { CourseCard } from "../components/course-card";
+import { useDemoAuth } from "../components/demo-auth";
+import { ForYou } from "../components/for-you";
 import { LoadingCards } from "../components/loading";
 import {
   Alert,
@@ -15,11 +16,12 @@ import {
   ListItemText,
   MenuItem,
   Select,
-  Divider,
   InputAdornment,
   Link,
   Paper,
   Stack,
+  Tab,
+  Tabs,
   TextField,
   ToggleButton,
   ToggleButtonGroup,
@@ -31,12 +33,10 @@ import ViewListIcon from "@mui/icons-material/ViewList";
 import GridViewIcon from "@mui/icons-material/GridView";
 import {
   api,
-  date,
-  money,
-  courseStart,
-  courseFormatLabel,
   CollectionSummary,
   CollectionDetail,
+  ExploreData,
+  FollowedPathway,
   Offering,
 } from "../components/api";
 const categories = ["Technology", "Leadership", "Healthcare", "Ministry"];
@@ -53,9 +53,24 @@ const sorts = {
 };
 type CourseTypeFilter = keyof typeof courseTypes;
 type Sort = keyof typeof sorts;
+// Explore is the default view; the other tabs are complete lists.
+const tabs = ["explore", "courses", "collections", "pathways"] as const;
+type CatalogTab = (typeof tabs)[number];
 // Self-paced courses start anytime, so they sort ahead of scheduled dates.
 const startKey = (o: Offering) => o.start_date ?? "";
+const plural = (count: number, one: string, many: string) =>
+  `${count} ${count === 1 ? one : many}`;
+const cardGrid = {
+  display: "grid",
+  gap: 2,
+  gridTemplateColumns: {
+    xs: "1fr",
+    sm: "repeat(2, minmax(0, 1fr))",
+    md: "repeat(3, minmax(0, 1fr))",
+  },
+} as const;
 export default function Catalog() {
+  const auth = useDemoAuth();
   const [offerings, setOfferings] = useState<Offering[]>([]),
     [selectedTopics, setSelectedTopics] = useState<string[]>([]),
     [search, setSearch] = useState(""),
@@ -64,11 +79,14 @@ export default function Catalog() {
     [layout, setLayout] = useState<"list" | "grid">("list"),
     [courseType, setCourseType] = useState<CourseTypeFilter>("all"),
     [sort, setSort] = useState<Sort>("start"),
+    [tab, setTab] = useState<CatalogTab>("explore"),
+    [explore, setExplore] = useState<ExploreData>(),
     [collections, setCollections] = useState<CollectionSummary[]>([]),
+    [following, setFollowing] = useState<Set<string>>(new Set()),
     [collectionSlug, setCollectionSlug] = useState(""),
     [collection, setCollection] = useState<CollectionDetail>(),
     [urlReady, setUrlReady] = useState(false);
-  // Keep filters in the URL so filtered views can be shared and reloaded.
+  // Keep the tab and filters in the URL so views can be shared and reloaded.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     setSearch(params.get("q") ?? "");
@@ -81,24 +99,32 @@ export default function Catalog() {
     if (type && type in courseTypes) setCourseType(type as CourseTypeFilter);
     const sortParam = params.get("sort");
     if (sortParam && sortParam in sorts) setSort(sortParam as Sort);
-    setCollectionSlug(params.get("collection") ?? "");
+    // Older links filter courses by collection; show them on the Courses tab.
+    const legacyCollection = params.get("collection") ?? "";
+    setCollectionSlug(legacyCollection);
+    const tabParam = params.get("tab") as CatalogTab | null;
+    if (tabParam && tabs.includes(tabParam)) setTab(tabParam);
+    else if (legacyCollection) setTab("courses");
     setUrlReady(true);
   }, []);
   useEffect(() => {
     if (!urlReady) return;
     const params = new URLSearchParams();
-    if (search) params.set("q", search);
-    if (selectedTopics.length) params.set("topics", selectedTopics.join(","));
-    if (courseType !== "all") params.set("type", courseType);
-    if (sort !== "start") params.set("sort", sort);
-    if (collectionSlug) params.set("collection", collectionSlug);
+    if (tab !== "explore") params.set("tab", tab);
+    if (tab === "courses") {
+      if (search) params.set("q", search);
+      if (selectedTopics.length) params.set("topics", selectedTopics.join(","));
+      if (courseType !== "all") params.set("type", courseType);
+      if (sort !== "start") params.set("sort", sort);
+      if (collectionSlug) params.set("collection", collectionSlug);
+    }
     const query = params.toString();
     window.history.replaceState(
       null,
       "",
       query ? `?${query}` : window.location.pathname,
     );
-  }, [urlReady, search, selectedTopics, courseType, sort, collectionSlug]);
+  }, [urlReady, tab, search, selectedTopics, courseType, sort, collectionSlug]);
   useEffect(() => {
     try {
       const saved = localStorage.getItem("ce-catalog-layout");
@@ -120,8 +146,21 @@ export default function Catalog() {
     api<CollectionSummary[]>("collections")
       .then(setCollections)
       .catch(() => setCollections([]));
+    api<ExploreData>("explore")
+      .then(setExplore)
+      .catch(() => setExplore({ courses: [], collections: [], pathways: [] }));
   }, []);
-  // The selected collection supplies its course list, summary and kind.
+  // Followed pathways get a "Following" chip on their cards.
+  useEffect(() => {
+    if (!auth.email) {
+      setFollowing(new Set());
+      return;
+    }
+    api<FollowedPathway[]>("me/pathways")
+      .then((list) => setFollowing(new Set(list.map((p) => p.id))))
+      .catch(() => setFollowing(new Set()));
+  }, [auth.email]);
+  // A legacy collection filter supplies its course list.
   useEffect(() => {
     if (!collectionSlug) {
       setCollection(undefined);
@@ -177,9 +216,49 @@ export default function Catalog() {
     setCourseType("all");
     setCollectionSlug("");
   }
+  const allCollections = collections.filter((c) => c.kind === "collection");
+  const allPathways = collections.filter((c) => c.kind === "pathway");
+  // Tabs with nothing published are hidden rather than shown empty.
+  const visibleTabs = tabs.filter(
+    (t) =>
+      (t !== "collections" || allCollections.length > 0) &&
+      (t !== "pathways" || allPathways.length > 0),
+  );
+  const current = visibleTabs.includes(tab) ? tab : "explore";
+  // Counts are hidden on phones so all four tabs fit without scrolling.
+  const count = (n: number) => (
+    <Box component="span" sx={{ display: { xs: "none", sm: "inline" } }}>
+      &nbsp;({n})
+    </Box>
+  );
+  const tabLabel: Record<CatalogTab, React.ReactNode> = {
+    explore: "Explore",
+    courses: <>Courses{!loading && count(offerings.length)}</>,
+    collections: <>Collections{count(allCollections.length)}</>,
+    pathways: <>Pathways{count(allPathways.length)}</>,
+  };
+  // "See all" links switch tabs and move focus to the selected tab.
+  function openTab(next: CatalogTab) {
+    setTab(next);
+    setTimeout(() => document.getElementById(`catalog-tab-${next}`)?.focus());
+  }
+  const seeAll = (next: CatalogTab, text: string) => (
+    <Button
+      onClick={() => openTab(next)}
+      endIcon={<ArrowForwardIcon />}
+      sx={{ mt: 1.5 }}
+    >
+      {text}
+    </Button>
+  );
+  const panel = (name: CatalogTab) => ({
+    role: "tabpanel",
+    id: `catalog-panel-${name}`,
+    "aria-labelledby": `catalog-tab-${name}`,
+    hidden: current !== name,
+  });
   return (
     <>
-      <FeaturedCourses offerings={offerings} />
       <Typography
         variant="overline"
         color="secondary"
@@ -199,391 +278,365 @@ export default function Catalog() {
         sx={{ mt: 2, maxWidth: 680, fontSize: 18, lineHeight: 1.7 }}
       >
         Explore non-credit courses for your work, leadership and service. Find a
-        course that fits your goals and your schedule.
+        course, collection or pathway that fits your goals and your schedule.
       </Typography>
-      <Box sx={{ mt: 5 }}>
-        <Box>
-          <Box
-            sx={{
-              display: "grid",
-              gap: 2,
-              gridTemplateColumns: {
-                xs: "1fr 1fr",
-                md: "minmax(0, 2fr) repeat(4, minmax(0, 1fr))",
-              },
-            }}
-          >
-            <TextField
-              fullWidth
-              sx={{ gridColumn: { xs: "1 / -1", md: "auto" } }}
-              label="Search courses"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by title or topic"
-              slotProps={{
-                input: {
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <SearchIcon />
-                    </InputAdornment>
-                  ),
+      <Tabs
+        value={current}
+        onChange={(_, value: CatalogTab) => setTab(value)}
+        variant="scrollable"
+        scrollButtons="auto"
+        allowScrollButtonsMobile
+        aria-label="Catalog views"
+        sx={{ mt: 4, mb: 3, borderBottom: 1, borderColor: "divider" }}
+      >
+        {visibleTabs.map((t) => (
+          <Tab
+            key={t}
+            value={t}
+            label={tabLabel[t]}
+            id={`catalog-tab-${t}`}
+            aria-controls={`catalog-panel-${t}`}
+            sx={{ minWidth: 0, px: { xs: 1.25, sm: 2 } }}
+          />
+        ))}
+      </Tabs>
+
+      <Box {...panel("explore")}>
+        {current === "explore" && (
+          <>
+            {auth.email && <ForYou />}
+            {!explore && (
+              <LoadingCards label="Loading featured courses" count={3} />
+            )}
+            {explore && explore.pathways.length > 0 && (
+              <Box
+                component="section"
+                aria-labelledby="featured-pathways"
+                sx={{ mb: 5 }}
+              >
+                <Typography id="featured-pathways" variant="h5" component="h2">
+                  Featured pathways
+                </Typography>
+                <Typography color="text.secondary" sx={{ mt: 0.5, mb: 2 }}>
+                  Courses in a recommended order. Following is free.
+                </Typography>
+                <Box sx={cardGrid}>
+                  {explore.pathways.map((c) => (
+                    <CollectionCard
+                      key={c.id}
+                      collection={c}
+                      following={following.has(c.id)}
+                    />
+                  ))}
+                </Box>
+                {seeAll("pathways", `See all pathways (${allPathways.length})`)}
+              </Box>
+            )}
+            {explore && explore.collections.length > 0 && (
+              <Box
+                component="section"
+                aria-labelledby="featured-collections"
+                sx={{ mb: 5 }}
+              >
+                <Typography
+                  id="featured-collections"
+                  variant="h5"
+                  component="h2"
+                >
+                  Featured collections
+                </Typography>
+                <Typography color="text.secondary" sx={{ mt: 0.5, mb: 2 }}>
+                  Related courses grouped by theme.
+                </Typography>
+                <Box sx={cardGrid}>
+                  {explore.collections.map((c) => (
+                    <CollectionCard key={c.id} collection={c} />
+                  ))}
+                </Box>
+                {seeAll(
+                  "collections",
+                  `See all collections (${allCollections.length})`,
+                )}
+              </Box>
+            )}
+            {explore && explore.courses.length > 0 && (
+              <Box component="section" aria-labelledby="featured-courses">
+                <Typography
+                  id="featured-courses"
+                  variant="h5"
+                  component="h2"
+                  sx={{ mb: 2 }}
+                >
+                  Featured courses
+                </Typography>
+                <Box sx={cardGrid}>
+                  {explore.courses.map((o) => (
+                    <CourseCard key={o.id} offering={o} layout="grid" />
+                  ))}
+                </Box>
+                {seeAll("courses", `See all courses (${offerings.length})`)}
+              </Box>
+            )}
+          </>
+        )}
+      </Box>
+
+      <Box {...panel("courses")}>
+        {current === "courses" && (
+          <>
+            <Box
+              sx={{
+                display: "grid",
+                gap: 2,
+                gridTemplateColumns: {
+                  xs: "1fr 1fr",
+                  md: "minmax(0, 2fr) repeat(3, minmax(0, 1fr))",
                 },
               }}
-            />
-            <FormControl
-              size="small"
-              fullWidth
-              sx={{ gridColumn: { xs: "1 / -1", md: "auto" } }}
             >
-              <InputLabel id="topic-filter-label" shrink>
-                Topics
-              </InputLabel>
-              <Select<string[]>
-                labelId="topic-filter-label"
-                id="topic-filter"
-                label="Topics"
-                multiple
-                displayEmpty
-                value={selectedTopics.length ? selectedTopics : ["all"]}
-                onChange={(event) => {
-                  const value = event.target.value;
-                  const topics =
-                    typeof value === "string" ? value.split(",") : value;
-                  setSelectedTopics(
-                    topics.includes("all") && selectedTopics.length > 0
-                      ? []
-                      : topics.filter((topic) => topic !== "all"),
-                  );
+              <TextField
+                fullWidth
+                sx={{ gridColumn: { xs: "1 / -1", md: "auto" } }}
+                label="Search courses"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search by title or topic"
+                slotProps={{
+                  input: {
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <SearchIcon />
+                      </InputAdornment>
+                    ),
+                  },
                 }}
-                renderValue={(topics) =>
-                  topics.length === 0 || topics.includes("all")
-                    ? "All topics"
-                    : topics.join(", ")
-                }
+              />
+              <FormControl
+                size="small"
+                fullWidth
+                sx={{ gridColumn: { xs: "1 / -1", md: "auto" } }}
               >
-                <MenuItem value="all">
-                  <Checkbox
-                    checked={selectedTopics.length === 0}
-                    tabIndex={-1}
-                    aria-hidden="true"
-                    sx={{ pointerEvents: "none" }}
-                    disableRipple
-                  />
-                  <ListItemText primary="All topics" />
-                </MenuItem>
-                {categories.map((topic) => (
-                  <MenuItem key={topic} value={topic}>
+                <InputLabel id="topic-filter-label" shrink>
+                  Topics
+                </InputLabel>
+                <Select<string[]>
+                  labelId="topic-filter-label"
+                  id="topic-filter"
+                  label="Topics"
+                  multiple
+                  displayEmpty
+                  value={selectedTopics.length ? selectedTopics : ["all"]}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    const topics =
+                      typeof value === "string" ? value.split(",") : value;
+                    setSelectedTopics(
+                      topics.includes("all") && selectedTopics.length > 0
+                        ? []
+                        : topics.filter((topic) => topic !== "all"),
+                    );
+                  }}
+                  renderValue={(topics) =>
+                    topics.length === 0 || topics.includes("all")
+                      ? "All topics"
+                      : topics.join(", ")
+                  }
+                >
+                  <MenuItem value="all">
                     <Checkbox
-                      checked={selectedTopics.includes(topic)}
+                      checked={selectedTopics.length === 0}
                       tabIndex={-1}
                       aria-hidden="true"
                       sx={{ pointerEvents: "none" }}
                       disableRipple
                     />
-                    <ListItemText primary={topic} />
+                    <ListItemText primary="All topics" />
+                  </MenuItem>
+                  {categories.map((topic) => (
+                    <MenuItem key={topic} value={topic}>
+                      <Checkbox
+                        checked={selectedTopics.includes(topic)}
+                        tabIndex={-1}
+                        aria-hidden="true"
+                        sx={{ pointerEvents: "none" }}
+                        disableRipple
+                      />
+                      <ListItemText primary={topic} />
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+              <TextField
+                select
+                label="Course type"
+                value={courseType}
+                onChange={(e) =>
+                  setCourseType(e.target.value as CourseTypeFilter)
+                }
+              >
+                {Object.entries(courseTypes).map(([value, label]) => (
+                  <MenuItem key={value} value={value}>
+                    {label}
                   </MenuItem>
                 ))}
-              </Select>
-            </FormControl>
-            <TextField
-              select
-              label="Collection"
-              value={collectionSlug}
-              onChange={(e) => setCollectionSlug(e.target.value)}
-              sx={{ gridColumn: { xs: "1 / -1", md: "auto" } }}
-              slotProps={{
-                select: { displayEmpty: true },
-                inputLabel: { shrink: true },
+              </TextField>
+              <TextField
+                select
+                label="Sort by"
+                value={sort}
+                onChange={(e) => setSort(e.target.value as Sort)}
+              >
+                {Object.entries(sorts).map(([value, label]) => (
+                  <MenuItem key={value} value={value}>
+                    {label}
+                  </MenuItem>
+                ))}
+              </TextField>
+            </Box>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5 }}>
+              All offerings are non-credit. Dates and prices are sample data.
+            </Typography>
+            {collection && (
+              <Stack
+                direction="row"
+                sx={{ mt: 2, gap: 1, alignItems: "center", flexWrap: "wrap" }}
+              >
+                <Chip label={`In: ${collection.title}`} />
+                <Button
+                  size="small"
+                  onClick={() => setCollectionSlug("")}
+                  aria-label={`Remove filter: ${collection.title}`}
+                >
+                  Remove
+                </Button>
+                <Link href={`/collections/${collection.slug}`} variant="body2">
+                  View{" "}
+                  {collection.kind === "pathway" ? "pathway" : "collection"}
+                </Link>
+              </Stack>
+            )}
+            <Stack
+              direction="row"
+              sx={{
+                my: 2.5,
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: 2,
+                flexWrap: "wrap",
               }}
             >
-              <MenuItem value="">All collections</MenuItem>
-              {collections.map((c) => (
-                <MenuItem key={c.slug} value={c.slug}>
-                  {c.title}
-                  {c.kind === "pathway" ? " (pathway)" : ""}
-                </MenuItem>
-              ))}
-            </TextField>
-            <TextField
-              select
-              label="Course type"
-              value={courseType}
-              onChange={(e) =>
-                setCourseType(e.target.value as CourseTypeFilter)
+              <Typography variant="h6" component="h2">
+                {collection
+                  ? collection.title
+                  : selectedTopics.length === 0
+                    ? "All courses"
+                    : selectedTopics.length === 1
+                      ? selectedTopics[0]
+                      : "Selected courses"}
+              </Typography>
+              <Stack direction="row" spacing={2} sx={{ alignItems: "center" }}>
+                <Typography
+                  variant="body2"
+                  color="text.secondary"
+                  aria-live="polite"
+                >
+                  {plural(filtered.length, "course", "courses")}
+                </Typography>
+                {filtersActive && (
+                  <Button size="small" onClick={clearFilters}>
+                    Clear filters
+                  </Button>
+                )}
+                <ToggleButtonGroup
+                  value={layout}
+                  exclusive
+                  size="small"
+                  onChange={(_, value) => changeLayout(value)}
+                  aria-label="Course layout"
+                >
+                  <ToggleButton
+                    value="list"
+                    aria-label="List layout"
+                    sx={{ gap: 0.75, textTransform: "none" }}
+                  >
+                    <ViewListIcon fontSize="small" />
+                    List
+                  </ToggleButton>
+                  <ToggleButton
+                    value="grid"
+                    aria-label="Grid layout"
+                    sx={{ gap: 0.75, textTransform: "none" }}
+                  >
+                    <GridViewIcon fontSize="small" />
+                    Grid
+                  </ToggleButton>
+                </ToggleButtonGroup>
+              </Stack>
+            </Stack>
+            {error && <Alert severity="error">{error}</Alert>}
+            {loading && <LoadingCards label="Loading courses" image />}
+            {!loading && !error && filtered.length === 0 && (
+              <Paper variant="outlined" sx={{ p: 3 }}>
+                <Typography>No courses match your search.</Typography>
+                <Button onClick={clearFilters}>Clear filters</Button>
+              </Paper>
+            )}
+            <Box
+              data-layout={layout}
+              sx={
+                layout === "grid"
+                  ? cardGrid
+                  : { display: "grid", gap: 2, gridTemplateColumns: "1fr" }
               }
             >
-              {Object.entries(courseTypes).map(([value, label]) => (
-                <MenuItem key={value} value={value}>
-                  {label}
-                </MenuItem>
+              {filtered.map((o) => (
+                <CourseCard key={o.id} offering={o} layout={layout} />
               ))}
-            </TextField>
-            <TextField
-              select
-              label="Sort by"
-              value={sort}
-              onChange={(e) => setSort(e.target.value as Sort)}
-            >
-              {Object.entries(sorts).map(([value, label]) => (
-                <MenuItem key={value} value={value}>
-                  {label}
-                </MenuItem>
-              ))}
-            </TextField>
-          </Box>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5 }}>
-            All offerings are non-credit. Dates and prices are sample data.
-          </Typography>
-          <Stack
-            direction="row"
-            sx={{
-              my: 2.5,
-              justifyContent: "space-between",
-              alignItems: "center",
-              gap: 2,
-              flexWrap: "wrap",
-            }}
-          >
-            <Typography variant="h6" component="h2">
-              {collection
-                ? collection.title
-                : selectedTopics.length === 0
-                  ? "All courses"
-                  : selectedTopics.length === 1
-                    ? selectedTopics[0]
-                    : "Selected courses"}
+            </Box>
+          </>
+        )}
+      </Box>
+
+      <Box {...panel("collections")}>
+        {current === "collections" && (
+          <>
+            <Typography variant="h5" component="h2">
+              All collections
             </Typography>
-            <Stack direction="row" spacing={2} sx={{ alignItems: "center" }}>
-              <Typography
-                variant="body2"
-                color="text.secondary"
-                aria-live="polite"
-              >
-                {filtered.length} {filtered.length === 1 ? "course" : "courses"}
-              </Typography>
-              {filtersActive && (
-                <Button size="small" onClick={clearFilters}>
-                  Clear filters
-                </Button>
-              )}
-              <ToggleButtonGroup
-                value={layout}
-                exclusive
-                size="small"
-                onChange={(_, value) => changeLayout(value)}
-                aria-label="Course layout"
-              >
-                <ToggleButton
-                  value="list"
-                  aria-label="List layout"
-                  sx={{ gap: 0.75, textTransform: "none" }}
-                >
-                  <ViewListIcon fontSize="small" />
-                  List
-                </ToggleButton>
-                <ToggleButton
-                  value="grid"
-                  aria-label="Grid layout"
-                  sx={{ gap: 0.75, textTransform: "none" }}
-                >
-                  <GridViewIcon fontSize="small" />
-                  Grid
-                </ToggleButton>
-              </ToggleButtonGroup>
-            </Stack>
-          </Stack>
-          {collection && (
-            <Paper
-              variant="outlined"
-              component="section"
-              aria-label={`About ${collection.title}`}
-              sx={{ p: 2, mb: 2 }}
-            >
-              <Typography variant="body2">{collection.summary}</Typography>
-              <Link
-                href={`/collections/${collection.slug}`}
-                sx={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 0.5,
-                  mt: 1,
-                }}
-              >
-                {collection.kind === "pathway"
-                  ? `View the ${collection.title} pathway in order`
-                  : `View the ${collection.title} collection`}
-                <ArrowForwardIcon fontSize="small" aria-hidden="true" />
-              </Link>
-            </Paper>
-          )}
-          {error && <Alert severity="error">{error}</Alert>}
-          {loading && <LoadingCards label="Loading courses" image />}
-          {!loading && !error && filtered.length === 0 && (
-            <Paper variant="outlined" sx={{ p: 3 }}>
-              <Typography>No courses match your search.</Typography>
-              <Button onClick={clearFilters}>Clear filters</Button>
-            </Paper>
-          )}
-          <Box
-            data-layout={layout}
-            sx={{
-              display: "grid",
-              gridTemplateColumns:
-                layout === "grid"
-                  ? {
-                      xs: "1fr",
-                      sm: "repeat(2, minmax(0, 1fr))",
-                      md: "repeat(3, minmax(0, 1fr))",
-                    }
-                  : "minmax(0, 1fr)",
-              gap: 2,
-            }}
-          >
-            {filtered.map((o) => (
-              <Paper
-                key={o.id}
-                variant="outlined"
-                sx={{
-                  p: layout === "grid" ? 0 : { xs: 2, sm: 3 },
-                  overflow: "hidden",
-                  gap: layout === "grid" ? 0 : { xs: 2, sm: 2.5 },
-                  display: "flex",
-                  flexDirection: layout === "grid" ? "column" : "row",
-                  minWidth: 0,
-                  transition: "border-color .15s, box-shadow .15s",
-                  "&:hover, &:focus-within": {
-                    borderColor: "primary.main",
-                    boxShadow: "0 6px 20px rgba(16, 32, 48, .08)",
-                  },
-                }}
-              >
-                <Box
-                  sx={{
-                    position: "relative",
-                    flexShrink: 0,
-                    width: layout === "grid" ? "100%" : { xs: 88, sm: 144 },
-                    height: layout === "grid" ? "auto" : { xs: 88, sm: 108 },
-                    aspectRatio: layout === "grid" ? "16 / 9" : undefined,
-                    borderRadius: layout === "grid" ? 0 : 1,
-                    overflow: "hidden",
-                    bgcolor: "action.hover",
-                  }}
-                >
-                  <Image
-                    src={courseImage(o)}
-                    alt=""
-                    fill
-                    sizes={
-                      layout === "grid"
-                        ? "(max-width: 599px) 100vw, (max-width: 899px) 50vw, 380px"
-                        : "(max-width: 599px) 157px, 192px"
-                    }
-                    style={{ objectFit: "cover" }}
-                  />
-                </Box>
-                <Box
-                  sx={{
-                    p: layout === "grid" ? 2.5 : 0,
-                    minWidth: 0,
-                    flex: 1,
-                    display: "flex",
-                    flexDirection: "column",
-                  }}
-                >
-                  <Stack
-                    direction={
-                      layout === "grid" ? "column" : { xs: "column", sm: "row" }
-                    }
-                    sx={{
-                      justifyContent: "space-between",
-                      gap: 2,
-                      flexGrow: 1,
-                    }}
-                  >
-                    <Box>
-                      <Typography
-                        variant="overline"
-                        color="secondary"
-                        sx={{ fontWeight: 700 }}
-                      >
-                        {o.category}
-                      </Typography>
-                      <Typography
-                        variant="h5"
-                        component="h3"
-                        sx={{ fontSize: 22, mt: 0.5 }}
-                      >
-                        {o.title}
-                      </Typography>
-                      <Typography
-                        color="text.secondary"
-                        sx={{ mt: 1, lineHeight: 1.7 }}
-                      >
-                        {o.summary}
-                      </Typography>
-                      <Typography
-                        variant="body2"
-                        color="text.secondary"
-                        sx={{ mt: 1.5 }}
-                      >
-                        {courseFormatLabel(o)}
-                      </Typography>
-                    </Box>
-                    <Typography
-                      variant="h6"
-                      component="p"
-                      sx={{ whiteSpace: "nowrap" }}
-                    >
-                      {money(o.price_cents)}
-                    </Typography>
-                  </Stack>
-                  <Divider sx={{ my: 2 }} />
-                  <Stack
-                    direction={
-                      layout === "grid" ? "column" : { xs: "column", sm: "row" }
-                    }
-                    sx={{
-                      alignItems:
-                        layout === "grid"
-                          ? "flex-start"
-                          : { xs: "flex-start", sm: "center" },
-                      justifyContent: "space-between",
-                      gap: 2,
-                    }}
-                  >
-                    <Stack
-                      direction="row"
-                      sx={{
-                        gap: 1,
-                        alignItems: "center",
-                        flexWrap: "wrap",
-                      }}
-                    >
-                      <Typography variant="body2">{courseStart(o)}</Typography>
-                      {o.approval_required && (
-                        <Chip label="Approval required" variant="outlined" />
-                      )}
-                      {!o.enrollment_open && (
-                        <Chip
-                          label="Enrollment closed"
-                          color="warning"
-                          variant="outlined"
-                        />
-                      )}
-                    </Stack>
-                    <Button
-                      href={`/courses/${o.id}`}
-                      aria-label={`View course: ${o.title}`}
-                      endIcon={<ArrowForwardIcon />}
-                    >
-                      View course
-                    </Button>
-                  </Stack>
-                </Box>
-              </Paper>
-            ))}
-          </Box>
-        </Box>
+            <Typography color="text.secondary" sx={{ mt: 0.5, mb: 2 }}>
+              Related courses grouped by theme. Register for each course
+              separately.
+            </Typography>
+            <Box sx={cardGrid}>
+              {allCollections.map((c) => (
+                <CollectionCard key={c.id} collection={c} />
+              ))}
+            </Box>
+          </>
+        )}
+      </Box>
+
+      <Box {...panel("pathways")}>
+        {current === "pathways" && (
+          <>
+            <Typography variant="h5" component="h2">
+              All pathways
+            </Typography>
+            <Typography color="text.secondary" sx={{ mt: 0.5, mb: 2 }}>
+              Courses in a recommended order. Following a pathway is free and
+              does not register you.
+            </Typography>
+            <Box sx={cardGrid}>
+              {allPathways.map((c) => (
+                <CollectionCard
+                  key={c.id}
+                  collection={c}
+                  following={following.has(c.id)}
+                />
+              ))}
+            </Box>
+          </>
+        )}
       </Box>
     </>
   );

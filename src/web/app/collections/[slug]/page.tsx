@@ -83,7 +83,10 @@ export default function Collection({
   if (!collection)
     return error ? (
       <Alert severity="error">
-        {error} <Link href="/">Browse all courses</Link>
+        {error}{" "}
+        <Link href="/" underline="always">
+          Browse all courses
+        </Link>
       </Alert>
     ) : (
       <LoadingCards label="Loading collection" count={2} />

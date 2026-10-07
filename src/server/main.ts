@@ -27,6 +27,7 @@ import { prisma, sql } from "../domain/prisma";
 import { PrototypeGuard, requireScope } from "./auth";
 import {
   CollectionDto,
+  ExploreDto,
   CollectionEditDto,
   FollowDto,
   SavedCourseDto,
@@ -63,6 +64,14 @@ class CatalogController {
   }
   @Get("offerings/:id") detail(@Param("id", ParseUUIDPipe) id: string) {
     return this.portal.detail(id);
+  }
+  @Get("explore")
+  @ApiOperation({
+    summary:
+      "Explore tab: up to 5 courses, 3 collections and 3 pathways; staff picks first, then automatic fill",
+  })
+  explore() {
+    return this.portal.explore();
   }
   @Get("collections")
   @ApiOperation({
@@ -265,6 +274,25 @@ class WorkflowController {
   ) {
     requireScope(req, "catalog:write");
     return this.portal.updateSettings(req.principal, key, id, dto);
+  }
+  @Get("staff/explore")
+  @ApiOperation({ summary: "Current staff picks for the learner Explore tab" })
+  staffExplore(@Req() req: any) {
+    requireScope(req, "staff:read");
+    return this.portal.staffExplore();
+  }
+  @Post("staff/explore")
+  @HttpCode(200)
+  @ApiOperation({
+    summary: "Replace the Explore tab picks (published items only), audited",
+  })
+  setExplore(
+    @Req() req: any,
+    @Headers("idempotency-key") key: string,
+    @Body() dto: ExploreDto,
+  ) {
+    requireScope(req, "catalog:write");
+    return this.portal.setExplore(req.principal, key, dto);
   }
   @Get("staff/collections")
   @ApiOperation({

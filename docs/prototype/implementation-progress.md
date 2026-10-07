@@ -9,7 +9,7 @@ The prototype now covers the full simulated registration lifecycle: catalog, ind
 | Area         | Current behavior                                                                                                                                                                                                                            | Remaining boundary                                                                                                                                    |
 | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Website      | Next.js and Material UI; light and dark themes, phone layouts, sortable and paged staff tables, Figtree font                                                                                                                                | Final institutional design, brand approval of the font, screen-reader and cross-browser review                                                        |
-| Database     | PostgreSQL in Docker; Prisma 7.10 schema and seven migrations (`0_baseline` to `6_collections_pathways`), with enums, checks and an append-only price-history trigger                                                                       | Production hosting, backup and retention decisions                                                                                                    |
+| Database     | PostgreSQL in Docker; Prisma 7.10 schema and eight migrations (`0_baseline` to `7_featured_explore`), with enums, checks and an append-only price-history trigger                                                                           | Production hosting, backup and retention decisions                                                                                                    |
 | Learners     | One learner per normalized email; registrations persist; private saved courses and followed pathways; Support can deactivate and reactivate access                                                                                          | Mock sign-in does not prove email ownership; no real authentication                                                                                   |
 | Registration | Enrollment windows, approvals that expire (default 7 days), repeat requests after a decline or lapse, quoted prices                                                                                                                         | Production capacity, tax and refund policies                                                                                                          |
 | Payments     | Explicit simulated payment command and synthetic orders                                                                                                                                                                                     | No Stripe connection or real financial transaction                                                                                                    |
@@ -52,6 +52,7 @@ Local website: `http://127.0.0.1:3000/`. API documentation: `http://localhost:30
 - [x] Add sortable, searchable, paged staff tables with card layouts on phones.
 - [x] Add staff-curated collections and pathways: a catalog Collection filter, public collection and pathway pages, and "Part of" links on course pages.
 - [x] Let learners save courses privately and follow pathways, both shown in My learning; neither registers or charges.
+- [x] Open the catalog on an Explore tab (staff-picked pathways, collections and courses with automatic fill) and a personalized For you section, beside Courses, Collections and Pathways tabs.
 
 ### Learners and registration
 
@@ -87,8 +88,8 @@ Local website: `http://127.0.0.1:3000/`. API documentation: `http://localhost:30
 - [x] Keep busy buttons focusable, move focus to the next action, and announce background changes politely.
 - [x] Move focus to error summaries, including after server failures.
 - [x] Check affected workflows from the keyboard, at phone width and in dark mode after each change.
-- [x] Maintain 19 API integration groups covering scopes, concurrency, idempotency, policies, failures, roles, learners, the dashboard, and collections and pathways.
-- [x] Run axe scans (WCAG 2.2 A and AA) of 23 pages, tabs and dialogs in light, dark and phone layouts, and run every check in CI on each pull request.
+- [x] Maintain 20 API integration groups covering scopes, concurrency, idempotency, policies, failures, roles, learners, the dashboard, collections and pathways, and Explore.
+- [x] Run axe scans (WCAG 2.2 A and AA) of 28 pages, tabs and dialogs in light, dark and phone layouts, and run every check in CI on each pull request.
 
 ## Recommended next prototype tasks
 
@@ -145,7 +146,7 @@ This is a separate project workstream, conditional on replacing an existing cour
 
 ## Verification evidence
 
-As of October 7, 2026: `npm run typecheck`, the production build, Prettier, the integration suite (19/19), the migration suite (9/9) and the accessibility scans (69/69) pass. Every migration of the main database was preceded by a backup and checked row for row or by tests. Worker crash drills (`kill -9` during a delayed job) completed each job exactly once.
+As of October 7, 2026: `npm run typecheck`, the production build, Prettier, the integration suite (20/20), the migration suite (9/9) and the accessibility scans (84/84) pass. Every migration of the main database was preceded by a backup and checked row for row or by tests. Worker crash drills (`kill -9` during a delayed job) completed each job exactly once.
 
 Browser checks after each change used synthetic learners and demo staff, from the keyboard, at phone width and in dark mode; the dated record lists them. These checks do not establish real authentication security.
 
@@ -165,6 +166,28 @@ A real screen-reader session, forced colors and cross-browser checks remain outs
 | UI asset attribution                  | [Image credits](image-credits.md) and [logo source](../../src/web/public/brand/SOURCE.txt) |
 
 ## Latest implementation record
+
+October 7, 2026: Explore landing tab with a personalized For you section (branch `curation`).
+
+- **Catalog tabs:** the catalog now opens on **Explore**, beside complete **Courses**, **Collections** and **Pathways** tabs. The tab is kept in the URL, and empty tabs are hidden. Counts are hidden on phones so all four tabs fit at 375px. The Collection dropdown filter was removed; older `?collection=` links open the Courses tab with an "In: …" chip and a named Remove button.
+- **Explore:** featured pathways (up to 3), collections (up to 3) and courses (up to 5), each with "See all" buttons that select the matching tab and move focus to it. The hard-coded three-course spotlight was replaced, and its picks were carried over as the first featured courses.
+- **For you (signed-in learners):** the next course that is not registered in each followed pathway ("step N of M"), a note when registrations need action, and up to three saved courses. It uses registration status only; there is no completion data before Canvas.
+- **Database:** migration `7_featured_explore` adds `featured_rank` to offerings (1–5) and collections (1–3 per kind), with checks, seeded from the former spotlight and the sample collections. Unpublishing clears it. The main database was backed up first.
+- **API:** public `GET /explore` (staff picks in order, then automatic fill: open scheduled courses by soonest start, then the newest self-paced; newest collections and pathways). `GET /staff/explore` (`staff:read`) and `POST /staff/explore` (`catalog:write`, published items only, kind-checked, limits enforced, one audited `explore.updated` change). `GET /collections` now includes topics, price range and course titles in order.
+- **Staff:** an **Explore page** tab with three ordered lists. The ordering editor from the collection dialog was extracted into a shared `OrderedListEditor`. Its add select now stays enabled when full, because disabling it while focused dropped focus to the page; the menu then says "Limit of N reached".
+- **Accessibility fixes found during the work:**
+  - The scans flagged an inline link distinguished only by color; links inside sentences are now always underlined, including three in states the scans do not reach.
+  - The deletable filter chip was replaced with a named button, because MUI chips delete only with Backspace or Delete.
+- **Verification:**
+  - Integration suite 20/20. The new group covers the scope check, unpublished and wrong-kind picks, limits, pick order and fill, unpublishing removing a pick, and audit. It restores the site's picks afterwards.
+  - Migration tests 9/9 with no drift.
+  - Accessibility scans 84/84, adding the Courses, Collections and Pathways tabs, Explore with For you, and the Explore page staff tab.
+  - In the browser:
+    - Explore signed out and signed in; registering step 1 advanced For you to step 2 and showed the action note.
+    - Keyboard tab switching with the URL updated; "See all" focus moving to its tab; a legacy collection link.
+    - As the catalog manager: filling featured courses to the limit with focus kept, saving, and the public order. The original picks were restored afterwards.
+    - Phone width with no overflow.
+  - The walkthrough learner and their registration were removed afterwards.
 
 October 7, 2026: staff-curated collections, pathways and private saved courses (branch `curation`, decisions F3 and F4).
 

@@ -31,6 +31,7 @@ import {
 } from "./roles";
 import {
   CollectionDto,
+  ExploreDto,
   CollectionEditDto,
   LearnerAccessDto,
   StaffMemberDto,
@@ -99,6 +100,12 @@ type CollectionSummary = {
   title: string;
   summary: string;
   course_count: number;
+  topics: string[];
+  min_price_cents: number;
+  max_price_cents: number;
+  course_titles: string[];
+  featured_rank: number | null;
+  created_at: Date;
 };
 // "Christian Leadership & Ethics" -> "christian-leadership-ethics"
 const slugify = (title: string) =>
@@ -690,7 +697,7 @@ export class PortalService {
           offerings & { active_registrations: number }
         >(
           tx,
-          `UPDATE offerings o SET published=false,unpublished_at=now(),version=version+1 WHERE o.id=$1::uuid AND o.version=$2 AND o.published
+          `UPDATE offerings o SET published=false,unpublished_at=now(),featured_rank=NULL,version=version+1 WHERE o.id=$1::uuid AND o.version=$2 AND o.published
           RETURNING o.*,${activeRegistrations} AS active_registrations`,
           id,
           version,
@@ -1341,7 +1348,10 @@ export class PortalService {
   async publicCollections() {
     return sql<CollectionSummary>(
       prisma,
-      `SELECT c.id,c.kind,c.slug,c.title,c.summary,count(o.id)::integer AS course_count
+      `SELECT c.id,c.kind,c.slug,c.title,c.summary,c.featured_rank,c.created_at,count(o.id)::integer AS course_count,
+         array_agg(DISTINCT o.category ORDER BY o.category) AS topics,
+         min(o.price_cents)::integer AS min_price_cents,max(o.price_cents)::integer AS max_price_cents,
+         array_agg(o.title ORDER BY i.position) AS course_titles
        FROM collections c JOIN collection_items i ON i.collection_id=c.id
        JOIN offerings o ON o.id=i.offering_id AND o.published
        WHERE c.published GROUP BY c.id ORDER BY c.kind,c.title`,
@@ -1554,6 +1564,8 @@ export class PortalService {
             published,
             version: { increment: 1 },
             updated_at: new Date(),
+            // Unpublished items leave the Explore tab.
+            ...(published ? {} : { featured_rank: null }),
           },
         });
         await audit(
@@ -1676,6 +1688,148 @@ export class PortalService {
         return { collection_id: collectionId, following };
       },
     );
+  }
+  // Learner Explore tab: staff picks first, then automatic fill so no section is
+  // short. Courses: open scheduled courses by soonest start, then the newest
+  // self-paced. Collections and pathways: newest first.
+  async explore() {
+    const [courses, collections] = await Promise.all([
+      this.list({}),
+      this.publicCollections(),
+    ]);
+    const byRank = <T extends { featured_rank: number | null }>(a: T, b: T) =>
+      (a.featured_rank as number) - (b.featured_rank as number);
+    const today = new Date().toISOString().slice(0, 10);
+    const upcoming = (o: OfferingListing) =>
+      o.start_date !== null && o.start_date >= today;
+    const fillCourses = courses
+      .filter((o) => o.featured_rank === null && o.enrollment_open)
+      .sort(
+        (a, b) =>
+          Number(upcoming(b)) - Number(upcoming(a)) ||
+          (a.start_date ?? "").localeCompare(b.start_date ?? "") ||
+          b.created_at.getTime() - a.created_at.getTime(),
+      );
+    const pick = <T extends { featured_rank: number | null }>(
+      items: T[],
+      fill: T[],
+      size: number,
+    ) =>
+      [...items.filter((i) => i.featured_rank !== null).sort(byRank), ...fill]
+        .slice(0, size)
+        .map((item) => ({ ...item, featured: item.featured_rank !== null }));
+    const ofKind = (kind: CollectionKind) => {
+      const all = collections.filter((c) => c.kind === kind);
+      const fill = all
+        .filter((c) => c.featured_rank === null)
+        .sort((a, b) => b.created_at.getTime() - a.created_at.getTime());
+      return pick(all, fill, 3);
+    };
+    return {
+      courses: pick(courses, fillCourses, 5),
+      collections: ofKind("collection"),
+      pathways: ofKind("pathway"),
+    };
+  }
+  async staffExplore() {
+    const [courses, collections] = await Promise.all([
+      prisma.offerings.findMany({
+        where: { featured_rank: { not: null } },
+        orderBy: { featured_rank: "asc" },
+        select: { id: true, title: true, published: true },
+      }),
+      prisma.collections.findMany({
+        where: { featured_rank: { not: null } },
+        orderBy: { featured_rank: "asc" },
+        select: { id: true, title: true, kind: true, published: true },
+      }),
+    ]);
+    return {
+      courses,
+      collections: collections.filter((c) => c.kind === "collection"),
+      pathways: collections.filter((c) => c.kind === "pathway"),
+    };
+  }
+  async setExplore(principal: Principal, key: string, data: ExploreDto) {
+    return this.command(
+      principal,
+      key,
+      { action: "explore.update", data },
+      async (tx) => {
+        const courses = await tx.offerings.count({
+          where: { id: { in: data.courses }, published: true },
+        });
+        if (courses !== data.courses.length)
+          throw new BadRequestException(
+            "Featured courses must exist and be published.",
+          );
+        for (const kind of ["collection", "pathway"] as const) {
+          const ids = kind === "pathway" ? data.pathways : data.collections;
+          const found = await tx.collections.count({
+            where: { id: { in: ids }, kind, published: true },
+          });
+          if (found !== ids.length)
+            throw new BadRequestException(
+              `Featured ${kind === "pathway" ? "pathways" : "collections"} must exist, be published and be ${kind === "pathway" ? "pathways" : "collections"}.`,
+            );
+        }
+        const before = await this.staffExploreIn(tx);
+        // Replace every position in one transaction, so ranks never collide.
+        await tx.offerings.updateMany({
+          where: { featured_rank: { not: null } },
+          data: { featured_rank: null },
+        });
+        await tx.collections.updateMany({
+          where: { featured_rank: { not: null } },
+          data: { featured_rank: null },
+        });
+        for (const [index, id] of data.courses.entries())
+          await tx.offerings.update({
+            where: { id },
+            data: { featured_rank: index + 1 },
+          });
+        for (const [index, id] of [
+          ...data.collections.entries(),
+          ...data.pathways.entries(),
+        ])
+          await tx.collections.update({
+            where: { id },
+            data: { featured_rank: index + 1 },
+          });
+        await audit(tx, principal.actor, "explore.updated", null, {
+          before,
+          after: {
+            courses: data.courses,
+            collections: data.collections,
+            pathways: data.pathways,
+          },
+        });
+        return this.staffExploreIn(tx);
+      },
+    );
+  }
+  private async staffExploreIn(tx: Tx) {
+    const [courses, collections] = await Promise.all([
+      tx.offerings.findMany({
+        where: { featured_rank: { not: null } },
+        orderBy: { featured_rank: "asc" },
+        select: { id: true },
+      }),
+      tx.collections.findMany({
+        where: { featured_rank: { not: null } },
+        orderBy: { featured_rank: "asc" },
+        select: { id: true, kind: true },
+      }),
+    ]);
+    return {
+      courses: courses.map((c) => c.id),
+      collections: collections
+        .filter((c) => c.kind === "collection")
+        .map((c) => c.id),
+      pathways: collections
+        .filter((c) => c.kind === "pathway")
+        .map((c) => c.id),
+    };
   }
   async report() {
     const [

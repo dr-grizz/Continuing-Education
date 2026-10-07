@@ -517,7 +517,10 @@ export default function LearningPage() {
           </Typography>
           {saved.length === 0 && (
             <Typography sx={{ mt: 2 }}>
-              No saved courses. <Link href="/">Browse courses</Link>
+              No saved courses.{" "}
+              <Link href="/" underline="always">
+                Browse courses
+              </Link>
             </Typography>
           )}
           <Stack spacing={2} sx={{ mt: 2 }}>

@@ -35,6 +35,22 @@ test.describe("learner pages", () => {
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
     await scan(page, "Catalog");
   });
+  for (const tab of ["courses", "collections", "pathways"])
+    test(`catalog ${tab} tab`, async ({ page }) => {
+      await page.goto(`/?tab=${tab}`);
+      await expect(page.getByRole("tab", { selected: true })).toBeVisible();
+      await scan(page, `Catalog ${tab} tab`);
+    });
+  test("explore with For you", async ({ page }) => {
+    await page.request.post("/api/demo-session", {
+      data: { email: "a11y-scan@example.test" },
+    });
+    await page.goto("/");
+    await expect(
+      page.getByRole("heading", { level: 2, name: "For you" }),
+    ).toBeVisible();
+    await scan(page, "Explore with For you");
+  });
   test("catalog filtered by a pathway", async ({ page }) => {
     await page.goto("/?collection=data-informed-leader");
     await expect(
@@ -82,6 +98,7 @@ test.describe("staff workspace", () => {
     "Dashboard",
     "Offerings",
     "Collections",
+    "Explore page",
     "Approvals",
     "Exceptions",
     "Activity",
