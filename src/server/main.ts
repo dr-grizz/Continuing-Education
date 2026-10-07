@@ -26,6 +26,11 @@ import {
 import { prisma, sql } from "../domain/prisma";
 import { PrototypeGuard, requireScope } from "./auth";
 import {
+  CollectionDto,
+  ExploreDto,
+  CollectionEditDto,
+  FollowDto,
+  SavedCourseDto,
   DemoUserDto,
   DashboardQueryDto,
   DecisionDto,
@@ -59,6 +64,28 @@ class CatalogController {
   }
   @Get("offerings/:id") detail(@Param("id", ParseUUIDPipe) id: string) {
     return this.portal.detail(id);
+  }
+  @Get("explore")
+  @ApiOperation({
+    summary:
+      "Explore tab: up to 5 courses, 3 collections and 3 pathways; staff picks first, then automatic fill",
+  })
+  explore() {
+    return this.portal.explore();
+  }
+  @Get("collections")
+  @ApiOperation({
+    summary: "Published collections and pathways with published course counts",
+  })
+  collections() {
+    return this.portal.publicCollections();
+  }
+  @Get("collections/:slug")
+  @ApiOperation({
+    summary: "A published collection or pathway with its courses in order",
+  })
+  collection(@Param("slug") slug: string) {
+    return this.portal.publicCollection(slug);
   }
 }
 @ApiTags("Prototype workflow")
@@ -100,6 +127,47 @@ class WorkflowController {
   @Get("me/learning") learning(@Req() req: any) {
     requireScope(req, "learner");
     return this.portal.learning(req.principal);
+  }
+  @Get("me/saved-courses")
+  @ApiOperation({ summary: "The selected learner's private saved courses" })
+  savedCourses(@Req() req: any) {
+    requireScope(req, "learner");
+    return this.portal.savedCourses(req.principal);
+  }
+  @Post("me/saved-courses/:offeringId")
+  @HttpCode(200)
+  @ApiOperation({ summary: "Save or remove a course; registers nothing" })
+  saveCourse(
+    @Req() req: any,
+    @Headers("idempotency-key") key: string,
+    @Param("offeringId", ParseUUIDPipe) offeringId: string,
+    @Body() dto: SavedCourseDto,
+  ) {
+    requireScope(req, "learner");
+    return this.portal.setSaved(req.principal, key, offeringId, dto.saved);
+  }
+  @Get("me/pathways")
+  @ApiOperation({
+    summary:
+      "Pathways the selected learner follows, with registration status per course (no completion data)",
+  })
+  pathways(@Req() req: any) {
+    requireScope(req, "learner");
+    return this.portal.followedPathways(req.principal);
+  }
+  @Post("me/pathways/:id")
+  @HttpCode(200)
+  @ApiOperation({
+    summary: "Follow or stop following a pathway; free and registers nothing",
+  })
+  follow(
+    @Req() req: any,
+    @Headers("idempotency-key") key: string,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body() dto: FollowDto,
+  ) {
+    requireScope(req, "learner");
+    return this.portal.setFollowing(req.principal, key, id, dto.following);
   }
   @Post("registrations") register(
     @Req() req: any,
@@ -206,6 +274,96 @@ class WorkflowController {
   ) {
     requireScope(req, "catalog:write");
     return this.portal.updateSettings(req.principal, key, id, dto);
+  }
+  @Get("staff/explore")
+  @ApiOperation({ summary: "Current staff picks for the learner Explore tab" })
+  staffExplore(@Req() req: any) {
+    requireScope(req, "staff:read");
+    return this.portal.staffExplore();
+  }
+  @Post("staff/explore")
+  @HttpCode(200)
+  @ApiOperation({
+    summary: "Replace the Explore tab picks (published items only), audited",
+  })
+  setExplore(
+    @Req() req: any,
+    @Headers("idempotency-key") key: string,
+    @Body() dto: ExploreDto,
+  ) {
+    requireScope(req, "catalog:write");
+    return this.portal.setExplore(req.principal, key, dto);
+  }
+  @Get("staff/collections")
+  @ApiOperation({
+    summary:
+      "All collections and pathways, including drafts, with follower counts",
+  })
+  staffCollections(@Req() req: any) {
+    requireScope(req, "staff:read");
+    return this.portal.staffCollections();
+  }
+  @Post("collections")
+  @ApiOperation({ summary: "Create a draft collection or pathway" })
+  createCollection(
+    @Req() req: any,
+    @Headers("idempotency-key") key: string,
+    @Body() dto: CollectionDto,
+  ) {
+    requireScope(req, "catalog:write");
+    return this.portal.createCollection(req.principal, key, dto);
+  }
+  @Post("collections/:id/edit")
+  @HttpCode(200)
+  @ApiOperation({
+    summary: "Edit title, summary and course order (version-checked)",
+  })
+  editCollection(
+    @Req() req: any,
+    @Headers("idempotency-key") key: string,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body() dto: CollectionEditDto,
+  ) {
+    requireScope(req, "catalog:write");
+    return this.portal.editCollection(req.principal, key, id, dto);
+  }
+  @Post("collections/:id/publish")
+  @HttpCode(200)
+  publishCollection(
+    @Req() req: any,
+    @Headers("idempotency-key") key: string,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body() dto: PublishDto,
+  ) {
+    requireScope(req, "catalog:write");
+    return this.portal.setCollectionPublished(
+      req.principal,
+      key,
+      id,
+      dto.version,
+      true,
+    );
+  }
+  @Post("collections/:id/unpublish")
+  @HttpCode(200)
+  @ApiOperation({
+    summary:
+      "Hide a collection or pathway from learners; follows and saved courses are kept",
+  })
+  unpublishCollection(
+    @Req() req: any,
+    @Headers("idempotency-key") key: string,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body() dto: PublishDto,
+  ) {
+    requireScope(req, "catalog:write");
+    return this.portal.setCollectionPublished(
+      req.principal,
+      key,
+      id,
+      dto.version,
+      false,
+    );
   }
   @Get("approval-requests") approvals(@Req() req: any) {
     requireScope(req, "staff:read");

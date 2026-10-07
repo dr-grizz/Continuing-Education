@@ -27,14 +27,15 @@ The site follows the operating system light/dark preference (`cssVariables.color
 | `text.primary` | `#1c2b36` | `#e6edf2` |
 | `text.secondary` | `#52616d` | `#a9b6c1` |
 | `divider` | `#dde2e7` | `#2c3a46` |
+| `error.main` | MUI default `#d32f2f` | `#f28b82` (text `#0d1b25`) |
 | Input outline | `#7c8791` | `#71808c` |
 | Prototype banner | `#fff8e6` / border `#ead8a8` | `#2b2412` / border `#5c4a1c` |
 
-Measured contrast (WCAG 2.x): light secondary text 6.38:1 and gold overline 5.82:1 on white. Dark body text 13.64:1, secondary text 7.80:1, link 8.67:1, input outline 3.97:1 on paper. New colors must meet 4.5:1 for text and 3:1 for control boundaries and focus indicators.
+Measured contrast (WCAG 2.x): light secondary text 6.38:1 and gold overline 5.82:1 on white. Dark body text 13.64:1, secondary text 7.80:1, link 8.67:1, input outline 3.97:1 on paper. Dark error text 6.75:1 on paper (MUI's default dark red was 4.4:1, found by the axe scans). Helper text on disabled fields keeps `text.secondary`, because it explains why a field is locked. New colors must meet 4.5:1 for text and 3:1 for control boundaries and focus indicators; `npm run test:a11y` checks them on the scanned pages.
 
 ### Brand surfaces
 
-`brand` in `theme.tsx` is fixed in both schemes: header and featured-course spotlight use navy `#17364b` with white text, muted text `#e2e8ed`, gold `#e7d99b` overline, and the gold `#d8b75d` active-navigation underline.
+`brand` in `theme.tsx` is fixed in both schemes: the header uses navy `#17364b` with white text, muted text `#e2e8ed`, gold `#e7d99b` overline, and the gold `#d8b75d` active-navigation underline.
 
 ### Typography
 
@@ -78,8 +79,10 @@ MUI defaults: `xs` <600, `sm` ≥600, `md` ≥900, `lg` ≥1200. Content is cent
 | Page/load failure | Inline error `Alert` at the top of the content. |
 | Registration result on course page | Inline `Alert`, severity by status (see Course detail). Focus moves to the next action. |
 | Background status change (polling, worker) | One visually hidden `role="status"` region per page announces "{course}: {new status}." once. Changes caused by the learner's own action are not repeated there, because the snackbar announces them. |
+| Links inside sentences | `underline="always"`, so they are not distinguished by color alone (axe `link-in-text-block`). Standalone links (headings, lists, breadcrumbs) keep the hover underline. |
 | Static status or notice text | `Alert` with `role="note"`, so it is not re-announced on render. Reserve `role="alert"` for new, time-sensitive messages. |
 | Informational limits (demo, simulation) | Info `Alert` (`role="note"`) or caption text |
+| Save and follow toggles | The button names the action ("Save course" / "Remove from saved courses", "Follow pathway" / "Stop following") instead of using `aria-pressed`. Focus stays on the button, and a polite live region under it confirms the change. |
 
 ### Focus
 
@@ -140,7 +143,7 @@ Outlined `Paper`. Catalog cards add a hover and focus-within state: primary bord
 | `declined` | Request declined | "You can request approval again"; Request approval again |
 | `reserved` | Seat reserved | Shows the deadline time; Simulate payment |
 | `provisioning` | Preparing access | Three-step progress: Payment recorded → Identity prepared → Enrollment verified |
-| `enrolled` | Enrolled | **Open course in Canvas** (new tab; accessible name "Open {course} in Canvas (opens in a new tab)") when a Canvas URL is mapped; otherwise a note that the link will appear when staff connect the course |
+| `enrolled` | Enrolled | **Open course in Canvas** when a Canvas URL is mapped: a real address opens in a new tab (accessible name "Open {course} in Canvas (opens in a new tab)"); a placeholder address (`example.com/.org/.net/.edu`, `.test`, `.example`, `.invalid`, `localhost`) opens a "Canvas course not connected yet" dialog showing the placeholder (`aria-haspopup="dialog"`, name "Open {course} in Canvas"; focus returns to the button on close); otherwise a note that the link will appear when staff connect the course |
 | `expired` | Reservation expired | Reserve a seat while the approval (if any) is still valid; otherwise Request approval again |
 | `provisioning` (retrying) | Preparing access | "Taking longer than usual… retrying automatically; no action is needed" |
 | any unpaid status on an unpublished offering | No longer offered | "This course is no longer open for registration…"; no actions, and the title is not linked |
@@ -152,16 +155,19 @@ Outlined `Paper`. Catalog cards add a hover and focus-within state: primary bord
 
 ### Catalog (`/`)
 
-1. Featured-course spotlight: up to three editorial picks with previous, next and per-course buttons (44px; `aria-pressed` marks the current one) and an "n / 3" indicator. The course image is hidden below `sm`.
-2. Intro: overline, `h1` "Build skills. Keep learning.", one-sentence description.
-3. Filters (grid: 4 columns on `md`; on phones search and topics span the full row, with type and sort side by side):
-   - Search by title or summary
-   - Topics (multi-select with checkboxes; "All topics" resets)
-   - Course type (All, Scheduled, Self-paced)
-   - Sort (Soonest start with self-paced first, Price low→high, Price high→low, Title A–Z)
-4. Filters are kept in the URL (`q`, `topics`, `type`, `sort`) with `history.replaceState`. Default values are omitted.
-5. Results header: list heading, live course count, "Clear filters" when any filter is active, and a List/Grid toggle remembered in `localStorage`.
-6. Results: list cards (thumbnail 88–144px) or grid cards (16:9 image; 1, 2 or 3 columns). Each card shows the category, title, summary, format label, price, start, an "Approval required" chip when relevant, an "Enrollment closed" warning chip once a Scheduled course's enrollment window has passed, and "View course".
+1. Intro: overline, `h1` "Build skills. Keep learning.", one-sentence description.
+2. **Landing:** a signed-in learner who opens the bare home page from outside the site (empty or external referrer, a fresh navigation rather than a reload or back/forward, at most once per page load) is sent to My learning with `router.replace`. In-site links, URLs with a tab or filter, reloads and back/forward show the catalog.
+3. Tabs (each label is a single span, because MUI stacks a tab's label children; `aria-label="Catalog views"`, manual activation: arrow keys move, Enter or Space selects): **Explore** (default), **Courses**, **Collections**, **Pathways**. Counts follow the last three labels from `sm` up and are hidden on phones so all four tabs fit at 320–375px. A tab with nothing published is hidden. The tab is kept in the URL as `tab` (omitted for Explore). Each panel has `role="tabpanel"` and is labelled by its tab. A **List/Grid** toggle (`aria-label="Card layout"`) sits at the right of the tab row (below it on phones), applies to every tab, and is remembered in `localStorage`. Grid shows 1, 2 or 3 columns; list shows one card per row.
+4. **Explore:**
+   - **Featured courses** (up to 5), then **Featured pathways** (up to 3) and **Featured collections** (up to 3), each an `h2` section with a card grid (1, 2 or 3 columns) and a "See all {type} (n)" button. That button selects the matching tab and moves focus to it.
+   - Items come from `GET /explore`: staff picks in their order, then automatic fill (open scheduled courses by soonest start, then the newest self-paced; newest collections and pathways). This replaced the former hard-coded three-course spotlight; its picks were carried over as the first featured courses.
+5. **Courses:**
+   - Filters (grid: 4 columns on `md`; on phones search and topics span the full row, with type and sort side by side): search by title or summary; topics (multi-select with checkboxes, where "All topics" resets); course type (All, Scheduled, Self-paced); sort (Soonest start with self-paced first, Price low→high, Price high→low, Title A–Z).
+   - Filters are kept in the URL (`q`, `topics`, `type`, `sort`) with `history.replaceState`; default values are omitted.
+   - Older links with `?collection=` open this tab filtered to that collection. They show an "In: {title}" chip, a **Remove** button named "Remove filter: {title}", and a link to the collection's page.
+   - Results header: list heading, live course count and "Clear filters" when any filter is active.
+   - Results: list cards (thumbnail 88–144px) or grid cards (16:9 image; 1, 2 or 3 columns). Each card shows the category, `h3` title, summary, format label, price, start, an "Approval required" chip when relevant, an "Enrollment closed" warning chip once a Scheduled course's enrollment window has passed, and "View course".
+6. **Collections** and **Pathways:** an `h2` ("All collections", "All pathways") with a one-line explanation and a card grid. A card shows the type overline, `h3` title, summary, course count, price range and topics, and "View collection" or "View pathway" (named with the title). Cards do not list their courses; the collection or pathway page does. Followed pathways show a "Following" chip. In list layout the course count, price range, topics and View button move to a right-hand column from `sm` up (stacked below a divider on phones).
 
 ### Course detail (`/courses/[id]`)
 
@@ -177,16 +183,29 @@ Outlined `Paper`. Catalog cards add a hover and focus-within state: primary bord
 | `provisioning`, `enrolled` | info | Already registered |
 
   After registering, focus moves to "Go to My learning".
-- Description, outcomes list, and "Before you register" simulation notice.
+- Below the registration action, a full-width outlined **Save course** button (bookmark icon) follows the toggle pattern; signed-out learners see "Sign in to save this course". Saving registers nothing.
+- Description, outcomes list, a **Part of** heading with link chips to the published collections and pathways that include the course, and the "Before you register" simulation notice.
+
+### Collection or pathway (`/collections/[slug]`)
+
+- Breadcrumb, "Collection" or "Pathway" overline, `h1` title and summary.
+- Pathways add an info note (`role="note"`): the order is a recommendation, following is free and registers nothing, and each course is registered separately. Below it, **Follow pathway** / **Stop following** (toggle pattern), or "Sign in to follow this pathway".
+- An `h2` ("Recommended order" or "Courses") over a list of course cards: an ordered list with numbered circles (decorative; the link text starts with a visually hidden "Step N:") for pathways, an unordered list for collections. Each card has an `h3` course link, summary, topic and type chips, schedule and price.
+- Only published courses are listed. An unknown or unpublished collection shows an error with a link back to the catalog.
 
 ### Sign in (`/sign-in`)
 
-Mock sign-in. The Email field (`autoComplete="username"`) and Password field (`current-password`) carry helper text saying any password works and is not saved. Submitting returns the user to `returnTo` when it is provided.
+Mock sign-in. The Email field (`autoComplete="username"`) and Password field (`current-password`) carry helper text saying any password works and is not saved. Submitting returns the user to `returnTo` when it is a course page, a collection or pathway page, or My learning; otherwise the learner lands on **My learning**.
 
 ### My learning (`/learning`)
 
 - Signed out: a panel with a sign-in button.
-- Signed in: the session email, then one outlined card per registration with category, linked title, schedule, status chip, and the status-specific content from the table above. The page polls every 2.5 seconds.
+- Signed in: the session email, then registrations in two `h2` sections of outlined cards (category, `h3` linked title, schedule, status chip, and the status-specific content from the table above). The page polls every 2.5 seconds.
+  - **Enrolled courses** (no description line): those with a Canvas link come first, then those ready now (self-paced or already started), then upcoming by start date. Enrolled cards show no progress steps, only the Canvas link or the "link will appear" note.
+  - **Registrations:** everything else in progress (approval, reservation, payment, preparing access, support review); declined and expired requests last.
+  - When the worker enrolls a course, its card moves to Enrolled courses. If focus was inside that card, focus follows it to its next action (Open course in Canvas) and the status region announces the change.
+- **Pathways you follow** (`h2`, shown when the learner follows any): one card per pathway with an `h3` link to its page and an ordered list of its published courses, each with the learner's registration status or "Not registered". A **Next** chip marks the first course that is not registered (or whose request expired, lapsed or was declined). No completion progress until Canvas.
+- **Saved courses** (`h2`, shown when the learner has any): one card per course with a linked `h3` title, schedule and price, and **Remove** (accessible name "Remove {course} from saved courses"). After removal, focus moves to the section heading and the status region announces it; removing the last course leaves the section with "No saved courses" and a Browse courses link.
 - Action errors stay inside the affected card. Successes show a snackbar ("Seat reserved for …", "Payment simulated for …").
 - Focus and announcements follow the Focus and Feedback patterns above. Action buttons carry `data-next-action`, and course headings are programmatic focus targets.
 
@@ -198,12 +217,18 @@ Mock sign-in. The Email field (`autoComplete="username"`) and Password field (`c
   - An info note says SSO replaces this screen later.
 - **Staff session bar:** "Signed in as {name} ({email})", role chips, and **Switch staff member**, which returns to sign-in. The workspace remounts per member, so no data or tab carries over.
 - **Permission-aware UI:** controls appear only when the member's scopes allow them; the API still enforces every scope.
-  - Without `catalog:write`, Offerings shows a view-only note and hides New offering, Edit, Publish and Unpublish.
+  - Without `catalog:write`, Offerings, Collections and Explore page show a view-only note and hide New offering, New collection, Edit, Publish and Unpublish.
   - Without `approvals:decide`, Approvals shows "Approver role required" in place of the decision buttons.
   - Without `exceptions:resolve`, Exceptions shows "Support or IT/Canvas role required" instead of Review.
   - Without `prototype:simulate`, the simulation select is disabled with an explanation.
-- **Header and tabs:** the header keeps the API documentation link. Tabs are **Dashboard** (default), Offerings, Approvals (count), Exceptions (count), Activity, **Learners**, **Staff** (staff administrators only) and **Roles**. The tab row scrolls on phones, with scroll arrows shown.
+- **Header and tabs:** the header keeps the API documentation link. Tabs are **Dashboard** (default), Offerings, **Collections**, **Explore page**, Approvals (count), Exceptions (count), Activity, **Learners**, **Staff** (staff administrators only) and **Roles**. The tab row scrolls on phones, with scroll arrows shown.
 
+- **Collections:**
+  - `h2` "Collections and pathways" with a one-line explanation and **New collection** (catalog managers).
+  - Table on `md` and up (Title with the `/collections/{slug}` address, linked once published; Type; Courses as an ordered list for pathways, unpublished ones marked "not published, hidden from learners"; Followers for pathways; Status chip; Actions). Cards below `md`.
+  - Row actions: **Edit**, plus **Publish** for drafts or **Unpublish** (error color) for published ones. Unpublish opens a confirmation dialog stating that learners lose sight of it, followers keep their follow, and registrations are unaffected. A refused publish (too few published courses) shows an inline error above the table.
+  - **New collection** and **Edit** open one dialog following the Forms pattern: Type (fixed after creation), Title, Web address (optional on create, fixed afterwards), Summary, and a **Courses** fieldset. Each course row has **Move up**, **Move down** and **Remove** icon buttons named with the course title. Focus stays on the moved course's arrow, switching to the other arrow at the ends; after a removal, focus goes to the neighbouring Remove button or the **Add a course** select. A visually hidden status region announces each move, addition and removal.
+- **Explore page:** three outlined panels in the learner order (Featured courses up to 5, Featured pathways up to 3, Featured collections up to 3), each using the shared ordered-list editor (the same keyboard behavior as the collection dialog). The editor's add select stays enabled when full, because it often has focus; its menu then shows "Limit of N reached" and its helper text explains the limit. Only published items are offered. **Save Explore page** saves all three lists in one audited command, and a polite note reports unsaved changes. Staff without `catalog:write` see the picks as read-only ordered lists.
 - **Offerings:**
   - Search by title, Status filter (All, Published, Draft), live count.
   - Sortable columns: Offering, Schedule, Price, Seats, Status. The phone sort select adds "Fewest seats left" and "Drafts first".

@@ -32,11 +32,14 @@ export default function SignIn() {
       const requested = new URLSearchParams(window.location.search).get(
         "returnTo",
       );
+      // Signed-in learners land on My learning unless a known page asked for
+      // sign-in (a course or a collection/pathway); other values are ignored.
       const destination =
         requested === "/learning" ||
-        /^\/courses\/[0-9a-f-]{36}$/.test(requested || "")
+        /^\/courses\/[0-9a-f-]{36}$/.test(requested || "") ||
+        /^\/collections\/[a-z0-9]+(-[a-z0-9]+)*$/.test(requested || "")
           ? requested!
-          : "/";
+          : "/learning";
       router.push(destination);
     } catch (error) {
       setError(

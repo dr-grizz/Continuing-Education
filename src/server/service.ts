@@ -8,6 +8,7 @@ import {
 import { createHash } from "node:crypto";
 import {
   Prisma,
+  type CollectionKind,
   type entitlements,
   type offerings,
   type SimulatedOutcome,
@@ -29,6 +30,9 @@ import {
   staffRoles,
 } from "./roles";
 import {
+  CollectionDto,
+  ExploreDto,
+  CollectionEditDto,
   LearnerAccessDto,
   StaffMemberDto,
   StaffUpdateDto,
@@ -88,6 +92,29 @@ export type LearningRow = entitlements &
     operation_status: string | null;
     attempts: number | null;
   };
+
+type CollectionSummary = {
+  id: string;
+  kind: CollectionKind;
+  slug: string;
+  title: string;
+  summary: string;
+  course_count: number;
+  topics: string[];
+  min_price_cents: number;
+  max_price_cents: number;
+  featured_rank: number | null;
+  created_at: Date;
+};
+// "Christian Leadership & Ethics" -> "christian-leadership-ethics"
+const slugify = (title: string) =>
+  title
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80)
+    .replace(/-+$/, "");
 
 export async function audit(
   tx: Tx,
@@ -169,10 +196,13 @@ export class PortalService {
       : listing;
     return sql<OfferingListing>(
       prisma,
-      `${select} WHERE ($1 OR o.published) AND ($2='' OR o.title ILIKE $2 OR o.summary ILIKE $2) AND ($3='' OR o.category=$3) ORDER BY o.start_date,o.title LIMIT 100`,
+      `${select} WHERE ($1 OR o.published) AND ($2='' OR o.title ILIKE $2 OR o.summary ILIKE $2) AND ($3='' OR o.category=$3)
+        AND ($4='' OR o.id IN (SELECT i.offering_id FROM collection_items i JOIN collections c ON c.id=i.collection_id WHERE c.slug=$4 AND c.published))
+        ORDER BY o.start_date,o.title LIMIT 100`,
       staff,
       query.search ? `%${query.search}%` : "",
       query.category || "",
+      query.collection || "",
     );
   }
   async detail(id: string) {
@@ -182,7 +212,16 @@ export class PortalService {
       id,
     );
     if (!offering) throw new NotFoundException("Offering not found.");
-    return offering;
+    // Published collections and pathways that include this course.
+    const collections = await prisma.collections.findMany({
+      where: {
+        published: true,
+        collection_items: { some: { offering_id: id } },
+      },
+      select: { slug: true, title: true, kind: true },
+      orderBy: [{ kind: "asc" }, { title: "asc" }],
+    });
+    return { ...offering, collections };
   }
   async command(
     principal: Principal,
@@ -657,7 +696,7 @@ export class PortalService {
           offerings & { active_registrations: number }
         >(
           tx,
-          `UPDATE offerings o SET published=false,unpublished_at=now(),version=version+1 WHERE o.id=$1::uuid AND o.version=$2 AND o.published
+          `UPDATE offerings o SET published=false,unpublished_at=now(),featured_rank=NULL,version=version+1 WHERE o.id=$1::uuid AND o.version=$2 AND o.published
           RETURNING o.*,${activeRegistrations} AS active_registrations`,
           id,
           version,
@@ -1303,6 +1342,493 @@ export class PortalService {
       },
     };
   }
+  // Collections and pathways (decisions F3 and F4). Learners see only published
+  // collections and their published courses; pathway steps are numbered in that order.
+  async publicCollections() {
+    return sql<CollectionSummary>(
+      prisma,
+      `SELECT c.id,c.kind,c.slug,c.title,c.summary,c.featured_rank,c.created_at,count(o.id)::integer AS course_count,
+         array_agg(DISTINCT o.category ORDER BY o.category) AS topics,
+         min(o.price_cents)::integer AS min_price_cents,max(o.price_cents)::integer AS max_price_cents
+       FROM collections c JOIN collection_items i ON i.collection_id=c.id
+       JOIN offerings o ON o.id=i.offering_id AND o.published
+       WHERE c.published GROUP BY c.id ORDER BY c.kind,c.title`,
+    );
+  }
+  async publicCollection(slug: string) {
+    const collection = await prisma.collections.findFirst({
+      where: { slug, published: true },
+      select: { id: true, kind: true, slug: true, title: true, summary: true },
+    });
+    if (!collection) throw new NotFoundException("Collection not found.");
+    return {
+      ...collection,
+      offerings: await this.collectionOfferings(collection.id),
+    };
+  }
+  private collectionOfferings(collectionId: string) {
+    return sql<OfferingListing & { position: number }>(
+      prisma,
+      `${listing.replace("FROM offerings o", ",i.position FROM offerings o JOIN collection_items i ON i.offering_id=o.id")}
+       WHERE i.collection_id=$1::uuid AND o.published ORDER BY i.position`,
+      collectionId,
+    );
+  }
+  async staffCollections() {
+    const rows = await prisma.collections.findMany({
+      orderBy: [{ kind: "asc" }, { title: "asc" }],
+      include: {
+        collection_items: {
+          orderBy: { position: "asc" },
+          select: {
+            offering_id: true,
+            offerings: { select: { title: true, published: true } },
+          },
+        },
+        _count: { select: { pathway_follows: true } },
+      },
+    });
+    return rows.map(({ collection_items, _count, ...c }) => ({
+      ...c,
+      followers: _count.pathway_follows,
+      courses: collection_items.map((item) => ({
+        id: item.offering_id,
+        title: item.offerings.title,
+        published: item.offerings.published,
+      })),
+    }));
+  }
+  private async staffCollection(tx: Tx, id: string) {
+    return (await this.staffCollectionsIn(tx)).find((c) => c.id === id);
+  }
+  private async staffCollectionsIn(tx: Tx) {
+    const rows = await tx.collections.findMany({
+      include: {
+        collection_items: {
+          orderBy: { position: "asc" },
+          select: { offering_id: true },
+        },
+      },
+    });
+    return rows.map(({ collection_items, ...c }) => ({
+      ...c,
+      offeringIds: collection_items.map((item) => item.offering_id),
+    }));
+  }
+  private async setCollectionItems(tx: Tx, id: string, offeringIds: string[]) {
+    const found = await tx.offerings.count({
+      where: { id: { in: offeringIds } },
+    });
+    if (found !== offeringIds.length)
+      throw new BadRequestException("One or more courses do not exist.");
+    await tx.collection_items.deleteMany({ where: { collection_id: id } });
+    await tx.collection_items.createMany({
+      data: offeringIds.map((offering_id, index) => ({
+        collection_id: id,
+        offering_id,
+        position: index + 1,
+      })),
+    });
+  }
+  // A published collection needs a course learners can see; a pathway needs two.
+  private async requirePublishable(
+    tx: Tx,
+    kind: CollectionKind,
+    offeringIds: string[],
+  ) {
+    const minimum = kind === "pathway" ? 2 : 1;
+    const visible = await tx.offerings.count({
+      where: { id: { in: offeringIds }, published: true },
+    });
+    if (visible < minimum)
+      throw new BadRequestException(
+        kind === "pathway"
+          ? "A published pathway needs at least two published courses."
+          : "A published collection needs at least one published course.",
+      );
+  }
+  async createCollection(
+    principal: Principal,
+    key: string,
+    data: CollectionDto,
+  ) {
+    return this.command(
+      principal,
+      key,
+      { action: "collection.create", data },
+      async (tx) => {
+        const slug = data.slug || slugify(data.title);
+        if (!slug)
+          throw new BadRequestException(
+            "Add letters or numbers to the title, or set a slug.",
+          );
+        if (await tx.collections.findUnique({ where: { slug } }))
+          throw new ConflictException(
+            `The address "${slug}" is already used. Choose another slug.`,
+          );
+        const created = await tx.collections.create({
+          data: {
+            kind: data.kind,
+            slug,
+            title: data.title.trim(),
+            summary: data.summary.trim(),
+          },
+        });
+        await this.setCollectionItems(tx, created.id, data.offeringIds);
+        await audit(tx, principal.actor, "collection.created", created.id, {
+          kind: data.kind,
+          title: created.title,
+          offering_ids: data.offeringIds,
+        });
+        return this.staffCollection(tx, created.id);
+      },
+    );
+  }
+  async editCollection(
+    principal: Principal,
+    key: string,
+    id: string,
+    data: CollectionEditDto,
+  ) {
+    return this.command(
+      principal,
+      key,
+      { action: "collection.edit", id, data },
+      async (tx) => {
+        const before = await this.staffCollection(tx, id);
+        if (!before || before.version !== data.version)
+          throw new ConflictException(
+            "Collection changed or does not exist. Refresh and retry.",
+          );
+        if (before.published)
+          await this.requirePublishable(tx, before.kind, data.offeringIds);
+        await tx.collections.update({
+          where: { id },
+          data: {
+            title: data.title.trim(),
+            summary: data.summary.trim(),
+            version: { increment: 1 },
+            updated_at: new Date(),
+          },
+        });
+        await this.setCollectionItems(tx, id, data.offeringIds);
+        await audit(tx, principal.actor, "collection.edited", id, {
+          title: data.title.trim(),
+          before: {
+            title: before.title,
+            summary: before.summary,
+            offering_ids: before.offeringIds,
+          },
+          after: {
+            title: data.title.trim(),
+            summary: data.summary.trim(),
+            offering_ids: data.offeringIds,
+          },
+        });
+        return this.staffCollection(tx, id);
+      },
+    );
+  }
+  async setCollectionPublished(
+    principal: Principal,
+    key: string,
+    id: string,
+    version: number,
+    published: boolean,
+  ) {
+    return this.command(
+      principal,
+      key,
+      {
+        action: published ? "collection.publish" : "collection.unpublish",
+        id,
+        version,
+      },
+      async (tx) => {
+        const current = await this.staffCollection(tx, id);
+        if (
+          !current ||
+          current.version !== version ||
+          current.published === published
+        )
+          throw new ConflictException(
+            `Collection changed, is already ${published ? "published" : "unpublished"}, or does not exist. Refresh and retry.`,
+          );
+        if (published)
+          await this.requirePublishable(tx, current.kind, current.offeringIds);
+        await tx.collections.update({
+          where: { id },
+          data: {
+            published,
+            version: { increment: 1 },
+            updated_at: new Date(),
+            // Unpublished items leave the Explore tab.
+            ...(published ? {} : { featured_rank: null }),
+          },
+        });
+        await audit(
+          tx,
+          principal.actor,
+          published ? "collection.published" : "collection.unpublished",
+          id,
+          { title: current.title, kind: current.kind },
+        );
+        return this.staffCollection(tx, id);
+      },
+    );
+  }
+  // Learner lists are private: only the selected learner can read or change them.
+  async savedCourses(principal: Principal) {
+    return sql<OfferingListing & { saved_at: Date }>(
+      prisma,
+      `${listing.replace("FROM offerings o", ",s.created_at AS saved_at FROM offerings o JOIN saved_courses s ON s.offering_id=o.id")}
+       WHERE s.learner_id=$1::uuid AND o.published ORDER BY s.created_at DESC`,
+      principal.learnerId,
+    );
+  }
+  async setSaved(
+    principal: Principal,
+    key: string,
+    offeringId: string,
+    saved: boolean,
+  ) {
+    const learnerId = principal.learnerId as string;
+    return this.command(
+      principal,
+      key,
+      { action: "saved", offeringId, saved },
+      async (tx) => {
+        if (saved) {
+          const offering = await tx.offerings.findFirst({
+            where: { id: offeringId, published: true },
+            select: { id: true },
+          });
+          if (!offering) throw new NotFoundException("Offering not found.");
+          await tx.saved_courses.upsert({
+            where: {
+              learner_id_offering_id: {
+                learner_id: learnerId,
+                offering_id: offeringId,
+              },
+            },
+            create: { learner_id: learnerId, offering_id: offeringId },
+            update: {},
+          });
+        } else
+          await tx.saved_courses.deleteMany({
+            where: { learner_id: learnerId, offering_id: offeringId },
+          });
+        return { offering_id: offeringId, saved };
+      },
+    );
+  }
+  async followedPathways(principal: Principal) {
+    const pathways = await prisma.collections.findMany({
+      where: {
+        kind: "pathway",
+        published: true,
+        pathway_follows: { some: { learner_id: principal.learnerId } },
+      },
+      select: { id: true, slug: true, title: true, summary: true },
+      orderBy: { title: "asc" },
+    });
+    const registrations = await prisma.entitlements.findMany({
+      where: { learner_id: principal.learnerId },
+      select: { offering_id: true, status: true },
+    });
+    const status = new Map(registrations.map((r) => [r.offering_id, r.status]));
+    return Promise.all(
+      pathways.map(async (pathway) => ({
+        ...pathway,
+        // Registration status only; completion needs Canvas (decision F11).
+        steps: (await this.collectionOfferings(pathway.id)).map((o) => ({
+          id: o.id,
+          title: o.title,
+          course_type: o.course_type,
+          start_date: o.start_date,
+          registration_status: status.get(o.id) ?? null,
+        })),
+      })),
+    );
+  }
+  async setFollowing(
+    principal: Principal,
+    key: string,
+    collectionId: string,
+    following: boolean,
+  ) {
+    const learnerId = principal.learnerId as string;
+    return this.command(
+      principal,
+      key,
+      { action: "follow", collectionId, following },
+      async (tx) => {
+        if (following) {
+          const pathway = await tx.collections.findFirst({
+            where: { id: collectionId, kind: "pathway", published: true },
+            select: { id: true },
+          });
+          if (!pathway) throw new NotFoundException("Pathway not found.");
+          await tx.pathway_follows.upsert({
+            where: {
+              learner_id_collection_id: {
+                learner_id: learnerId,
+                collection_id: collectionId,
+              },
+            },
+            create: { learner_id: learnerId, collection_id: collectionId },
+            update: {},
+          });
+        } else
+          await tx.pathway_follows.deleteMany({
+            where: { learner_id: learnerId, collection_id: collectionId },
+          });
+        return { collection_id: collectionId, following };
+      },
+    );
+  }
+  // Learner Explore tab: staff picks first, then automatic fill so no section is
+  // short. Courses: open scheduled courses by soonest start, then the newest
+  // self-paced. Collections and pathways: newest first.
+  async explore() {
+    const [courses, collections] = await Promise.all([
+      this.list({}),
+      this.publicCollections(),
+    ]);
+    const byRank = <T extends { featured_rank: number | null }>(a: T, b: T) =>
+      (a.featured_rank as number) - (b.featured_rank as number);
+    const today = new Date().toISOString().slice(0, 10);
+    const upcoming = (o: OfferingListing) =>
+      o.start_date !== null && o.start_date >= today;
+    const fillCourses = courses
+      .filter((o) => o.featured_rank === null && o.enrollment_open)
+      .sort(
+        (a, b) =>
+          Number(upcoming(b)) - Number(upcoming(a)) ||
+          (a.start_date ?? "").localeCompare(b.start_date ?? "") ||
+          b.created_at.getTime() - a.created_at.getTime(),
+      );
+    const pick = <T extends { featured_rank: number | null }>(
+      items: T[],
+      fill: T[],
+      size: number,
+    ) =>
+      [...items.filter((i) => i.featured_rank !== null).sort(byRank), ...fill]
+        .slice(0, size)
+        .map((item) => ({ ...item, featured: item.featured_rank !== null }));
+    const ofKind = (kind: CollectionKind) => {
+      const all = collections.filter((c) => c.kind === kind);
+      const fill = all
+        .filter((c) => c.featured_rank === null)
+        .sort((a, b) => b.created_at.getTime() - a.created_at.getTime());
+      return pick(all, fill, 3);
+    };
+    return {
+      courses: pick(courses, fillCourses, 5),
+      collections: ofKind("collection"),
+      pathways: ofKind("pathway"),
+    };
+  }
+  async staffExplore() {
+    const [courses, collections] = await Promise.all([
+      prisma.offerings.findMany({
+        where: { featured_rank: { not: null } },
+        orderBy: { featured_rank: "asc" },
+        select: { id: true, title: true, published: true },
+      }),
+      prisma.collections.findMany({
+        where: { featured_rank: { not: null } },
+        orderBy: { featured_rank: "asc" },
+        select: { id: true, title: true, kind: true, published: true },
+      }),
+    ]);
+    return {
+      courses,
+      collections: collections.filter((c) => c.kind === "collection"),
+      pathways: collections.filter((c) => c.kind === "pathway"),
+    };
+  }
+  async setExplore(principal: Principal, key: string, data: ExploreDto) {
+    return this.command(
+      principal,
+      key,
+      { action: "explore.update", data },
+      async (tx) => {
+        const courses = await tx.offerings.count({
+          where: { id: { in: data.courses }, published: true },
+        });
+        if (courses !== data.courses.length)
+          throw new BadRequestException(
+            "Featured courses must exist and be published.",
+          );
+        for (const kind of ["collection", "pathway"] as const) {
+          const ids = kind === "pathway" ? data.pathways : data.collections;
+          const found = await tx.collections.count({
+            where: { id: { in: ids }, kind, published: true },
+          });
+          if (found !== ids.length)
+            throw new BadRequestException(
+              `Featured ${kind === "pathway" ? "pathways" : "collections"} must exist, be published and be ${kind === "pathway" ? "pathways" : "collections"}.`,
+            );
+        }
+        const before = await this.staffExploreIn(tx);
+        // Replace every position in one transaction, so ranks never collide.
+        await tx.offerings.updateMany({
+          where: { featured_rank: { not: null } },
+          data: { featured_rank: null },
+        });
+        await tx.collections.updateMany({
+          where: { featured_rank: { not: null } },
+          data: { featured_rank: null },
+        });
+        for (const [index, id] of data.courses.entries())
+          await tx.offerings.update({
+            where: { id },
+            data: { featured_rank: index + 1 },
+          });
+        for (const [index, id] of [
+          ...data.collections.entries(),
+          ...data.pathways.entries(),
+        ])
+          await tx.collections.update({
+            where: { id },
+            data: { featured_rank: index + 1 },
+          });
+        await audit(tx, principal.actor, "explore.updated", null, {
+          before,
+          after: {
+            courses: data.courses,
+            collections: data.collections,
+            pathways: data.pathways,
+          },
+        });
+        return this.staffExploreIn(tx);
+      },
+    );
+  }
+  private async staffExploreIn(tx: Tx) {
+    const [courses, collections] = await Promise.all([
+      tx.offerings.findMany({
+        where: { featured_rank: { not: null } },
+        orderBy: { featured_rank: "asc" },
+        select: { id: true },
+      }),
+      tx.collections.findMany({
+        where: { featured_rank: { not: null } },
+        orderBy: { featured_rank: "asc" },
+        select: { id: true, kind: true },
+      }),
+    ]);
+    return {
+      courses: courses.map((c) => c.id),
+      collections: collections
+        .filter((c) => c.kind === "collection")
+        .map((c) => c.id),
+      pathways: collections
+        .filter((c) => c.kind === "pathway")
+        .map((c) => c.id),
+    };
+  }
   async report() {
     const [
       simulated_orders,
@@ -1331,7 +1857,7 @@ export class PortalService {
       `SELECT a.actor,a.action,a.object_id,a.created_at,
         CASE WHEN a.actor LIKE 'demo-learner:%' THEN coalesce(actor_learner.email,'Legacy demo learner')
           WHEN a.actor LIKE 'staff:%' THEN actor_staff.email END AS actor_email,
-        coalesce(o.title,eo.title) AS offering_title,
+        coalesce(o.title,eo.title,col.title) AS offering_title,
         coalesce(subject_learner.email,subject_staff.email) AS subject_email
       FROM audit_events a
       LEFT JOIN learners actor_learner ON a.actor='demo-learner:'||actor_learner.id::text
@@ -1341,6 +1867,7 @@ export class PortalService {
       LEFT JOIN entitlements e ON e.id=a.object_id
       LEFT JOIN offerings eo ON eo.id=e.offering_id
       LEFT JOIN learners subject_learner ON subject_learner.id=e.learner_id
+      LEFT JOIN collections col ON col.id=a.object_id
       ORDER BY a.id DESC LIMIT 200`,
     );
     return {

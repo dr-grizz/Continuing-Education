@@ -38,6 +38,8 @@ import {
   useStaffSession,
 } from "../../components/staff-session";
 import { StaffRoles, StaffUsers } from "../../components/staff-admin";
+import { StaffCollections } from "../../components/staff-collections";
+import { StaffExplore } from "../../components/staff-explore";
 import { StaffLearners } from "../../components/staff-learners";
 import { StaffDashboard } from "../../components/staff-dashboard";
 import {
@@ -112,6 +114,8 @@ type Session = ReturnType<typeof useStaffSession>;
 type TabName =
   | "dashboard"
   | "offerings"
+  | "collections"
+  | "explore"
   | "approvals"
   | "exceptions"
   | "activity"
@@ -358,6 +362,8 @@ function StaffWorkspace({ session }: { session: Session }) {
       >
         <Tab value="dashboard" label="Dashboard" />
         <Tab value="offerings" label="Offerings" />
+        <Tab value="collections" label="Collections" />
+        <Tab value="explore" label="Explore page" />
         <Tab value="approvals" label={`Approvals (${requests.length})`} />
         <Tab value="exceptions" label={`Exceptions (${exceptions.length})`} />
         <Tab value="activity" label="Activity" />
@@ -854,6 +860,20 @@ function StaffWorkspace({ session }: { session: Session }) {
       )}
       {loaded && tab === "dashboard" && (
         <StaffDashboard offerings={courses} canSales={can("reports:sales")} />
+      )}
+      {loaded && tab === "collections" && (
+        <StaffCollections
+          canManage={canCatalog}
+          offerings={courses}
+          onChanged={setMessage}
+        />
+      )}
+      {loaded && tab === "explore" && (
+        <StaffExplore
+          canManage={canCatalog}
+          offerings={courses}
+          onChanged={setMessage}
+        />
       )}
       {tab === "learners" && (
         <StaffLearners

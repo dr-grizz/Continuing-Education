@@ -79,10 +79,11 @@ Stop application processes with Ctrl+C. `docker compose stop db` stops PostgreSQ
 2. Register for an open course as the demo learner. In My learning, select **Simulate payment** and watch the worker prepare demo access.
 3. Request Healthcare Communication, then open **Staff**, sign in as a demo staff member with the Approver role, and approve it in **Approvals**. Return to My learning, reserve a seat and simulate payment.
 4. Use Staff to create a draft offering, publish it and inspect the audit activity. This needs the Catalog manager role.
-5. In **Staff → Exceptions**, set *Outcome for new payments* to a failure, then simulate a payment in My learning. Watch the automatic retries, then review the exception in Staff and retry provisioning or record a manual enrollment with a reason. Set the outcome back to *Normal* afterwards; it applies to every demo learner.
-6. **Try the roles.** Use **Switch staff member** to act as each demo staff member:
+5. **Explore, collections and pathways.** The catalog opens on **Explore**: featured pathways, collections and courses. Open the Data-Informed Leader pathway and select **Follow pathway**, then **Save course** on any course page. Both appear in My learning, where the pathway marks your **Next** course; neither registers you. Signed-in learners land on My learning, with enrolled courses (**Enrolled courses**) above registrations in progress. As Casey Catalog Manager, use **Staff → Collections** to create, reorder and publish collections and pathways, and **Staff → Explore page** to choose what Explore features.
+6. In **Staff → Exceptions**, set *Outcome for new payments* to a failure, then simulate a payment in My learning. Watch the automatic retries, then review the exception in Staff and retry provisioning or record a manual enrollment with a reason. Set the outcome back to *Normal* afterwards; it applies to every demo learner.
+7. **Try the roles.** Use **Switch staff member** to act as each demo staff member:
    - Avery Approver can decide approvals but not edit offerings.
-   - Casey Catalog Manager manages offerings.
+   - Casey Catalog Manager manages offerings, collections and pathways.
    - Sam Support and Ivy (IT/Canvas) recover exceptions.
    - Fran Finance views reports, including sales on the **Dashboard** tab. Other staff see enrollment only.
    - Cory Content Editor holds the sales-page role, which is view-only until the sales page editor exists.
@@ -110,13 +111,19 @@ Public catalog requests need no token. The read-only automation token cannot cre
 ## Verify
 
 ```sh
+npm run format:check
 npm run typecheck
 npm run build
 npm test
 npm run test:migrations
+npm run test:a11y
 ```
 
-Integration tests require the website, API and PostgreSQL running. They check authorization, validation, payment-before-approval prevention, idempotency and concurrent final-seat reservation against isolated test records, then remove those records. Production UI/SSO, refunds, transfers, lifecycle automation, exception recovery and live integrations remain future work. See `docs/implementation-plan.md` and `docs/adr/0001-local-prototype.md`.
+`npm run test:a11y` runs axe (WCAG 2.2 A and AA rules) with Playwright against the catalog, sign-in, course detail, My learning, the staff sign-in screen, every staff tab and the main staff dialogs, in light, dark and phone layouts. Run `npx playwright install chromium` once first. Scans catch only part of WCAG; they do not replace the keyboard and screen-reader review in the checklist below.
+
+**Continuous integration:** `.github/workflows/ci.yml` runs all of the above on every pull request, against a throwaway PostgreSQL service with synthetic data. It never deploys or connects to external systems. Pull requests and pushes that change only documentation (`docs/**` or Markdown files) skip it; start it by hand from the Actions tab if needed. If the scans fail, the job uploads the Playwright report.
+
+Integration tests require the website, API and PostgreSQL running. Both the integration tests and the accessibility scans remove the records they create, so local runs leave the database unchanged. They check authorization, validation, payment-before-approval prevention, idempotency and concurrent final-seat reservation against isolated test records, then remove those records. Production UI/SSO, refunds, transfers, lifecycle automation, exception recovery and live integrations remain future work. See `docs/implementation-plan.md` and `docs/adr/0001-local-prototype.md`.
 
 ### Review/test checklist
 
@@ -125,7 +132,7 @@ Integration tests require the website, API and PostgreSQL running. They check au
 - [ ] **Accessibility:** verify keyboard operation, visible focus, focus order/return, skip navigation, and no keyboard traps.
 - [ ] **Accessibility:** check accessible names, form labels, heading structure, landmarks, image alternatives, selected states, and status/error announcements.
 - [ ] **Accessibility:** check text/control contrast, touch target sizes, narrow-screen reflow, and zoom behavior.
-- [ ] **Accessibility:** run an automated scan when available and manually review the affected workflows with a screen reader. Before release, cover catalog/filtering, spotlight, sign-in, registration, learner status, and staff forms/dialogs/tables.
+- [ ] **Accessibility:** run `npm run test:a11y` (add new pages or dialogs to `tests/accessibility/pages.spec.ts`) and manually review the affected workflows with a screen reader. Before release, cover the catalog tabs and filtering, sign-in, registration, learner status, and staff forms/dialogs/tables.
 - [ ] Record evidence, fixes, unresolved findings, and checks not performed; do not describe untested checks as passing or a partial review as WCAG certification.
 
 Accessibility is part of every UI review. Scale checks to the change; a narrow UI change does not require repeating unrelated integration tests. The first manual catalog review is recorded in `docs/prototype/accessibility-check.txt`.

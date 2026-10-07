@@ -1,5 +1,6 @@
 "use client";
 import { useDemoAuth } from "../../components/demo-auth";
+import { CanvasLinkButton } from "../../components/canvas-link";
 import { LoadingCards } from "../../components/loading";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -17,13 +18,14 @@ import {
   Stepper,
   Typography,
 } from "@mui/material";
-import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import {
   api,
   date,
   courseSchedule,
+  FollowedPathway,
   Learning,
   money,
+  Offering,
 } from "../../components/api";
 const labels: Record<string, string> = {
   awaiting_approval: "Awaiting approval",
@@ -78,7 +80,13 @@ export default function LearningPage() {
     [actionError, setActionError] = useState<{ id: string; message: string }>(),
     [notice, setNotice] = useState(""),
     [announcement, setAnnouncement] = useState(""),
-    [focusAfter, setFocusAfter] = useState("");
+    [focusAfter, setFocusAfter] = useState(""),
+    [saved, setSaved] = useState<Offering[]>([]),
+    [pathways, setPathways] = useState<FollowedPathway[]>([]),
+    [removing, setRemoving] = useState(""),
+    // Keeps the section (the focus target) after the last course is removed.
+    [removedSaved, setRemovedSaved] = useState(false);
+  const savedHeading = useRef<HTMLHeadingElement>(null);
   const statuses = useRef<Map<string, string>>(new Map());
   const quietId = useRef("");
   const cards = useRef<Map<string, HTMLElement>>(new Map());
@@ -96,6 +104,18 @@ export default function LearningPage() {
         })
         .map((row) => `${row.title}: ${labels[row.status] || row.status}.`);
       if (changes.length) setAnnouncement(changes.join(" "));
+      // A card moves between "Enrolled courses" and "Registrations" when it is
+      // enrolled; if focus was inside it, follow the card to its new place.
+      const focused = [...cards.current.entries()].find(([, element]) =>
+        element.contains(document.activeElement),
+      )?.[0];
+      const moved = next.find(
+        (row) =>
+          row.id === focused &&
+          (row.status === "enrolled") !==
+            (statuses.current.get(row.id) === "enrolled"),
+      );
+      if (moved) setFocusAfter(moved.id);
       statuses.current = new Map(next.map((row) => [row.id, row.status]));
       setRows(next);
       setError("");
@@ -117,10 +137,34 @@ export default function LearningPage() {
     const card = cards.current.get(focusAfter);
     const target =
       card?.querySelector<HTMLElement>("[data-next-action]") ??
-      card?.querySelector<HTMLElement>("h2");
+      card?.querySelector<HTMLElement>("h3");
     target?.focus();
     setFocusAfter("");
   }, [rows, focusAfter]);
+  // Saved courses and followed pathways are private lists; neither registers.
+  useEffect(() => {
+    api<Offering[]>("me/saved-courses")
+      .then(setSaved)
+      .catch(() => setSaved([]));
+    api<FollowedPathway[]>("me/pathways")
+      .then(setPathways)
+      .catch(() => setPathways([]));
+  }, []);
+  async function removeSaved(course: Offering) {
+    if (removing) return;
+    setRemoving(course.id);
+    try {
+      await api(`me/saved-courses/${course.id}`, { body: { saved: false } });
+      setSaved((list) => list.filter((o) => o.id !== course.id));
+      setRemovedSaved(true);
+      setAnnouncement(`${course.title} removed from saved courses.`);
+      savedHeading.current?.focus();
+    } catch (e) {
+      setAnnouncement((e as Error).message);
+    } finally {
+      setRemoving("");
+    }
+  }
   async function act(row: Learning) {
     if (busy) return;
     setBusy(row.id);
@@ -152,6 +196,248 @@ export default function LearningPage() {
       setBusy("");
     }
   }
+  // The "Enrolled courses" section comes first: courses with a Canvas link
+  // first, then ready now (self-paced or already started), then upcoming by
+  // start date. Everything else is a registration in progress, closed last.
+  const today = new Date().toISOString().slice(0, 10);
+  const readyNow = (row: Learning) =>
+    !row.start_date || row.start_date <= today;
+  const available = rows
+    .filter((row) => row.status === "enrolled")
+    .sort(
+      (a, b) =>
+        Number(Boolean(b.canvas_course_url)) -
+          Number(Boolean(a.canvas_course_url)) ||
+        Number(readyNow(b)) - Number(readyNow(a)) ||
+        (a.start_date ?? "").localeCompare(b.start_date ?? "") ||
+        a.title.localeCompare(b.title),
+    );
+  const closed = new Set(["declined", "expired", "approval_expired"]);
+  const registrations = rows
+    .filter((row) => row.status !== "enrolled")
+    .sort(
+      (a, b) => Number(closed.has(a.status)) - Number(closed.has(b.status)),
+    );
+  // The next pathway course: the first not registered, or whose registration
+  // expired, lapsed or was declined. Registration status only; no completion.
+  const reopen = new Set(["expired", "approval_expired", "declined"]);
+  const nextPathwayStep = (pathway: FollowedPathway) =>
+    pathway.steps.find(
+      (step) =>
+        step.registration_status === null ||
+        reopen.has(step.registration_status),
+    );
+  const renderCard = (row: Learning) => (
+    <Paper
+      key={row.id}
+      variant="outlined"
+      ref={(element: HTMLElement | null) => {
+        if (element) cards.current.set(row.id, element);
+        else cards.current.delete(row.id);
+      }}
+      sx={{ p: { xs: 2.5, md: 3 } }}
+    >
+      <Stack
+        direction={{ xs: "column", sm: "row" }}
+        sx={{
+          justifyContent: "space-between",
+          gap: 2,
+        }}
+      >
+        <Box>
+          <Typography variant="overline" color="secondary">
+            {row.category}
+          </Typography>
+          <Typography
+            variant="h6"
+            component="h3"
+            tabIndex={-1}
+            sx={{ "&:focus": { outline: "none" } }}
+          >
+            {row.published === false ? (
+              row.title
+            ) : (
+              <Link href={`/courses/${row.offering_id}`} color="inherit">
+                {row.title}
+              </Link>
+            )}
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+            {courseSchedule(row)}
+          </Typography>
+        </Box>
+        <Chip
+          label={
+            withdrawn(row)
+              ? "No longer offered"
+              : labels[row.status] || row.status
+          }
+          color={
+            row.status === "enrolled"
+              ? "success"
+              : row.status === "exception"
+                ? "warning"
+                : "default"
+          }
+          variant="outlined"
+        />
+      </Stack>
+      <Divider sx={{ my: 2.5 }} />
+      {actionError?.id === row.id && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {actionError.message}
+        </Alert>
+      )}
+      {withdrawn(row) && (
+        <Alert severity="info" role="note">
+          This course is no longer open for registration
+          {row.status === "reserved"
+            ? ", so payment isn’t available and your reserved seat will be released"
+            : ""}
+          . Contact the program office if you have questions.
+        </Alert>
+      )}
+      {row.status === "awaiting_approval" && !withdrawn(row) && (
+        <Alert severity="info" role="note">
+          Your request is awaiting program approval. In this prototype, use
+          Staff → Approvals to review it.
+        </Alert>
+      )}
+      {renewable.includes(row.status) && !withdrawn(row) && (
+        <Stack sx={{ gap: 2, alignItems: "flex-start" }}>
+          {row.enrollment_open === false ? (
+            <Alert severity="info" role="note">
+              Enrollment for this course closed on{" "}
+              {date(row.enrollment_closes_on ?? null)}, so this registration can
+              no longer continue. Contact the program office if you need help.
+            </Alert>
+          ) : (
+            <Typography>{nextStep(row).message}</Typography>
+          )}
+          {row.enrollment_open === false ? null : (
+            <Button
+              variant="contained"
+              onClick={() => act(row)}
+              aria-disabled={busy === row.id}
+              data-next-action
+            >
+              {nextStep(row).request
+                ? busy === row.id
+                  ? "Requesting…"
+                  : "Request approval again"
+                : busy === row.id
+                  ? "Reserving…"
+                  : "Reserve a seat"}
+            </Button>
+          )}
+        </Stack>
+      )}
+      {row.status === "reserved" && !withdrawn(row) && (
+        <Stack
+          sx={{
+            gap: 2,
+            alignItems: "flex-start",
+          }}
+        >
+          <Typography>
+            Your seat is reserved until{" "}
+            {row.reserved_until
+              ? new Date(row.reserved_until).toLocaleTimeString("en-US", {
+                  hour: "numeric",
+                  minute: "2-digit",
+                })
+              : "the checkout deadline"}
+            .
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Try the payment-to-enrollment workflow with a simulated{" "}
+            {money(row.quoted_price_cents ?? row.price_cents)} payment. No
+            charge is made.
+          </Typography>
+          <Button
+            variant="contained"
+            aria-disabled={busy === row.id}
+            onClick={() => act(row)}
+            data-next-action
+          >
+            {busy === row.id ? "Submitting…" : "Simulate payment"}
+          </Button>
+        </Stack>
+      )}
+      {["provisioning", "enrolled", "exception"].includes(row.status) && (
+        <>
+          {/* Enrolled courses need no progress steps; the course link is enough. */}
+          {row.status !== "enrolled" && (
+            <Stepper
+              activeStep={row.stage === "canvas" ? 2 : 1}
+              alternativeLabel
+              sx={{ mb: 3 }}
+            >
+              {[
+                "Payment recorded",
+                "Identity prepared",
+                "Enrollment verified",
+              ].map((label, index) => {
+                // Mark the step that failed when provisioning needs staff review.
+                const failed =
+                  row.status === "exception" &&
+                  index === (row.stage === "canvas" ? 2 : 1);
+                return (
+                  <Step key={label}>
+                    <StepLabel
+                      error={failed}
+                      optional={
+                        failed ? (
+                          <Typography variant="caption" color="error">
+                            Needs staff review
+                          </Typography>
+                        ) : undefined
+                      }
+                    >
+                      {label}
+                    </StepLabel>
+                  </Step>
+                );
+              })}
+            </Stepper>
+          )}
+          {row.status === "exception" ? (
+            <Alert severity="warning" role="note">
+              We couldn’t finish setting up your course access. Your simulated
+              payment is recorded and staff have been asked to review it. You
+              don’t need to pay again.
+            </Alert>
+          ) : row.status === "provisioning" && (row.attempts ?? 0) > 0 ? (
+            <Alert severity="info" role="note">
+              Setting up access is taking longer than usual. The system is
+              retrying automatically; no action is needed.
+            </Alert>
+          ) : row.status === "enrolled" && row.canvas_course_url ? (
+            <Stack sx={{ gap: 1.5, alignItems: "flex-start" }}>
+              <Typography>
+                Your Canvas account and course enrollment are ready.
+              </Typography>
+              <CanvasLinkButton
+                id={row.offering_id}
+                url={row.canvas_course_url}
+                title={row.title}
+              />
+            </Stack>
+          ) : row.status === "enrolled" ? (
+            <Alert severity="success" role="note">
+              Your enrollment is complete. The course link will appear here when
+              staff connect the Canvas course.
+            </Alert>
+          ) : (
+            <Alert severity="info" role="note">
+              The local background worker is preparing your demo access. This
+              page updates automatically.
+            </Alert>
+          )}
+        </>
+      )}
+    </Paper>
+  );
   return (
     <>
       <Typography variant="h4" component="h1">
@@ -182,236 +468,163 @@ export default function LearningPage() {
           </Button>
         </Paper>
       )}
-      <Stack spacing={3} sx={{ mt: 4 }}>
-        {rows.map((row) => (
-          <Paper
-            key={row.id}
-            variant="outlined"
-            ref={(element: HTMLElement | null) => {
-              if (element) cards.current.set(row.id, element);
-              else cards.current.delete(row.id);
-            }}
-            sx={{ p: { xs: 2.5, md: 3 } }}
-          >
-            <Stack
-              direction={{ xs: "column", sm: "row" }}
-              sx={{
-                justifyContent: "space-between",
-                gap: 2,
-              }}
-            >
-              <Box>
-                <Typography variant="overline" color="secondary">
-                  {row.category}
-                </Typography>
-                <Typography
-                  variant="h6"
-                  component="h2"
-                  tabIndex={-1}
-                  sx={{ "&:focus": { outline: "none" } }}
-                >
-                  {row.published === false ? (
-                    row.title
-                  ) : (
-                    <Link href={`/courses/${row.offering_id}`} color="inherit">
-                      {row.title}
-                    </Link>
-                  )}
-                </Typography>
-                <Typography
-                  variant="body2"
-                  color="text.secondary"
-                  sx={{ mt: 1 }}
-                >
-                  {courseSchedule(row)}
-                </Typography>
-              </Box>
-              <Chip
-                label={
-                  withdrawn(row)
-                    ? "No longer offered"
-                    : labels[row.status] || row.status
-                }
-                color={
-                  row.status === "enrolled"
-                    ? "success"
-                    : row.status === "exception"
-                      ? "warning"
-                      : "default"
-                }
+      {available.length > 0 && (
+        <Box
+          component="section"
+          aria-labelledby="enrolled-heading"
+          sx={{ mt: 4 }}
+        >
+          <Typography id="enrolled-heading" variant="h5" component="h2">
+            Enrolled courses
+          </Typography>
+          <Stack spacing={3} sx={{ mt: 2 }}>
+            {available.map(renderCard)}
+          </Stack>
+        </Box>
+      )}
+      {registrations.length > 0 && (
+        <Box
+          component="section"
+          aria-labelledby="registrations-heading"
+          sx={{ mt: 5 }}
+        >
+          <Typography id="registrations-heading" variant="h5" component="h2">
+            Registrations
+          </Typography>
+          <Typography color="text.secondary" sx={{ mt: 0.5 }}>
+            Requests, reservations and enrollments in progress. Closed requests
+            are listed last.
+          </Typography>
+          <Stack spacing={3} sx={{ mt: 2 }}>
+            {registrations.map(renderCard)}
+          </Stack>
+        </Box>
+      )}
+      {pathways.length > 0 && (
+        <Box
+          component="section"
+          aria-labelledby="pathways-heading"
+          sx={{ mt: 5 }}
+        >
+          <Typography id="pathways-heading" variant="h5" component="h2">
+            Pathways you follow
+          </Typography>
+          <Typography color="text.secondary" sx={{ mt: 0.5 }}>
+            Recommended course order. Register for each course separately;
+            progress tracking arrives with the Canvas connection.
+          </Typography>
+          <Stack spacing={2} sx={{ mt: 2 }}>
+            {pathways.map((pathway) => (
+              <Paper
+                key={pathway.id}
                 variant="outlined"
-              />
-            </Stack>
-            <Divider sx={{ my: 2.5 }} />
-            {actionError?.id === row.id && (
-              <Alert severity="error" sx={{ mb: 2 }}>
-                {actionError.message}
-              </Alert>
-            )}
-            {withdrawn(row) && (
-              <Alert severity="info" role="note">
-                This course is no longer open for registration
-                {row.status === "reserved"
-                  ? ", so payment isn’t available and your reserved seat will be released"
-                  : ""}
-                . Contact the program office if you have questions.
-              </Alert>
-            )}
-            {row.status === "awaiting_approval" && !withdrawn(row) && (
-              <Alert severity="info" role="note">
-                Your request is awaiting program approval. In this prototype,
-                use Staff → Approvals to review it.
-              </Alert>
-            )}
-            {renewable.includes(row.status) && !withdrawn(row) && (
-              <Stack sx={{ gap: 2, alignItems: "flex-start" }}>
-                {row.enrollment_open === false ? (
-                  <Alert severity="info" role="note">
-                    Enrollment for this course closed on{" "}
-                    {date(row.enrollment_closes_on ?? null)}, so this
-                    registration can no longer continue. Contact the program
-                    office if you need help.
-                  </Alert>
-                ) : (
-                  <Typography>{nextStep(row).message}</Typography>
-                )}
-                {row.enrollment_open === false ? null : (
-                  <Button
-                    variant="contained"
-                    onClick={() => act(row)}
-                    aria-disabled={busy === row.id}
-                    data-next-action
-                  >
-                    {nextStep(row).request
-                      ? busy === row.id
-                        ? "Requesting…"
-                        : "Request approval again"
-                      : busy === row.id
-                        ? "Reserving…"
-                        : "Reserve a seat"}
-                  </Button>
-                )}
-              </Stack>
-            )}
-            {row.status === "reserved" && !withdrawn(row) && (
-              <Stack
+                sx={{ p: { xs: 2.5, md: 3 } }}
+              >
+                <Typography variant="h6" component="h3">
+                  <Link href={`/collections/${pathway.slug}`}>
+                    {pathway.title}
+                  </Link>
+                </Typography>
+                <Box
+                  component="ol"
+                  sx={{ m: 0, mt: 1.5, pl: 3, display: "grid", gap: 1 }}
+                >
+                  {pathway.steps.map((step) => (
+                    <li key={step.id}>
+                      <Link href={`/courses/${step.id}`}>{step.title}</Link>
+                      <Typography
+                        component="span"
+                        variant="body2"
+                        color="text.secondary"
+                      >
+                        {" · "}
+                        {step.registration_status
+                          ? labels[step.registration_status] ||
+                            step.registration_status
+                          : "Not registered"}
+                      </Typography>
+                      {step.id === nextPathwayStep(pathway)?.id && (
+                        <Chip
+                          label="Next"
+                          color="primary"
+                          variant="outlined"
+                          sx={{ ml: 1 }}
+                        />
+                      )}
+                    </li>
+                  ))}
+                </Box>
+              </Paper>
+            ))}
+          </Stack>
+        </Box>
+      )}
+      {(saved.length > 0 || removedSaved) && (
+        <Box component="section" aria-labelledby="saved-heading" sx={{ mt: 5 }}>
+          <Typography
+            id="saved-heading"
+            ref={savedHeading}
+            tabIndex={-1}
+            variant="h5"
+            component="h2"
+            sx={{ "&:focus": { outline: "none" } }}
+          >
+            Saved courses
+          </Typography>
+          <Typography color="text.secondary" sx={{ mt: 0.5 }}>
+            Only you can see this list. Saving a course does not register you.
+          </Typography>
+          {saved.length === 0 && (
+            <Typography sx={{ mt: 2 }}>
+              No saved courses.{" "}
+              <Link href="/" underline="always">
+                Browse courses
+              </Link>
+            </Typography>
+          )}
+          <Stack spacing={2} sx={{ mt: 2 }}>
+            {saved.map((course) => (
+              <Paper
+                key={course.id}
+                variant="outlined"
                 sx={{
-                  gap: 2,
-                  alignItems: "flex-start",
+                  p: { xs: 2, md: 2.5 },
+                  display: "flex",
+                  flexDirection: { xs: "column", sm: "row" },
+                  justifyContent: "space-between",
+                  alignItems: { sm: "center" },
+                  gap: 1.5,
                 }}
               >
-                <Typography>
-                  Your seat is reserved until{" "}
-                  {row.reserved_until
-                    ? new Date(row.reserved_until).toLocaleTimeString("en-US", {
-                        hour: "numeric",
-                        minute: "2-digit",
-                      })
-                    : "the checkout deadline"}
-                  .
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Try the payment-to-enrollment workflow with a simulated{" "}
-                  {money(row.quoted_price_cents ?? row.price_cents)} payment. No
-                  charge is made.
-                </Typography>
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography
+                    variant="subtitle1"
+                    component="h3"
+                    sx={{ fontWeight: 600 }}
+                  >
+                    <Link href={`/courses/${course.id}`}>{course.title}</Link>
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {courseSchedule(course)} · {money(course.price_cents)}
+                  </Typography>
+                </Box>
                 <Button
-                  variant="contained"
-                  aria-disabled={busy === row.id}
-                  onClick={() => act(row)}
-                  data-next-action
+                  variant="outlined"
+                  onClick={() => removeSaved(course)}
+                  aria-disabled={removing === course.id || undefined}
+                  aria-label={`Remove ${course.title} from saved courses`}
+                  sx={{
+                    alignSelf: { xs: "flex-start", sm: "center" },
+                    flexShrink: 0,
+                  }}
                 >
-                  {busy === row.id ? "Submitting…" : "Simulate payment"}
+                  {removing === course.id ? "Removing…" : "Remove"}
                 </Button>
-              </Stack>
-            )}
-            {["provisioning", "enrolled", "exception"].includes(row.status) && (
-              <>
-                <Stepper
-                  activeStep={
-                    row.status === "enrolled"
-                      ? 3
-                      : row.stage === "canvas"
-                        ? 2
-                        : 1
-                  }
-                  alternativeLabel
-                  sx={{ mb: 3 }}
-                >
-                  {[
-                    "Payment recorded",
-                    "Identity prepared",
-                    "Enrollment verified",
-                  ].map((label, index) => {
-                    // Mark the step that failed when provisioning needs staff review.
-                    const failed =
-                      row.status === "exception" &&
-                      index === (row.stage === "canvas" ? 2 : 1);
-                    return (
-                      <Step key={label}>
-                        <StepLabel
-                          error={failed}
-                          optional={
-                            failed ? (
-                              <Typography variant="caption" color="error">
-                                Needs staff review
-                              </Typography>
-                            ) : undefined
-                          }
-                        >
-                          {label}
-                        </StepLabel>
-                      </Step>
-                    );
-                  })}
-                </Stepper>
-                {row.status === "exception" ? (
-                  <Alert severity="warning" role="note">
-                    We couldn’t finish setting up your course access. Your
-                    simulated payment is recorded and staff have been asked to
-                    review it. You don’t need to pay again.
-                  </Alert>
-                ) : row.status === "provisioning" && (row.attempts ?? 0) > 0 ? (
-                  <Alert severity="info" role="note">
-                    Setting up access is taking longer than usual. The system is
-                    retrying automatically; no action is needed.
-                  </Alert>
-                ) : row.status === "enrolled" && row.canvas_course_url ? (
-                  <Stack sx={{ gap: 1.5, alignItems: "flex-start" }}>
-                    <Typography>
-                      Your Canvas account and course enrollment are ready.
-                    </Typography>
-                    <Button
-                      variant="contained"
-                      href={row.canvas_course_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      endIcon={<OpenInNewIcon />}
-                      aria-label={`Open ${row.title} in Canvas (opens in a new tab)`}
-                      data-next-action
-                    >
-                      Open course in Canvas
-                    </Button>
-                    <Typography variant="caption" color="text.secondary">
-                      Prototype link to a placeholder Canvas address.
-                    </Typography>
-                  </Stack>
-                ) : row.status === "enrolled" ? (
-                  <Alert severity="success" role="note">
-                    Your enrollment is complete. The course link will appear
-                    here when staff connect the Canvas course.
-                  </Alert>
-                ) : (
-                  <Alert severity="info" role="note">
-                    The local background worker is preparing your demo access.
-                    This page updates automatically.
-                  </Alert>
-                )}
-              </>
-            )}
-          </Paper>
-        ))}
-      </Stack>
+              </Paper>
+            ))}
+          </Stack>
+        </Box>
+      )}
       {/* Polite announcements for status changes that happen in the background. */}
       <Box
         role="status"

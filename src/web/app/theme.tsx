@@ -27,6 +27,9 @@ const theme = createTheme({
       palette: {
         primary: { main: "#9cc3df", contrastText: "#0d1b25" },
         secondary: { main: "#d8b75d" },
+        // MUI's default dark red (#f44336) is 4.4:1 on paper; this is 6.7:1 and
+        // keeps 7.3:1 with dark text on contained error buttons.
+        error: { main: "#f28b82", contrastText: "#0d1b25" },
         background: { default: "#0f171f", paper: "#17222c" },
         text: { primary: "#e6edf2", secondary: "#a9b6c1" },
         divider: "#2c3a46",
@@ -72,6 +75,17 @@ const theme = createTheme({
     MuiButton: { defaultProps: { disableElevation: true } },
     MuiPaper: { defaultProps: { elevation: 0 } },
     MuiTextField: { defaultProps: { size: "small" } },
+    // Helper text on a disabled field explains why it is locked, so it keeps
+    // readable contrast instead of MUI's faded disabled color.
+    MuiFormHelperText: {
+      styleOverrides: {
+        root: ({ theme }) => ({
+          "&.Mui-disabled": {
+            color: (theme.vars ?? theme).palette.text.secondary,
+          },
+        }),
+      },
+    },
     MuiChip: { defaultProps: { size: "small" } },
     MuiLink: { defaultProps: { underline: "hover" } },
   },

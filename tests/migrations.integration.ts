@@ -174,6 +174,7 @@ async function main() {
       )
     ).rows.map((row) => row.typname);
     assert.deepEqual(enums, [
+      "collection_kind",
       "course_type",
       "entitlement_status",
       "operation_status",

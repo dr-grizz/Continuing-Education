@@ -1,0 +1,97 @@
+name: CI
+# Checks every pull request against a throwaway PostgreSQL service with
+# synthetic data. Nothing here deploys or connects to external systems.
+# Skipped when every changed file is documentation; any code, test or config
+# change runs the full job. Run it by hand with "Run workflow" if needed.
+on:
+  pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+  push:
+    branches: [main, prototype-checkpoint]
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      db:
+        image: postgres:18.6-bookworm
+        env:
+          POSTGRES_USER: portal
+          POSTGRES_DB: continuing_education
+          # Throwaway service that exists only for this job; not a secret.
+          POSTGRES_PASSWORD: ci-only-password
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U portal -d continuing_education"
+          --health-interval 2s --health-timeout 3s --health-retries 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - name: Write the local environment
+        run: |
+          token() { openssl rand -hex 24; }
+          cat > .env <<ENV
+          PROTOTYPE_MODE=true
+          DATABASE_URL=postgresql://portal:ci-only-password@127.0.0.1:5433/continuing_education
+          POSTGRES_PASSWORD=ci-only-password
+          API_URL=http://127.0.0.1:3001
+          LEARNER_API_TOKEN=$(token)
+          STAFF_API_TOKEN=$(token)
+          AUTOMATION_API_TOKEN=$(token)
+          ENV
+          cp .env src/web/.env.local
+      - run: npm ci
+      - name: Format check
+        run: npm run format:check
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Migrate the database
+        run: npm run db:migrate
+      - name: Migration tests
+        run: npm run test:migrations
+      - name: Build
+        run: npm run build
+      - name: Start the API, worker and website
+        run: |
+          mkdir -p logs
+          nohup npm run dev:api > logs/api.log 2>&1 &
+          nohup npm run dev:worker > logs/worker.log 2>&1 &
+          nohup npm run start:web > logs/web.log 2>&1 &
+          for url in http://127.0.0.1:3001/api/docs http://127.0.0.1:3000/; do
+            for i in $(seq 1 60); do
+              curl -fsS -o /dev/null "$url" && break
+              [ "$i" = 60 ] && { echo "Timed out waiting for $url"; exit 1; }
+              sleep 2
+            done
+          done
+      - name: Integration tests
+        run: npm test
+      - name: Install the Playwright browser
+        run: npx playwright install --with-deps chromium
+      - name: Accessibility scans (axe)
+        run: npm run test:a11y
+      - name: Server logs
+        if: failure()
+        run: tail -n 100 logs/*.log || true
+      - name: Upload the accessibility report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7

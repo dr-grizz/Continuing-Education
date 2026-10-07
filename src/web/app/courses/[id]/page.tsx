@@ -17,6 +17,8 @@ import {
   Stack,
   Typography,
 } from "@mui/material";
+import BookmarkBorderIcon from "@mui/icons-material/BookmarkBorder";
+import BookmarkIcon from "@mui/icons-material/Bookmark";
 import {
   api,
   date,
@@ -79,7 +81,10 @@ export default function Course({
   const [course, setCourse] = useState<Offering>(),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
-    [registered, setRegistered] = useState<Learning>();
+    [registered, setRegistered] = useState<Learning>(),
+    [saved, setSaved] = useState(false),
+    [saving, setSaving] = useState(false),
+    [saveMessage, setSaveMessage] = useState("");
   const nextStep = useRef<HTMLAnchorElement>(null);
   // Keep keyboard focus after the registration button is replaced.
   useEffect(() => {
@@ -90,6 +95,40 @@ export default function Course({
       .then(setCourse)
       .catch((e) => setError(e.message));
   }, [id]);
+  // Saved courses are private to the signed-in learner and register nothing.
+  useEffect(() => {
+    if (!auth.email) {
+      setSaved(false);
+      return;
+    }
+    api<Offering[]>("me/saved-courses")
+      .then((list) => setSaved(list.some((o) => o.id === id)))
+      .catch(() => setSaved(false));
+  }, [auth.email, id]);
+  async function toggleSaved() {
+    if (!auth.email) {
+      router.push(`/sign-in?returnTo=${encodeURIComponent(`/courses/${id}`)}`);
+      return;
+    }
+    if (saving) return;
+    setSaving(true);
+    setSaveMessage("");
+    try {
+      const result = await api<{ saved: boolean }>(`me/saved-courses/${id}`, {
+        body: { saved: !saved },
+      });
+      setSaved(result.saved);
+      setSaveMessage(
+        result.saved
+          ? "Saved. Find it in My learning."
+          : "Removed from your saved courses.",
+      );
+    } catch (e) {
+      setSaveMessage((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
   async function register() {
     if (!auth.email) {
       router.push(`/sign-in?returnTo=${encodeURIComponent(`/courses/${id}`)}`);
@@ -234,6 +273,31 @@ export default function Course({
                         : "Sign in to register"}
               </Button>
             )}
+            <Box>
+              {/* Action labels rather than aria-pressed, so the name says what happens. */}
+              <Button
+                variant="outlined"
+                fullWidth
+                onClick={toggleSaved}
+                aria-disabled={saving || undefined}
+                startIcon={saved ? <BookmarkIcon /> : <BookmarkBorderIcon />}
+              >
+                {!auth.email
+                  ? "Sign in to save this course"
+                  : saved
+                    ? "Remove from saved courses"
+                    : "Save course"}
+              </Button>
+              {/* Present before any message so screen readers announce changes. */}
+              <Typography
+                variant="body2"
+                color="text.secondary"
+                aria-live="polite"
+                sx={{ mt: saveMessage ? 1 : 0 }}
+              >
+                {saveMessage}
+              </Typography>
+            </Box>
             <Typography variant="caption" color="text.secondary">
               No card details are requested. No payment is collected.
             </Typography>
@@ -256,6 +320,37 @@ export default function Course({
               </ListItem>
             ))}
           </List>
+          {!!course.collections?.length && (
+            <>
+              <Typography variant="h6" component="h2" sx={{ mt: 3 }}>
+                Part of
+              </Typography>
+              <Stack
+                component="ul"
+                direction="row"
+                sx={{
+                  flexWrap: "wrap",
+                  gap: 1,
+                  p: 0,
+                  m: 0,
+                  mt: 1,
+                  listStyle: "none",
+                }}
+              >
+                {course.collections.map((c) => (
+                  <li key={c.slug}>
+                    <Chip
+                      component="a"
+                      href={`/collections/${c.slug}`}
+                      clickable
+                      variant="outlined"
+                      label={`${c.title}${c.kind === "pathway" ? " pathway" : ""}`}
+                    />
+                  </li>
+                ))}
+              </Stack>
+            </>
+          )}
           <Divider sx={{ my: 3 }} />
           <Typography variant="h6" component="h2">
             Before you register

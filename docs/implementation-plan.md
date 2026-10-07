@@ -27,7 +27,7 @@ Decided October 6, 2026, and implemented in the prototype (migration `005_enroll
 | Approval validity | An approval lasts one week; staff can change the period | `approval_valid_days` (default 7, range 1–365). Approval sets `approval_expires_at`. Unused approvals lapse to `approval_expired` (worker, audited `approval.expired`). A still-valid approval survives an expired seat reservation. A changed period applies to new approvals only |
 | Enrollment window | Scheduled courses close enrollment one week after the start date; staff can change the window | `enrollment_close_days` (default 7, range 0–365). Registration, approval requests and seat renewals are refused after the start date plus that many days. Registrations already in progress are unaffected. Self-paced courses never close |
 | Repeat requests | Declined learners may request approval again | Re-registering after a decline (or a lapsed approval) creates a new approval request (audited `approval.requested_again`) |
-| Course launch | Learners get a link to the Canvas course once their Canvas account and enrollment exist | `canvas_course_url` (optional HTTPS). Shown as **Open course in Canvas** only after enrollment completes; returned by the API only for enrolled registrations. Sample offerings use `canvas.example.edu` placeholders, and real course mappings await Canvas integration (M4) |
+| Course launch | Learners get a link to the Canvas course once their Canvas account and enrollment exist | `canvas_course_url` (optional HTTPS). Shown as **Open course in Canvas** only after enrollment completes; returned by the API only for enrolled registrations. Sample offerings use `canvas.example.edu` placeholders, which open a "not connected yet" dialog instead of a new tab; real course mappings await Canvas integration (M4) and need no code change |
 
 ### Known prototype gaps
 
@@ -39,7 +39,7 @@ Resolved October 5, 2026: My learning no longer loses keyboard focus (focus move
 
 | Gap | Current behavior | Needed | Milestone |
 | --- | --- | --- | --- |
-| Accessibility evidence | Keyboard, focus, contrast and 320–375px reflow are checked. No automated scan, screen-reader session, forced-colors, 200–400% zoom or cross-browser review has been recorded | Complete the README checklist for catalog, sign-in, registration, learner status and staff dialogs/tables; record findings | M1 exit; release gate |
+| Accessibility evidence | Keyboard, focus, contrast and 320–375px reflow are checked. Automated axe scans of the key pages and staff dialogs run in CI (October 7, 2026). No screen-reader session, forced-colors, 200–400% zoom or cross-browser review has been recorded | Complete the README checklist for catalog, sign-in, registration, learner status and staff dialogs/tables; record findings | M1 exit; release gate |
 | Pending and declined learner messages | API behavior is verified; the browser view as the affected learner is not | Review both states in the browser as the learner | M2 |
 | Catalog and staff paging | The API returns up to 100 offerings and 200 audit events; the catalog has no pagination; staff sorting and paging are client-side within those limits | Server-side search, sort and paging before catalog or audit volume approaches the limits | M2 |
 | Brand baseline | Figtree, a free font similar to Proxima Nova (the cedarville.edu font), is used; colors are provisional and copy is unreviewed | Cedarville Marketing to approve Figtree as the substitute or supply a licensed brand font; approve colors, logo use and content | M1 exit |
@@ -154,6 +154,7 @@ The dashboards:
   - Can a pathway have a bundled price? If so, it becomes a "bundle", which the first release defers.
   - Does completing a pathway earn a certificate? The plan says not to invent a certificate issuer.
 - **Dependencies:** progress needs authoritative completion data (R2), not just enrollment. Pathways that include Scheduled courses must handle cohorts that no longer run.
+- **Prototype (October 7, 2026):** pathways are collections of kind `pathway` with an ordered course list. Staff with `catalog:write` create drafts, reorder courses and publish; a published pathway needs at least two published courses. Learners follow a pathway from its public page (`/collections/{slug}`) and see it in My learning with each course's registration status. Following is free and registers nothing, and the order is a recommendation; both are F4 assumptions pending confirmation. There is no progress or completion until the Canvas connection (F11), no bundled pricing and no certificate.
 
 ### Collections
 
@@ -162,9 +163,16 @@ The dashboards:
   - **Collections are created by staff only**, through a reviewed publish workflow like offerings.
   - Learners get a separate, private **Saved courses** list (favorites or wishlist), not learner-created collections. Calling both "collections" would confuse people. Private lists avoid moderation and privacy work.
   - Shareable learner-created lists can be reconsidered later.
+- **Prototype (October 7, 2026):** built as recommended. Staff-curated collections (draft, publish, unpublish, audited) appear as a catalog **Collection** filter, a public page and "Part of" links on course pages; unpublished courses in a collection stay hidden from learners. Learners save courses privately from the course page and manage them in My learning. Sample data: Christian Leadership, Technology at Work and the Data-Informed Leader pathway.
 - **ACSI:** if a collection reflects a partner or credential, such as ACSI professional development, confirm whether it implies eligibility rules, partner pricing or reporting obligations (F5). If it does, it is more than a display grouping.
 
-### Memberships
+### Explore landing tab
+
+- **What:** the catalog opens on an **Explore** tab beside the complete **Courses**, **Collections** and **Pathways** tabs. It features up to 5 courses first, then 3 pathways and 3 collections Personal next steps live in My learning instead: enrolled courses (Enrolled courses) above registrations in progress, and a **Next** marker on each followed pathway.
+- **Selection:** staff with `catalog:write` choose and order the picks on **Staff → Explore page**, saved as one audited change. Empty spots fill automatically (open scheduled courses by soonest start, then the newest self-paced courses; newest collections and pathways). Only published items can be picked, and unpublishing removes a pick. Popularity ranking was rejected: with little data it is noise, and it keeps the same items on top.
+- **Prototype (October 7, 2026):** built as above. A For you section on Explore was tried and removed at review; its next-step marker moved to My learning. The former hard-coded three-course spotlight was replaced; its picks were carried over as the first featured courses.
+- **Open:** whether Marketing or the Content editor role (F2) should own the picks; the pathway **Next** marker switches to completion-based progress after the Canvas connection (F11).
+
 
 - **What:** a monthly or yearly fee that gives continuing access.
 - **Decisions (F6):**
@@ -240,6 +248,7 @@ This is a deliberate design recommendation: a complete component system reduces 
 | Dashboards (requested) | Enrollment and sales trends, filters, table alternatives to charts | Cards, Table, date inputs; MUI X Charts (Community) only with an ADR |
 | Sales page editor (requested) | Structured blocks, preview, publish, version history | Forms, Dialog, Stepper or Tabs; no free-form HTML |
 | Pathways and collections (requested) | Ordered or curated course lists, follow and progress, saved courses | List, Card, Chip, Stepper (pathway progress) |
+| Explore tab (built in the prototype) | Staff-picked courses, pathways and collections with automatic fill | Tabs, Card |
 | Coupons (requested) | Code rules, limits, usage | Table, forms, Dialog |
 | Bulk enrollment (requested) | CSV upload, per-row validation report, job progress | File input, Table, Alert, progress indicator |
 | Exports (requested) | Dataset and field selection, audit notice, download | Forms, Alert, Button |
@@ -838,7 +847,7 @@ Exit: mocks and isolated environments permit development; every production block
 
 ### M1 — Foundation and interface baseline
 
-Create the application, migrations, environment separation, server authorization, shared MUI theme and CI for lint/type/build checks. Select a maintained authentication solution supporting approved email challenge, passkeys and university SSO; staff always use SSO/MFA. Implement record-level isolation and audit logging from the first staff write.
+Create the application, migrations, environment separation, server authorization, shared MUI theme and CI for lint/type/build checks (prototype CI added October 7, 2026: format, typecheck, build, migration, integration and accessibility checks on every pull request). Select a maintained authentication solution supporting approved email challenge, passkeys and university SSO; staff always use SSO/MFA. Implement record-level isolation and audit logging from the first staff write.
 
 Deliver the four representative screens above with mock data, sign-in/linking spike and seeded offerings. Pin dependency versions after compatibility checks.
 

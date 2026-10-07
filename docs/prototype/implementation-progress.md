@@ -6,16 +6,16 @@ The prototype now covers the full simulated registration lifecycle: catalog, ind
 
 ## Current implementation
 
-| Area         | Current behavior                                                                                                                                                                                          | Remaining boundary                                                                                                                                    |
-| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Website      | Next.js and Material UI; light and dark themes, phone layouts, sortable and paged staff tables, Figtree font                                                                                              | Final institutional design, brand approval of the font, screen-reader and cross-browser review                                                        |
-| Database     | PostgreSQL in Docker; Prisma 7.10 schema and six migrations (`0_baseline` to `5_content_editor_demo`), with enums, checks and an append-only price-history trigger                                        | Production hosting, backup and retention decisions                                                                                                    |
-| Learners     | One learner per normalized email; registrations persist; Support can deactivate and reactivate access                                                                                                     | Mock sign-in does not prove email ownership; no real authentication                                                                                   |
-| Registration | Enrollment windows, approvals that expire (default 7 days), repeat requests after a decline or lapse, quoted prices                                                                                       | Production capacity, tax and refund policies                                                                                                          |
-| Payments     | Explicit simulated payment command and synthetic orders                                                                                                                                                   | No Stripe connection or real financial transaction                                                                                                    |
-| Enrollment   | Worker simulates identity preparation and Canvas enrollment, with injected delays and failures, bounded retries and an exceptions queue                                                                   | No university identity or Canvas connection; Canvas links are placeholders                                                                            |
-| Staff        | Role-based mock sign-in (seven roles, seven demo members on `cuce.test`); offering create, edit, publish and unpublish; approvals; exceptions; activity; Learners, Staff and Roles tabs; sample dashboard | Staff SSO and MFA are a later add-on ([ADR 0004](../adr/0004-staff-roles-mock-sign-in.md)); sales figures are simulated; completion data needs Canvas |
-| Automation   | REST API under `/api/v1`, OpenAPI, scoped local tokens, idempotent commands and operation status                                                                                                          | Production service accounts, OAuth and outbound notifications                                                                                         |
+| Area         | Current behavior                                                                                                                                                                                                                            | Remaining boundary                                                                                                                                    |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Website      | Next.js and Material UI; light and dark themes, phone layouts, sortable and paged staff tables, Figtree font                                                                                                                                | Final institutional design, brand approval of the font, screen-reader and cross-browser review                                                        |
+| Database     | PostgreSQL in Docker; Prisma 7.10 schema and eight migrations (`0_baseline` to `7_featured_explore`), with enums, checks and an append-only price-history trigger                                                                           | Production hosting, backup and retention decisions                                                                                                    |
+| Learners     | One learner per normalized email; registrations persist; private saved courses and followed pathways; Support can deactivate and reactivate access                                                                                          | Mock sign-in does not prove email ownership; no real authentication                                                                                   |
+| Registration | Enrollment windows, approvals that expire (default 7 days), repeat requests after a decline or lapse, quoted prices                                                                                                                         | Production capacity, tax and refund policies                                                                                                          |
+| Payments     | Explicit simulated payment command and synthetic orders                                                                                                                                                                                     | No Stripe connection or real financial transaction                                                                                                    |
+| Enrollment   | Worker simulates identity preparation and Canvas enrollment, with injected delays and failures, bounded retries and an exceptions queue                                                                                                     | No university identity or Canvas connection; Canvas links are placeholders                                                                            |
+| Staff        | Role-based mock sign-in (seven roles, seven demo members on `cuce.test`); offering create, edit, publish and unpublish; curated collections and pathways; approvals; exceptions; activity; Learners, Staff and Roles tabs; sample dashboard | Staff SSO and MFA are a later add-on ([ADR 0004](../adr/0004-staff-roles-mock-sign-in.md)); sales figures are simulated; completion data needs Canvas |
+| Automation   | REST API under `/api/v1`, OpenAPI, scoped local tokens, idempotent commands and operation status                                                                                                                                            | Production service accounts, OAuth and outbound notifications                                                                                         |
 
 Local website: `http://127.0.0.1:3000/`. API documentation: `http://localhost:3001/api/docs`. PostgreSQL uses loopback port `5433`. Setup instructions are in the [README](../../README.md).
 
@@ -50,6 +50,9 @@ Local website: `http://127.0.0.1:3000/`. API documentation: `http://localhost:30
 - [x] Distinguish Scheduled courses with dates from Self-paced courses that show Start anytime.
 - [x] Add light and dark themes, phone layouts, loading placeholders and brief confirmations.
 - [x] Add sortable, searchable, paged staff tables with card layouts on phones.
+- [x] Add staff-curated collections and pathways: a catalog Collection filter, public collection and pathway pages, and "Part of" links on course pages.
+- [x] Let learners save courses privately and follow pathways, both shown in My learning; neither registers or charges.
+- [x] Open the catalog on an Explore tab (staff-picked courses, pathways and collections with automatic fill), beside Courses, Collections and Pathways tabs; group My learning into Enrolled courses and Registrations.
 
 ### Learners and registration
 
@@ -85,15 +88,16 @@ Local website: `http://127.0.0.1:3000/`. API documentation: `http://localhost:30
 - [x] Keep busy buttons focusable, move focus to the next action, and announce background changes politely.
 - [x] Move focus to error summaries, including after server failures.
 - [x] Check affected workflows from the keyboard, at phone width and in dark mode after each change.
-- [x] Maintain 18 API integration groups covering scopes, concurrency, idempotency, policies, failures, roles, learners and the dashboard.
+- [x] Maintain 20 API integration groups covering scopes, concurrency, idempotency, policies, failures, roles, learners, the dashboard, collections and pathways, and Explore.
+- [x] Run axe scans (WCAG 2.2 A and AA) of 28 pages, tabs and dialogs in light, dark and phone layouts, and run every check in CI on each pull request.
 
 ## Recommended next prototype tasks
 
 Complete these using synthetic data and local services before moving to external integrations.
 
-1. [ ] Add CI for type checks, build, migration tests and integration tests with an isolated database.
-2. [ ] Add automated accessibility scans (axe) for the catalog, sign-in, My learning and staff workspace, then a manual screen-reader review of sign-in, registration, status changes, staff forms, dialogs and tables.
-3. [ ] Build staff-curated collections, private saved courses and pathway browsing (decisions F3 and F4).
+1. [x] Add CI for format, type checks, build, migration tests and integration tests with an isolated database. Added October 7, 2026.
+2. [ ] Add automated accessibility scans (axe) for the key pages and dialogs, then a manual screen-reader review of sign-in, registration, status changes, staff forms, dialogs and tables. The scans were added October 7, 2026; the screen-reader review is still pending.
+3. [x] Build staff-curated collections, private saved courses and pathway browsing (decisions F3 and F4). Built October 7, 2026, on the recommended F3 answer and proposed F4 assumptions.
 4. [ ] Add automated checks for reservation expiry and renewal and for worker restart. A manual crash/restart drill passed on October 5 and 6, 2026.
 5. [ ] Test zoom, forced colors, error announcements and cross-browser behavior; record unresolved findings before accepting the UI baseline.
 6. [ ] Improve the learner profile if needed; email is the only identity attribute and there is no profile screen.
@@ -142,11 +146,11 @@ This is a separate project workstream, conditional on replacing an existing cour
 
 ## Verification evidence
 
-As of October 7, 2026: `npm run typecheck`, the production build, Prettier, the integration suite (18/18) and the migration suite (9/9) pass. Every migration of the main database was preceded by a backup and checked row for row or by tests. Worker crash drills (`kill -9` during a delayed job) completed each job exactly once.
+As of October 7, 2026: `npm run typecheck`, the production build, Prettier, the integration suite (20/20), the migration suite (9/9) and the accessibility scans (84/84) pass. Every migration of the main database was preceded by a backup and checked row for row or by tests. Worker crash drills (`kill -9` during a delayed job) completed each job exactly once.
 
 Browser checks after each change used synthetic learners and demo staff, from the keyboard, at phone width and in dark mode; the dated record lists them. These checks do not establish real authentication security.
 
-Automated accessibility scanning, a real screen-reader session, forced colors and cross-browser checks remain outstanding. No real payments, university identity changes, Canvas enrollments or production deployment were performed.
+A real screen-reader session, forced colors and cross-browser checks remain outstanding. No real payments, university identity changes, Canvas enrollments or production deployment were performed.
 
 | Evidence                              | Location                                                                                   |
 | ------------------------------------- | ------------------------------------------------------------------------------------------ |
@@ -162,6 +166,108 @@ Automated accessibility scanning, a real screen-reader session, forced colors an
 | UI asset attribution                  | [Image credits](image-credits.md) and [logo source](../../src/web/public/brand/SOURCE.txt) |
 
 ## Latest implementation record
+
+October 7, 2026: cleaned test data out of the local database, and made the test suites clean up after themselves.
+
+- **Removed (after a backup in `backups/`):**
+  - Test learners: `verify-a`/`verify-b` (October 1 verification), `portal-demo-a`/`b` (October 1 browser checks), `smoke-prisma` (October 6) and `a11y-scan`.
+  - The two "Verify …" courses, with their 11 registrations, orders, jobs and price history.
+  - Audit entries left by tests and walkthroughs: simulation switches, the October 6 backdating and the temporary unpublish/republish.
+  - Idempotency records of removed or retired actors.
+- **Kept:** seed data (legacy sample learner, six sample courses, seven demo staff, three collections) and the registration of the learner who signed in on October 5. The database now holds 2 learners, 3 registrations, 12 audit entries and 6 command records.
+- **Test fixes:**
+  - The integration suite now also removes the simulation-switch audit entries it creates and any commands made as its test learners (one helper's idempotency keys were not tracked).
+  - The accessibility scans gained a teardown that removes the `a11y-scan` learner and its records.
+  - Verified: record counts are identical before and after each suite.
+
+October 7, 2026: in My learning, the **Available to you** section is renamed **Enrolled courses**, without the description line under the heading.
+
+October 7, 2026: placeholder Canvas links open an explanation instead of a dead page. **Open course in Canvas** checks the offering's Canvas address. Reserved example and test domains (the sample `canvas.example.edu` addresses) open a "Canvas course not connected yet" dialog showing the placeholder; real addresses still open in a new tab. Replacing the address on the offering is all that is needed later. Checked from the keyboard (the dialog opens for the right course; Escape closes it and focus returns to the button), and a new accessibility scan enrolls its synthetic learner through the normal flow and scans the dialog.
+
+October 7, 2026: enrolled courses in My learning show no progress steps, and courses with a Canvas link are listed first under Available to you, then ready now, then upcoming. Checked in the browser with a synthetic learner who has three linked and two unlinked enrolled courses.
+
+October 7, 2026: My learning grouped, and For you removed from the catalog (branch `curation`).
+
+- **My learning:** registrations are split into **Available to you** (enrolled courses, ready now first, then upcoming by start date) and **Registrations** (everything in progress, with declined and expired requests last), above Pathways you follow and Saved courses. Followed pathways mark the **Next** course: the first not registered, or whose request expired, lapsed or was declined.
+- **Focus:** when the worker enrolls a course, its card moves between groups. If focus was inside it, focus now follows the card to Open course in Canvas instead of dropping to the page.
+- **Catalog:** the For you section was removed from Explore. Its pathway next-step moved to My learning, which is now the signed-in landing page.
+- **Verification:**
+  - In the browser, as a synthetic learner with an enrolled course, a reservation, an approval request and a followed pathway: the grouping and order; the Next chip; and paying from the keyboard, where after the worker enrolled the course the card moved to Available to you with focus on its Canvas link and the change announced.
+  - Accessibility scans pass, with the former For you scan replaced by My learning with a followed pathway and a saved course.
+  - The walkthrough learner was removed afterwards.
+
+October 7, 2026: global list/grid layout and My learning as the signed-in landing page (branch `curation`).
+
+- **Layout toggle:** List/Grid moved from the Courses results header to the catalog tab row, so it applies to Explore, Courses, Collections and Pathways; it is still remembered in the browser. Collection and pathway cards gained a list layout, with details and the View button in a side column from `sm` up.
+- **Landing:**
+  - Signing in without a return page now goes to **My learning**, not the catalog.
+  - A signed-in learner who opens the bare home page from outside the site is sent to My learning. This happens only on a fresh visit (not a reload or back/forward), at most once per page load. In-site links such as **Courses**, and links to a tab or filter, still open the catalog.
+- **Pathway cards:** no longer list their courses; the pathway page shows them in order. The unused course titles were dropped from `GET /collections`.
+- **Fix:** a signed-in visit to a tab link such as `/?tab=explore` was redirected to My learning. The page tidies `?tab=explore` to `/` before the session is known, so the check now uses the address the page first loaded with. The accessibility scan of For you caught this.
+- **Fix:** sign-in now also returns to collection and pathway pages. Before, **Sign in to follow this pathway** dropped the learner on the home page, because only course pages and My learning were accepted.
+- **Verification:** in the browser:
+  - list layout on Explore and the Pathways tab
+  - form sign-in landing on My learning
+  - a fresh visit to `/` redirecting
+  - the header Courses link, a `?tab=` link and a reload of `/` all showing the catalog
+
+  Typecheck, the build and the accessibility scans pass; the Explore scan now opens `/?tab=explore`, since `/` redirects signed-in learners.
+
+October 7, 2026: Explore landing tab with a personalized For you section (branch `curation`).
+
+- **Catalog tabs:** the catalog now opens on **Explore**, beside complete **Courses**, **Collections** and **Pathways** tabs. The tab is kept in the URL, and empty tabs are hidden. Counts are hidden on phones so all four tabs fit at 375px. The Collection dropdown filter was removed; older `?collection=` links open the Courses tab with an "In: …" chip and a named Remove button.
+- **Explore:** featured courses (up to 5) first, then pathways (up to 3) and collections (up to 3), in the same order on the staff tab, each with "See all" buttons that select the matching tab and move focus to it. The hard-coded three-course spotlight was replaced, and its picks were carried over as the first featured courses.
+- **For you (signed-in learners):** the next course that is not registered in each followed pathway ("step N of M"), a note when registrations need action, and up to three saved courses. It uses registration status only; there is no completion data before Canvas.
+- **Database:** migration `7_featured_explore` adds `featured_rank` to offerings (1–5) and collections (1–3 per kind), with checks, seeded from the former spotlight and the sample collections. Unpublishing clears it. The main database was backed up first.
+- **API:** public `GET /explore` (staff picks in order, then automatic fill: open scheduled courses by soonest start, then the newest self-paced; newest collections and pathways). `GET /staff/explore` (`staff:read`) and `POST /staff/explore` (`catalog:write`, published items only, kind-checked, limits enforced, one audited `explore.updated` change). `GET /collections` now includes topics and the price range.
+- **Staff:** an **Explore page** tab with three ordered lists. The ordering editor from the collection dialog was extracted into a shared `OrderedListEditor`. Its add select now stays enabled when full, because disabling it while focused dropped focus to the page; the menu then says "Limit of N reached".
+- **Accessibility fixes found during the work:**
+  - The scans flagged an inline link distinguished only by color; links inside sentences are now always underlined, including three in states the scans do not reach.
+  - The deletable filter chip was replaced with a named button, because MUI chips delete only with Backspace or Delete.
+- **Verification:**
+  - Integration suite 20/20. The new group covers the scope check, unpublished and wrong-kind picks, limits, pick order and fill, unpublishing removing a pick, and audit. It restores the site's picks afterwards.
+  - Migration tests 9/9 with no drift.
+  - Accessibility scans 84/84, adding the Courses, Collections and Pathways tabs, Explore with For you, and the Explore page staff tab.
+  - In the browser:
+    - Explore signed out and signed in; registering step 1 advanced For you to step 2 and showed the action note.
+    - Keyboard tab switching with the URL updated; "See all" focus moving to its tab; a legacy collection link.
+    - As the catalog manager: filling featured courses to the limit with focus kept, saving, and the public order. The original picks were restored afterwards.
+    - Phone width with no overflow.
+  - The walkthrough learner and their registration were removed afterwards.
+
+October 7, 2026: staff-curated collections, pathways and private saved courses (branch `curation`, decisions F3 and F4).
+
+- **Assumptions, recorded as proposed in the decision register:** collections are staff-curated, and learners get a private Saved courses list (the F3 recommendation). Following a pathway is free and registers nothing, and the course order is a recommendation, not a prerequisite (F4). Bundled pricing, certificates and pathway progress are not built; progress waits for Canvas completion data (F11).
+- **Database:** migration `6_collections_pathways` adds the `collection_kind` enum, `collections` (slug, title and summary checks; version), ordered `collection_items`, `saved_courses` and `pathway_follows`, all cascading with their parents. It seeds the synthetic Christian Leadership and Technology at Work collections and the Data-Informed Leader pathway from existing sample offerings. The main database was backed up first.
+- **API:**
+  - Public `GET /collections` and `GET /collections/{slug}` (published collections and published courses only), a `collection` filter on `GET /offerings`, and `collections` on the course detail.
+  - Learner `GET`/`POST /me/saved-courses[/{offeringId}]` and `GET`/`POST /me/pathways[/{id}]` (idempotent commands; following checks the kind and publication).
+  - Staff `GET /staff/collections` (`staff:read`, with follower counts), and `POST /collections`, `/collections/{id}/edit`, `/publish` and `/unpublish` (`catalog:write`, version-checked, audited). A published collection needs one published course; a pathway needs two.
+- **UI:**
+  - Catalog: a **Collection** filter kept in the URL, with the collection's summary and a link to its page.
+  - New `/collections/{slug}` page: pathways list courses in recommended order with **Follow pathway**.
+  - Course page: **Save course** and **Part of** links.
+  - My learning: **Registrations**, **Pathways you follow** (with each course's registration status) and **Saved courses** sections.
+  - Staff: a **Collections** tab with a dialog for type, title, address, summary and ordered courses (keyboard move up/down/remove with focus management and announcements), publish, and an unpublish confirmation. View-only for staff without `catalog:write`.
+  - Save and follow buttons use action labels ("Remove from saved courses", "Stop following") rather than `aria-pressed`, so the accessible name says what happens.
+- **Verification:**
+  - A new integration group (19/19) covers the scope check, slug validation and uniqueness, publish minimums, order, hidden unpublished courses, the catalog filter, private saved lists, follow restrictions, "registers nothing", follower counts, unpublishing and audit actors. Migration tests 9/9 with no drift.
+  - Accessibility scans 69/69, adding the filtered catalog, the pathway page, the Collections tab and the New and Edit collection dialogs.
+  - In the browser, from the keyboard, as a synthetic learner: the URL-restored filter; following a pathway (focus stays, polite confirmation); saving from a course page; removing the only saved course in My learning (focus moves to the section heading, with an announcement and the empty message).
+  - As the catalog manager: the dialog's error summary and links, choosing the type, adding courses, moving a course to the top (focus switches to Move down), removing a course (focus moves to the neighbour), saving a draft, and the server's refusal to publish with one published course.
+  - As the approver at 375px: view-only cards with no overflow.
+  - The walkthrough pathway and learner were removed afterwards.
+- **Not covered:** screen-reader review of the new reorder controls and toggles, and the remaining gaps listed above.
+
+October 7, 2026: continuous integration and automated accessibility scans (branch `ci`).
+
+- **CI:** `.github/workflows/ci.yml` runs on every pull request and on pushes to `main` and `prototype-checkpoint`. It uses a throwaway PostgreSQL 18 service and generated tokens, then runs the format check, typecheck, migrations, migration tests (9), the production build, the integration suite (18) with the API, worker and built website started, and the accessibility scans. It never deploys or connects to external systems.
+- **Accessibility scans:** `npm run test:a11y` runs axe through Playwright (pinned `@playwright/test` 1.63.0 and `@axe-core/playwright` 4.13.0) with the WCAG 2.2 A and AA rules. It covers the catalog, sign-in, course detail, My learning, staff sign-in, all eight staff tabs and five staff dialogs (New offering, Edit offering, Unpublish, Learner details, Add staff member), in light, dark and phone layouts: 54 scans.
+- **Fixes from the first scan:**
+  - In dark mode, red text buttons (Unpublish) had 4.4:1 contrast on the paper surface. The dark theme's error color is now `#f28b82` (6.7:1; 7.3:1 with dark text on filled error buttons).
+  - Helper text on disabled fields ("Locked after publishing.") was faded below 4.5:1. It now keeps the secondary text color, because it explains why the field is locked.
+- **Verification:** all 54 scans pass against the dev server and against a production build served by `next start`. The integration suite passes 18/18. The workflow will first run on GitHub when this branch's pull request opens.
+- **Not covered:** scans see only the page states listed above, not every error state, and catch only part of WCAG. The manual screen-reader review, forced colors, zoom and cross-browser checks are still pending.
 
 October 7, 2026: requested feature additions and the Content editor role (branch `content-editor`).
 
