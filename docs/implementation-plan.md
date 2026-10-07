@@ -39,7 +39,7 @@ Resolved October 5, 2026: My learning no longer loses keyboard focus (focus move
 
 | Gap | Current behavior | Needed | Milestone |
 | --- | --- | --- | --- |
-| Accessibility evidence | Keyboard, focus, contrast and 320–375px reflow are checked. No automated scan, screen-reader session, forced-colors, 200–400% zoom or cross-browser review has been recorded | Complete the README checklist for catalog, sign-in, registration, learner status and staff dialogs/tables; record findings | M1 exit; release gate |
+| Accessibility evidence | Keyboard, focus, contrast and 320–375px reflow are checked. Automated axe scans of the key pages and staff dialogs run in CI (October 7, 2026). No screen-reader session, forced-colors, 200–400% zoom or cross-browser review has been recorded | Complete the README checklist for catalog, sign-in, registration, learner status and staff dialogs/tables; record findings | M1 exit; release gate |
 | Pending and declined learner messages | API behavior is verified; the browser view as the affected learner is not | Review both states in the browser as the learner | M2 |
 | Catalog and staff paging | The API returns up to 100 offerings and 200 audit events; the catalog has no pagination; staff sorting and paging are client-side within those limits | Server-side search, sort and paging before catalog or audit volume approaches the limits | M2 |
 | Brand baseline | Figtree, a free font similar to Proxima Nova (the cedarville.edu font), is used; colors are provisional and copy is unreviewed | Cedarville Marketing to approve Figtree as the substitute or supply a licensed brand font; approve colors, logo use and content | M1 exit |
@@ -838,7 +838,7 @@ Exit: mocks and isolated environments permit development; every production block
 
 ### M1 — Foundation and interface baseline
 
-Create the application, migrations, environment separation, server authorization, shared MUI theme and CI for lint/type/build checks. Select a maintained authentication solution supporting approved email challenge, passkeys and university SSO; staff always use SSO/MFA. Implement record-level isolation and audit logging from the first staff write.
+Create the application, migrations, environment separation, server authorization, shared MUI theme and CI for lint/type/build checks (prototype CI added October 7, 2026: format, typecheck, build, migration, integration and accessibility checks on every pull request). Select a maintained authentication solution supporting approved email challenge, passkeys and university SSO; staff always use SSO/MFA. Implement record-level isolation and audit logging from the first staff write.
 
 Deliver the four representative screens above with mock data, sign-in/linking spike and seeded offerings. Pin dependency versions after compatibility checks.
 

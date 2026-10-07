@@ -86,13 +86,14 @@ Local website: `http://127.0.0.1:3000/`. API documentation: `http://localhost:30
 - [x] Move focus to error summaries, including after server failures.
 - [x] Check affected workflows from the keyboard, at phone width and in dark mode after each change.
 - [x] Maintain 18 API integration groups covering scopes, concurrency, idempotency, policies, failures, roles, learners and the dashboard.
+- [x] Run axe scans (WCAG 2.2 A and AA) of 18 pages, tabs and dialogs in light, dark and phone layouts, and run every check in CI on each pull request.
 
 ## Recommended next prototype tasks
 
 Complete these using synthetic data and local services before moving to external integrations.
 
-1. [ ] Add CI for type checks, build, migration tests and integration tests with an isolated database.
-2. [ ] Add automated accessibility scans (axe) for the catalog, sign-in, My learning and staff workspace, then a manual screen-reader review of sign-in, registration, status changes, staff forms, dialogs and tables.
+1. [x] Add CI for format, type checks, build, migration tests and integration tests with an isolated database. Added October 7, 2026.
+2. [ ] Add automated accessibility scans (axe) for the key pages and dialogs, then a manual screen-reader review of sign-in, registration, status changes, staff forms, dialogs and tables. The scans were added October 7, 2026; the screen-reader review is still pending.
 3. [ ] Build staff-curated collections, private saved courses and pathway browsing (decisions F3 and F4).
 4. [ ] Add automated checks for reservation expiry and renewal and for worker restart. A manual crash/restart drill passed on October 5 and 6, 2026.
 5. [ ] Test zoom, forced colors, error announcements and cross-browser behavior; record unresolved findings before accepting the UI baseline.
@@ -146,7 +147,7 @@ As of October 7, 2026: `npm run typecheck`, the production build, Prettier, the 
 
 Browser checks after each change used synthetic learners and demo staff, from the keyboard, at phone width and in dark mode; the dated record lists them. These checks do not establish real authentication security.
 
-Automated accessibility scanning, a real screen-reader session, forced colors and cross-browser checks remain outstanding. No real payments, university identity changes, Canvas enrollments or production deployment were performed.
+A real screen-reader session, forced colors and cross-browser checks remain outstanding. No real payments, university identity changes, Canvas enrollments or production deployment were performed.
 
 | Evidence                              | Location                                                                                   |
 | ------------------------------------- | ------------------------------------------------------------------------------------------ |
@@ -162,6 +163,15 @@ Automated accessibility scanning, a real screen-reader session, forced colors an
 | UI asset attribution                  | [Image credits](image-credits.md) and [logo source](../../src/web/public/brand/SOURCE.txt) |
 
 ## Latest implementation record
+
+October 7, 2026: continuous integration and automated accessibility scans (branch `ci`).
+- **CI:** `.github/workflows/ci.yml` runs on every pull request and on pushes to `main` and `prototype-checkpoint`. It uses a throwaway PostgreSQL 18 service and generated tokens, then runs the format check, typecheck, migrations, migration tests (9), the production build, the integration suite (18) with the API, worker and built website started, and the accessibility scans. It never deploys or connects to external systems.
+- **Accessibility scans:** `npm run test:a11y` runs axe through Playwright (pinned `@playwright/test` 1.63.0 and `@axe-core/playwright` 4.13.0) with the WCAG 2.2 A and AA rules. It covers the catalog, sign-in, course detail, My learning, staff sign-in, all eight staff tabs and five staff dialogs (New offering, Edit offering, Unpublish, Learner details, Add staff member), in light, dark and phone layouts: 54 scans.
+- **Fixes from the first scan:**
+  - In dark mode, red text buttons (Unpublish) had 4.4:1 contrast on the paper surface. The dark theme's error color is now `#f28b82` (6.7:1; 7.3:1 with dark text on filled error buttons).
+  - Helper text on disabled fields ("Locked after publishing.") was faded below 4.5:1. It now keeps the secondary text color, because it explains why the field is locked.
+- **Verification:** all 54 scans pass against the dev server and against a production build served by `next start`. The integration suite passes 18/18. The workflow will first run on GitHub when this branch's pull request opens.
+- **Not covered:** scans see only the page states listed above, not every error state, and catch only part of WCAG. The manual screen-reader review, forced colors, zoom and cross-browser checks are still pending.
 
 October 7, 2026: requested feature additions and the Content editor role (branch `content-editor`).
 

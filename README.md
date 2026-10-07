@@ -110,11 +110,17 @@ Public catalog requests need no token. The read-only automation token cannot cre
 ## Verify
 
 ```sh
+npm run format:check
 npm run typecheck
 npm run build
 npm test
 npm run test:migrations
+npm run test:a11y
 ```
+
+`npm run test:a11y` runs axe (WCAG 2.2 A and AA rules) with Playwright against the catalog, sign-in, course detail, My learning, the staff sign-in screen, every staff tab and the main staff dialogs, in light, dark and phone layouts. Run `npx playwright install chromium` once first. Scans catch only part of WCAG; they do not replace the keyboard and screen-reader review in the checklist below.
+
+**Continuous integration:** `.github/workflows/ci.yml` runs all of the above on every pull request, against a throwaway PostgreSQL service with synthetic data. It never deploys or connects to external systems. If the scans fail, the job uploads the Playwright report.
 
 Integration tests require the website, API and PostgreSQL running. They check authorization, validation, payment-before-approval prevention, idempotency and concurrent final-seat reservation against isolated test records, then remove those records. Production UI/SSO, refunds, transfers, lifecycle automation, exception recovery and live integrations remain future work. See `docs/implementation-plan.md` and `docs/adr/0001-local-prototype.md`.
 
@@ -125,7 +131,7 @@ Integration tests require the website, API and PostgreSQL running. They check au
 - [ ] **Accessibility:** verify keyboard operation, visible focus, focus order/return, skip navigation, and no keyboard traps.
 - [ ] **Accessibility:** check accessible names, form labels, heading structure, landmarks, image alternatives, selected states, and status/error announcements.
 - [ ] **Accessibility:** check text/control contrast, touch target sizes, narrow-screen reflow, and zoom behavior.
-- [ ] **Accessibility:** run an automated scan when available and manually review the affected workflows with a screen reader. Before release, cover catalog/filtering, spotlight, sign-in, registration, learner status, and staff forms/dialogs/tables.
+- [ ] **Accessibility:** run `npm run test:a11y` (add new pages or dialogs to `tests/accessibility/pages.spec.ts`) and manually review the affected workflows with a screen reader. Before release, cover catalog/filtering, spotlight, sign-in, registration, learner status, and staff forms/dialogs/tables.
 - [ ] Record evidence, fixes, unresolved findings, and checks not performed; do not describe untested checks as passing or a partial review as WCAG certification.
 
 Accessibility is part of every UI review. Scale checks to the change; a narrow UI change does not require repeating unrelated integration tests. The first manual catalog review is recorded in `docs/prototype/accessibility-check.txt`.

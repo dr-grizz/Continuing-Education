@@ -13,3 +13,7 @@ src/generated/
 .tmp-migration-tests/
 .tmp-drift.config.ts
 .tmp-draft-*
+
+# Playwright accessibility scan output
+test-results/
+playwright-report/

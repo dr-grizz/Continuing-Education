@@ -14,10 +14,13 @@
     "dev:web": "next dev src/web --hostname 127.0.0.1 --port 3000",
     "dev:api": "ts-node -P tsconfig.server.json src/server/main.ts",
     "dev:worker": "ts-node -P tsconfig.server.json src/worker/main.ts",
+    "start:web": "next start src/web --hostname 127.0.0.1 --port 3000",
     "typecheck": "tsc -p tsconfig.server.json --noEmit && tsc -p src/web/tsconfig.json --noEmit",
     "build": "tsc -p tsconfig.server.json && next build src/web",
     "test": "ts-node -P tsconfig.server.json tests/api.integration.ts",
-    "test:migrations": "ts-node -P tsconfig.server.json tests/migrations.integration.ts"
+    "test:migrations": "ts-node -P tsconfig.server.json tests/migrations.integration.ts",
+    "test:a11y": "playwright test",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,mjs}\" \"tests/**/*.ts\" \"scripts/**/*.{ts,mjs}\" \"*.{ts,json}\""
   },
   "engines": {
     "node": ">=22"
@@ -46,6 +49,8 @@
     "rxjs": "7.8.2"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
+    "@playwright/test": "1.63.0",
     "@types/node": "26.6.3",
     "@types/pg": "8.23.1",
     "@types/react": "19.3.0",
