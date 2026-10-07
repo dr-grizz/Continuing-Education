@@ -321,3 +321,10 @@ export class ExploreDto {
   @IsUUID(undefined, { each: true })
   pathways!: string[];
 }
+export class RefundReasonDto {
+  @ApiProperty({ description: "Why (10-500 characters); visible to Finance" })
+  @IsString()
+  @MinLength(10)
+  @MaxLength(500)
+  reason!: string;
+}

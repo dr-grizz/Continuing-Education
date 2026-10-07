@@ -47,7 +47,8 @@
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "reflect-metadata": "0.2.2",
-    "rxjs": "7.8.2"
+    "rxjs": "7.8.2",
+    "stripe": "23.0.0"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.13.0",

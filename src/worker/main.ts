@@ -1,7 +1,8 @@
 import type { operations } from "../generated/prisma/client";
 import { db } from "../domain/db";
 import { prisma, sql, transaction, Tx } from "../domain/prisma";
-import { audit } from "../server/service";
+import { audit, PortalService } from "../server/service";
+const portal = new PortalService();
 let stopped = false;
 type Stage = "identity" | "canvas";
 const MAX_ATTEMPTS = 3;
@@ -137,7 +138,11 @@ async function step(tx: Tx) {
   }
   const expired = await sql<{ id: string }>(
     tx,
-    "UPDATE entitlements SET status='expired' WHERE status='reserved' AND reserved_until<=now() RETURNING id",
+    // A seat is not released while a Stripe Checkout session for it is still
+    // unresolved (reconciliation decides), unless it is a day past expiry.
+    `UPDATE entitlements e SET status='expired' WHERE e.status='reserved' AND e.reserved_until<=now()
+       AND NOT EXISTS (SELECT 1 FROM checkout_sessions c WHERE c.entitlement_id=e.id AND c.status='open' AND c.expires_at>now()-interval '1 day')
+     RETURNING e.id AS id`,
   );
   for (const row of expired)
     await audit(tx, "prototype-worker", "seat.expired", row.id);
@@ -148,6 +153,7 @@ async function step(tx: Tx) {
   for (const row of lapsed)
     await audit(tx, "prototype-worker", "approval.expired", row.id);
 }
+let lastReconciled = 0;
 async function tick() {
   try {
     await transaction(step);
@@ -157,6 +163,19 @@ async function tick() {
       "Worker retry:",
       error instanceof Error ? error.message : "unknown error",
     );
+  }
+  // Every 30 seconds, ask Stripe about Checkout sessions that expired without
+  // a webhook, so a missed notification neither loses a payment nor holds a seat.
+  if (Date.now() - lastReconciled >= 30_000) {
+    lastReconciled = Date.now();
+    try {
+      await portal.reconcileCheckouts();
+    } catch (error) {
+      console.error(
+        "Stripe reconciliation retry:",
+        error instanceof Error ? error.message : "unknown error",
+      );
+    }
   }
 }
 async function main() {

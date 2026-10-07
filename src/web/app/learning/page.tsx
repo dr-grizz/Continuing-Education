@@ -88,6 +88,24 @@ export default function LearningPage() {
     // Keeps the section (the focus target) after the last course is removed.
     [removedSaved, setRemovedSaved] = useState(false);
   const savedHeading = useRef<HTMLHeadingElement>(null);
+  const [provider, setProvider] = useState<"stripe" | "simulated">(),
+    [checkoutResult, setCheckoutResult] = useState<"success" | "cancelled">();
+  const checkoutMessage = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    api<{ provider: "stripe" | "simulated" }>("payments/config")
+      .then((config) => setProvider(config.provider))
+      .catch(() => setProvider("simulated"));
+    // Stripe returns learners here; the message is informational only.
+    const params = new URLSearchParams(window.location.search);
+    const result = params.get("checkout");
+    if (result === "success" || result === "cancelled") {
+      setCheckoutResult(result);
+      window.history.replaceState(null, "", window.location.pathname);
+    }
+  }, []);
+  useEffect(() => {
+    if (checkoutResult) checkoutMessage.current?.focus();
+  }, [checkoutResult]);
   const statuses = useRef<Map<string, string>>(new Map());
   const quietId = useRef("");
   const cards = useRef<Map<string, HTMLElement>>(new Map());
@@ -172,7 +190,15 @@ export default function LearningPage() {
     setActionError(undefined);
     quietId.current = row.id;
     try {
-      if (row.status === "reserved") {
+      if (row.status === "reserved" && provider === "stripe") {
+        // Stripe-hosted Checkout: the webhook, not this page, confirms payment.
+        const { url } = await api<{ url: string }>(
+          `registrations/${row.id}/checkout`,
+          { body: {} },
+        );
+        window.location.assign(url);
+        return;
+      } else if (row.status === "reserved") {
         await api(`prototype/registrations/${row.id}/simulate-payment`, {
           body: {},
         });
@@ -350,18 +376,33 @@ export default function LearningPage() {
               : "the checkout deadline"}
             .
           </Typography>
-          <Typography variant="body2" color="text.secondary">
-            Try the payment-to-enrollment workflow with a simulated{" "}
-            {money(row.quoted_price_cents ?? row.price_cents)} payment. No
-            charge is made.
-          </Typography>
+          {provider === "stripe" ? (
+            <Typography variant="body2" color="text.secondary">
+              Pay {money(row.quoted_price_cents ?? row.price_cents)} on
+              Stripe&apos;s secure checkout page. This is the Stripe sandbox:
+              use a test card such as 4242 4242 4242 4242; no real charge is
+              made.
+            </Typography>
+          ) : (
+            <Typography variant="body2" color="text.secondary">
+              Try the payment-to-enrollment workflow with a simulated{" "}
+              {money(row.quoted_price_cents ?? row.price_cents)} payment. No
+              charge is made.
+            </Typography>
+          )}
           <Button
             variant="contained"
             aria-disabled={busy === row.id}
             onClick={() => act(row)}
             data-next-action
           >
-            {busy === row.id ? "Submitting…" : "Simulate payment"}
+            {busy === row.id
+              ? provider === "stripe"
+                ? "Opening checkout…"
+                : "Submitting…"
+              : provider === "stripe"
+                ? "Pay with Stripe"
+                : "Simulate payment"}
           </Button>
         </Stack>
       )}
@@ -448,6 +489,20 @@ export default function LearningPage() {
         Demo session for {auth.email}. Your course registrations are saved for
         this email.
       </Typography>
+      {checkoutResult && (
+        <Alert
+          ref={checkoutMessage}
+          tabIndex={-1}
+          severity={checkoutResult === "success" ? "success" : "info"}
+          role="note"
+          onClose={() => setCheckoutResult(undefined)}
+          sx={{ mt: 3 }}
+        >
+          {checkoutResult === "success"
+            ? "Thank you. Stripe received your payment. Your course status below updates once Stripe confirms it, usually within a few seconds."
+            : "Checkout was cancelled and no payment was taken. Your seat stays reserved until the time shown on the course."}
+        </Alert>
+      )}
       {error && (
         <Alert severity="error" sx={{ mt: 3 }}>
           {error}

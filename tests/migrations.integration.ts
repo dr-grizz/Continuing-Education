@@ -174,10 +174,13 @@ async function main() {
       )
     ).rows.map((row) => row.typname);
     assert.deepEqual(enums, [
+      "checkout_status",
       "collection_kind",
       "course_type",
       "entitlement_status",
       "operation_status",
+      "payment_provider",
+      "refund_request_status",
       "simulated_outcome",
       "staff_role",
     ]);

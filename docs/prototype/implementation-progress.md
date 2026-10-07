@@ -12,7 +12,7 @@ The prototype now covers the full simulated registration lifecycle: catalog, ind
 | Database     | PostgreSQL in Docker; Prisma 7.10 schema and eight migrations (`0_baseline` to `7_featured_explore`), with enums, checks and an append-only price-history trigger                                                                           | Production hosting, backup and retention decisions                                                                                                    |
 | Learners     | One learner per normalized email; registrations persist; private saved courses and followed pathways; Support can deactivate and reactivate access                                                                                          | Mock sign-in does not prove email ownership; no real authentication                                                                                   |
 | Registration | Enrollment windows, approvals that expire (default 7 days), repeat requests after a decline or lapse, quoted prices                                                                                                                         | Production capacity, tax and refund policies                                                                                                          |
-| Payments     | Explicit simulated payment command and synthetic orders                                                                                                                                                                                     | No Stripe connection or real financial transaction                                                                                                    |
+| Payments     | Stripe-hosted Checkout in the sandbox when keys are configured (ADR 0005), confirmed only by signed webhooks; otherwise the simulated payment command                                                                                       | Sandbox (test mode) only; refund request queue, disputes and reconciliation still to build                                                            |
 | Enrollment   | Worker simulates identity preparation and Canvas enrollment, with injected delays and failures, bounded retries and an exceptions queue                                                                                                     | No university identity or Canvas connection; Canvas links are placeholders                                                                            |
 | Staff        | Role-based mock sign-in (seven roles, seven demo members on `cuce.test`); offering create, edit, publish and unpublish; curated collections and pathways; approvals; exceptions; activity; Learners, Staff and Roles tabs; sample dashboard | Staff SSO and MFA are a later add-on ([ADR 0004](../adr/0004-staff-roles-mock-sign-in.md)); sales figures are simulated; completion data needs Canvas |
 | Automation   | REST API under `/api/v1`, OpenAPI, scoped local tokens, idempotent commands and operation status                                                                                                                                            | Production service accounts, OAuth and outbound notifications                                                                                         |
@@ -116,10 +116,10 @@ These depend on approved contracts and policies in the [implementation plan](../
 
 ### Payments and learning access
 
-- [ ] Confirm capacity, tax and refund policies.
+- [ ] Confirm capacity and the remaining refund policy questions. Tax decided October 7, 2026: none collected (P4); seat holds decided (P3).
 - [ ] Separate reusable course products from offerings where needed; add validated Canvas mappings.
-- [ ] Integrate Stripe test Checkout, durable session mappings and signed webhooks.
-- [ ] Test expired, abandoned, failed, duplicate and out-of-order payment events, including reconciliation before seat release.
+- [x] Integrate Stripe test Checkout, durable session mappings and signed webhooks (October 7, 2026; ADR 0005). Verified against the project's sandbox the same day.
+- [ ] Test expired, abandoned, failed, duplicate and out-of-order payment events, including reconciliation before seat release. Duplicate, mismatched, badly signed and expired events are covered by integration tests; reconciliation of sessions without a webhook is pending.
 - [ ] Connect isolated Canvas services, verify authoritative enrollments and replace placeholder course links.
 - [ ] Build the completion dashboard from Canvas data (decision F11).
 - [ ] Add order/access notices and approved activation messaging responsibilities.
@@ -166,6 +166,49 @@ A real screen-reader session, forced colors and cross-browser checks remain outs
 | UI asset attribution                  | [Image credits](image-credits.md) and [logo source](../../src/web/public/brand/SOURCE.txt) |
 
 ## Latest implementation record
+
+October 7, 2026: missed-webhook reconciliation and staff Transactions with refund requests (branch `stripe-checkout`).
+
+- **Reconciliation:** every 30 seconds the worker checks Checkout sessions more than a minute past expiry with Stripe. Paid ones are recorded exactly as the webhook would (actor `stripe-reconciliation`); still-open ones are expired in Stripe. A seat is not released while one of its sessions is unresolved (cap: one day past expiry).
+- **Transactions tab** (`payments:read`: Finance, Support, staff administrators): read-only list with search, status filter, sorting, paging, phone cards and **View in Stripe** links.
+- **Refund requests** (`refunds:request`: Finance, Support): **Request refund** and **Cancel request**, each with a reason. Nothing is refunded in the portal; Finance issues the refund in the Stripe Dashboard. `charge.refunded` records the refunded amount, marks the request refunded and stores the Stripe refund ID (looked up best-effort). Refunds made without a request are recorded and flagged. Assumptions until P5 is settled: full amount only, and course access unchanged.
+- **Database:** migration `9_refund_requests` adds refunded amounts on orders and the `refund_requests` table with checks. Backed up first.
+- **Verification:**
+  - Integration 23/23: the role gates, reason validation, one waiting request per payment, cancel, simulated payments refused, `charge.refunded` closing the request, and seats held while a session is unresolved.
+  - Migrations 9/9. Accessibility 130/130, including the Transactions tab.
+  - Against the sandbox: Finance requested a refund from the keyboard; the refund issued in Stripe (test mode) arrived through `stripe listen` and marked it Refunded with $149.00 refunded. A session with a simulated missed webhook was expired by reconciliation in both Stripe and the portal.
+  - Fixed during the check: focus dropped to the page after a refund action, because the opening button was replaced; it now moves to the row's new action.
+
+October 7, 2026: Stripe-hosted Checkout for the sandbox (branch `stripe-checkout`; [ADR 0005](../adr/0005-stripe-hosted-checkout.md)).
+
+- **Decisions:**
+  - A7 (new): Stripe-hosted Checkout, one Stripe Product per offering with a Price per amount, cards and wallets only.
+  - P3: 30-minute reservation; 31-minute sessions extend the hold to their expiry plus 5 minutes.
+  - P4: no tax collected.
+  - P5 in part: staff initiate refunds, and Finance processes them in Stripe.
+- **Database:** migration `8_stripe_checkout`:
+  - `payment_provider` on orders, with Stripe session and payment IDs (a check requires a session ID for Stripe orders)
+  - `stripe_products` and `stripe_prices`
+  - `checkout_sessions` (status: open, complete, expired) and `stripe_events` (processed event IDs)
+
+  The main database was backed up first.
+
+- **API:**
+  - `GET /payments/config` reports `stripe` or `simulated`.
+  - `POST /registrations/{id}/checkout` reuses an open session or creates a Product, Price and Checkout session; it is idempotent and audited.
+  - `POST /webhooks/stripe` verifies signatures over the raw body, handles each event once and checks the amount, currency and reservation. Completion records a `stripe` order and queues enrollment through the same path as the simulation; expiry is recorded.
+  - Refund and dispute events are stored for later.
+  - Live keys are refused at startup.
+- **UI:** with Stripe configured, reserved seats show **Pay with Stripe** and a sandbox test-card hint. Learners returning from Stripe see a success or cancelled message, which takes focus and does not change any status.
+- **Verification:**
+  - Integration 22/22. New groups post signed fake events: bad signature rejected, amount mismatch rejected and left for Stripe to retry, payment recorded once, enrollment queued once, expiry recorded, and checkout refused without a key.
+  - Migration tests 9/9; record counts unchanged after the runs.
+  - In the browser: the cancelled-return message with focus, and the simulated button without a key.
+  - **Sandbox run (October 7, 2026),** with the project's test key and `stripe listen`:
+    - A synthetic learner reserved Practical Data Analysis and paid $149.00 with test card 4242 on Stripe-hosted Checkout, then returned to My learning already enrolled.
+    - The portal has a `stripe` order with session and payment IDs. Stripe shows the payment succeeded for 14,900 cents USD with the registration in its metadata, and the "Practical Data Analysis" Product was created on first use.
+    - Expiring a session through the API delivered `checkout.session.expired`, and the portal marked it expired.
+    - Finding: the first Checkout page also offered Link (bank, Klarna and a "save my information" sign-up) despite the card-only filter. Link is now hidden with `wallet_options`, and the page shows only card and Apple Pay.
 
 October 7, 2026: accessibility baseline: forced colors, reflow, zoom and cross-browser checks (branch `a11y-baseline`).
 
