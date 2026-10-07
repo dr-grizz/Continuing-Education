@@ -10,6 +10,7 @@ const ids: string[] = [],
   actors: string[] = [],
   httpKeys: string[] = [];
 const staffIds: string[] = [];
+const collectionIds: string[] = [];
 let adminStaffId = "";
 // Staff-token calls act as a demo staff member: the seeded administrator unless
 // `staffAs` names another member, or nobody when `staffAs` is null (sign-in only).
@@ -1394,7 +1395,263 @@ async function main() {
     console.log(
       "PASS: dashboard reports enrollment to all staff, sales only to Finance, filtered by date range and offering",
     );
+
+    // Collections, pathways, saved courses and follows (decisions F3 and F4).
+    const learnerCall = (path: string, learnerId: string, body?: unknown) =>
+      fetch(`http://127.0.0.1:3001/api/v1/${path}`, {
+        method: body ? "POST" : "GET",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${process.env.LEARNER_API_TOKEN}`,
+          "X-Prototype-Learner-Id": learnerId,
+          "Idempotency-Key": randomUUID(),
+        },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+    const firstStep = await seed(false),
+      secondStep = await seed(false),
+      hiddenStep = await seed(false);
+    await db.query("UPDATE offerings SET published=false WHERE id=$1", [
+      hiddenStep,
+    ]);
+    const pathwayTitle = `Integration pathway ${randomUUID().slice(0, 8)}`;
+    const pathwayBody = {
+      kind: "pathway",
+      title: pathwayTitle,
+      summary: "Synthetic pathway for integration tests.",
+      offeringIds: [firstStep],
+    };
+    assert.equal(
+      (await http("collections", STAFF, pathwayBody, approverId)).status,
+      403,
+      "creating collections needs catalog:write",
+    );
+    assert.equal(
+      (
+        await http(
+          "collections",
+          STAFF,
+          { ...pathwayBody, slug: "Not A Slug" },
+          catalogId,
+        )
+      ).status,
+      400,
+    );
+    let pathway = await (
+      await http("collections", STAFF, pathwayBody, catalogId)
+    ).json();
+    collectionIds.push(pathway.id);
+    assert.equal(pathway.published, false);
+    assert.match(pathway.slug, /^integration-pathway-[a-z0-9]+$/);
+    assert.equal(
+      (await http("collections", STAFF, pathwayBody, catalogId)).status,
+      409,
+      "slugs are unique",
+    );
+    assert.equal(
+      (
+        await http(
+          `collections/${pathway.id}/publish`,
+          STAFF,
+          { version: pathway.version },
+          catalogId,
+        )
+      ).status,
+      400,
+      "a published pathway needs two published courses",
+    );
+    const editCollection = async (offeringIds: string[]) =>
+      http(
+        `collections/${pathway.id}/edit`,
+        STAFF,
+        {
+          version: pathway.version,
+          title: pathwayTitle,
+          summary: pathway.summary,
+          offeringIds,
+        },
+        catalogId,
+      );
+    pathway = await (
+      await editCollection([firstStep, hiddenStep, secondStep])
+    ).json();
+    pathway = await (
+      await http(
+        `collections/${pathway.id}/publish`,
+        STAFF,
+        { version: pathway.version },
+        catalogId,
+      )
+    ).json();
+    assert.equal(pathway.published, true);
+    assert.equal(
+      (await editCollection([firstStep, hiddenStep])).status,
+      400,
+      "a published pathway keeps two published courses",
+    );
+    const publicPathway = await (
+      await http(`collections/${pathway.slug}`)
+    ).json();
+    assert.deepEqual(
+      publicPathway.offerings.map((o: any) => o.id),
+      [firstStep, secondStep],
+      "learners see published courses in the recommended order",
+    );
+    const publicList = await (await http("collections")).json();
+    assert.equal(
+      publicList.find((c: any) => c.id === pathway.id).course_count,
+      2,
+    );
+    const filtered = await (
+      await http(`offerings?collection=${pathway.slug}`)
+    ).json();
+    assert.deepEqual(
+      filtered.map((o: any) => o.id).sort(),
+      [firstStep, secondStep].sort(),
+    );
+    assert.equal((await http("offerings?collection=Bad%20Slug")).status, 400);
+    const inPathway = await (await http(`offerings/${firstStep}`)).json();
+    assert.ok(
+      inPathway.collections.some((c: any) => c.slug === pathway.slug),
+      "course detail lists its published collections",
+    );
+
+    const saver = await learner(),
+      otherLearner = await learner();
+    const savedIds = async (who: Principal) =>
+      (
+        await (
+          await learnerCall("me/saved-courses", who.learnerId as string)
+        ).json()
+      ).map((o: any) => o.id);
+    assert.equal(
+      (
+        await learnerCall(`me/saved-courses/${firstStep}`, saver.learnerId!, {
+          saved: true,
+        })
+      ).status,
+      200,
+    );
+    assert.deepEqual(await savedIds(saver), [firstStep]);
+    assert.deepEqual(
+      await savedIds(otherLearner),
+      [],
+      "saved courses are private",
+    );
+    assert.equal(
+      (
+        await learnerCall(`me/saved-courses/${hiddenStep}`, saver.learnerId!, {
+          saved: true,
+        })
+      ).status,
+      404,
+      "unpublished courses cannot be saved",
+    );
+    await learnerCall(`me/saved-courses/${firstStep}`, saver.learnerId!, {
+      saved: false,
+    });
+    assert.deepEqual(await savedIds(saver), []);
+
+    assert.equal(
+      (
+        await learnerCall(`me/pathways/${pathway.id}`, saver.learnerId!, {
+          following: true,
+        })
+      ).status,
+      200,
+    );
+    const sampleCollection = (
+      await db.query(
+        "SELECT id FROM collections WHERE kind='collection' AND published LIMIT 1",
+      )
+    ).rows[0];
+    if (sampleCollection)
+      assert.equal(
+        (
+          await learnerCall(
+            `me/pathways/${sampleCollection.id}`,
+            saver.learnerId!,
+            { following: true },
+          )
+        ).status,
+        404,
+        "only pathways can be followed",
+      );
+    const followed = await (
+      await learnerCall("me/pathways", saver.learnerId!)
+    ).json();
+    assert.deepEqual(
+      followed
+        .find((p: any) => p.id === pathway.id)
+        .steps.map((s: any) => s.id),
+      [firstStep, secondStep],
+    );
+    assert.equal(
+      (await (await learnerCall("me/pathways", otherLearner.learnerId!)).json())
+        .length,
+      0,
+    );
+    assert.equal(
+      (
+        await db.query(
+          "SELECT count(*)::int AS n FROM entitlements WHERE learner_id=$1",
+          [saver.learnerId],
+        )
+      ).rows[0].n,
+      0,
+      "following and saving register nothing",
+    );
+    const staffView = await (
+      await http("staff/collections", STAFF, undefined, approverId)
+    ).json();
+    const staffPathway = staffView.find((c: any) => c.id === pathway.id);
+    assert.equal(staffPathway.followers, 1);
+    assert.deepEqual(
+      staffPathway.courses.map((c: any) => c.published),
+      [true, false, true],
+      "staff see unpublished courses in the collection",
+    );
+    pathway = await (
+      await http(
+        `collections/${pathway.id}/unpublish`,
+        STAFF,
+        { version: pathway.version },
+        catalogId,
+      )
+    ).json();
+    assert.equal((await http(`collections/${pathway.slug}`)).status, 404);
+    assert.equal(
+      (await (await learnerCall("me/pathways", saver.learnerId!)).json())
+        .length,
+      0,
+      "unpublished pathways disappear for followers",
+    );
+    const collectionEvents = (
+      await db.query(
+        "SELECT action, actor FROM audit_events WHERE object_id=$1 ORDER BY id",
+        [pathway.id],
+      )
+    ).rows;
+    assert.deepEqual(
+      collectionEvents.map((e) => e.action),
+      [
+        "collection.created",
+        "collection.edited",
+        "collection.published",
+        "collection.unpublished",
+      ],
+    );
+    assert.ok(collectionEvents.every((e) => e.actor === `staff:${catalogId}`));
+    console.log(
+      "PASS: staff curate collections and pathways; learners filter, save courses privately and follow pathways without registering",
+    );
   } finally {
+    await db.query("DELETE FROM audit_events WHERE object_id=ANY($1::uuid[])", [
+      collectionIds,
+    ]);
+    await db.query("DELETE FROM collections WHERE id=ANY($1::uuid[])", [
+      collectionIds,
+    ]);
     await db.query(
       "DELETE FROM operations WHERE entitlement_id IN (SELECT id FROM entitlements WHERE offering_id=ANY($1::uuid[]))",
       [ids],

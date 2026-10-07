@@ -35,6 +35,21 @@ test.describe("learner pages", () => {
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
     await scan(page, "Catalog");
   });
+  test("catalog filtered by a pathway", async ({ page }) => {
+    await page.goto("/?collection=data-informed-leader");
+    await expect(
+      page.getByRole("heading", { level: 2, name: "Data-Informed Leader" }),
+    ).toBeVisible();
+    await scan(page, "Catalog with collection filter");
+  });
+  test("pathway page", async ({ page }) => {
+    await page.request.post("/api/demo-session", {
+      data: { email: "a11y-scan@example.test" },
+    });
+    await page.goto("/collections/data-informed-leader");
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+    await scan(page, "Pathway page");
+  });
   test("sign-in", async ({ page }) => {
     await page.goto("/sign-in");
     await scan(page, "Sign-in");
@@ -66,6 +81,7 @@ test.describe("staff workspace", () => {
   const tabs = [
     "Dashboard",
     "Offerings",
+    "Collections",
     "Approvals",
     "Exceptions",
     "Activity",
@@ -91,6 +107,8 @@ test.describe("staff dialogs", () => {
     ["Edit offering", "Offerings", /^Edit /],
     ["Unpublish offering", "Offerings", /^Unpublish /],
     ["Learner details", "Learners", /^View learner /],
+    ["New collection", "Collections", /^New collection$/],
+    ["Edit collection", "Collections", /^Edit /],
     ["Add staff member", "Staff", /^Add staff member$/],
   ];
   for (const [name, tab, button] of dialogs)

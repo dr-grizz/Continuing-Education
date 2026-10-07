@@ -22,8 +22,10 @@ import {
   api,
   date,
   courseSchedule,
+  FollowedPathway,
   Learning,
   money,
+  Offering,
 } from "../../components/api";
 const labels: Record<string, string> = {
   awaiting_approval: "Awaiting approval",
@@ -78,7 +80,13 @@ export default function LearningPage() {
     [actionError, setActionError] = useState<{ id: string; message: string }>(),
     [notice, setNotice] = useState(""),
     [announcement, setAnnouncement] = useState(""),
-    [focusAfter, setFocusAfter] = useState("");
+    [focusAfter, setFocusAfter] = useState(""),
+    [saved, setSaved] = useState<Offering[]>([]),
+    [pathways, setPathways] = useState<FollowedPathway[]>([]),
+    [removing, setRemoving] = useState(""),
+    // Keeps the section (the focus target) after the last course is removed.
+    [removedSaved, setRemovedSaved] = useState(false);
+  const savedHeading = useRef<HTMLHeadingElement>(null);
   const statuses = useRef<Map<string, string>>(new Map());
   const quietId = useRef("");
   const cards = useRef<Map<string, HTMLElement>>(new Map());
@@ -117,10 +125,34 @@ export default function LearningPage() {
     const card = cards.current.get(focusAfter);
     const target =
       card?.querySelector<HTMLElement>("[data-next-action]") ??
-      card?.querySelector<HTMLElement>("h2");
+      card?.querySelector<HTMLElement>("h3");
     target?.focus();
     setFocusAfter("");
   }, [rows, focusAfter]);
+  // Saved courses and followed pathways are private lists; neither registers.
+  useEffect(() => {
+    api<Offering[]>("me/saved-courses")
+      .then(setSaved)
+      .catch(() => setSaved([]));
+    api<FollowedPathway[]>("me/pathways")
+      .then(setPathways)
+      .catch(() => setPathways([]));
+  }, []);
+  async function removeSaved(course: Offering) {
+    if (removing) return;
+    setRemoving(course.id);
+    try {
+      await api(`me/saved-courses/${course.id}`, { body: { saved: false } });
+      setSaved((list) => list.filter((o) => o.id !== course.id));
+      setRemovedSaved(true);
+      setAnnouncement(`${course.title} removed from saved courses.`);
+      savedHeading.current?.focus();
+    } catch (e) {
+      setAnnouncement((e as Error).message);
+    } finally {
+      setRemoving("");
+    }
+  }
   async function act(row: Learning) {
     if (busy) return;
     setBusy(row.id);
@@ -182,7 +214,12 @@ export default function LearningPage() {
           </Button>
         </Paper>
       )}
-      <Stack spacing={3} sx={{ mt: 4 }}>
+      {rows.length > 0 && (
+        <Typography variant="h5" component="h2" sx={{ mt: 4 }}>
+          Registrations
+        </Typography>
+      )}
+      <Stack spacing={3} sx={{ mt: 2 }}>
         {rows.map((row) => (
           <Paper
             key={row.id}
@@ -206,7 +243,7 @@ export default function LearningPage() {
                 </Typography>
                 <Typography
                   variant="h6"
-                  component="h2"
+                  component="h3"
                   tabIndex={-1}
                   sx={{ "&:focus": { outline: "none" } }}
                 >
@@ -412,6 +449,120 @@ export default function LearningPage() {
           </Paper>
         ))}
       </Stack>
+      {pathways.length > 0 && (
+        <Box
+          component="section"
+          aria-labelledby="pathways-heading"
+          sx={{ mt: 5 }}
+        >
+          <Typography id="pathways-heading" variant="h5" component="h2">
+            Pathways you follow
+          </Typography>
+          <Typography color="text.secondary" sx={{ mt: 0.5 }}>
+            Recommended course order. Register for each course separately;
+            progress tracking arrives with the Canvas connection.
+          </Typography>
+          <Stack spacing={2} sx={{ mt: 2 }}>
+            {pathways.map((pathway) => (
+              <Paper
+                key={pathway.id}
+                variant="outlined"
+                sx={{ p: { xs: 2.5, md: 3 } }}
+              >
+                <Typography variant="h6" component="h3">
+                  <Link href={`/collections/${pathway.slug}`}>
+                    {pathway.title}
+                  </Link>
+                </Typography>
+                <Box
+                  component="ol"
+                  sx={{ m: 0, mt: 1.5, pl: 3, display: "grid", gap: 1 }}
+                >
+                  {pathway.steps.map((step) => (
+                    <li key={step.id}>
+                      <Link href={`/courses/${step.id}`}>{step.title}</Link>
+                      <Typography
+                        component="span"
+                        variant="body2"
+                        color="text.secondary"
+                      >
+                        {" · "}
+                        {step.registration_status
+                          ? labels[step.registration_status] ||
+                            step.registration_status
+                          : "Not registered"}
+                      </Typography>
+                    </li>
+                  ))}
+                </Box>
+              </Paper>
+            ))}
+          </Stack>
+        </Box>
+      )}
+      {(saved.length > 0 || removedSaved) && (
+        <Box component="section" aria-labelledby="saved-heading" sx={{ mt: 5 }}>
+          <Typography
+            id="saved-heading"
+            ref={savedHeading}
+            tabIndex={-1}
+            variant="h5"
+            component="h2"
+            sx={{ "&:focus": { outline: "none" } }}
+          >
+            Saved courses
+          </Typography>
+          <Typography color="text.secondary" sx={{ mt: 0.5 }}>
+            Only you can see this list. Saving a course does not register you.
+          </Typography>
+          {saved.length === 0 && (
+            <Typography sx={{ mt: 2 }}>
+              No saved courses. <Link href="/">Browse courses</Link>
+            </Typography>
+          )}
+          <Stack spacing={2} sx={{ mt: 2 }}>
+            {saved.map((course) => (
+              <Paper
+                key={course.id}
+                variant="outlined"
+                sx={{
+                  p: { xs: 2, md: 2.5 },
+                  display: "flex",
+                  flexDirection: { xs: "column", sm: "row" },
+                  justifyContent: "space-between",
+                  alignItems: { sm: "center" },
+                  gap: 1.5,
+                }}
+              >
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography
+                    variant="subtitle1"
+                    component="h3"
+                    sx={{ fontWeight: 600 }}
+                  >
+                    <Link href={`/courses/${course.id}`}>{course.title}</Link>
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {courseSchedule(course)} · {money(course.price_cents)}
+                  </Typography>
+                </Box>
+                <Button
+                  variant="outlined"
+                  onClick={() => removeSaved(course)}
+                  aria-disabled={removing === course.id || undefined}
+                  aria-label={`Remove ${course.title} from saved courses`}
+                  sx={{
+                    alignSelf: { xs: "flex-start", sm: "center" },
+                    flexShrink: 0,
+                  }}
+                >
+                  {removing === course.id ? "Removing…" : "Remove"}
+                </Button>
+              </Paper>
+            ))}
+          </Stack>
+        </Box>
+      )}
       {/* Polite announcements for status changes that happen in the background. */}
       <Box
         role="status"

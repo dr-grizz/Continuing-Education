@@ -58,16 +58,18 @@ model entitlements {
 
 /// Demo learner. The email-less row 00000000-0000-4000-8000-000000000001 is the legacy sample learner.
 model learners {
-  id             String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  id              String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   /// CHECK learners_email_check: lowercase, trimmed, 3-254 characters. Null only for the legacy learner.
-  email          String?        @unique
-  created_at     DateTime       @default(now()) @db.Timestamptz(6)
+  email           String?           @unique
+  created_at      DateTime          @default(now()) @db.Timestamptz(6)
   /// Deactivated learners cannot sign in or act; existing enrollments continue.
-  active         Boolean        @default(true)
+  active          Boolean           @default(true)
   /// Set while deactivated. CHECK learners_access_check: set exactly when active is false.
-  deactivated_at DateTime?      @db.Timestamptz(6)
-  version        Int            @default(1)
-  entitlements   entitlements[]
+  deactivated_at  DateTime?         @db.Timestamptz(6)
+  version         Int               @default(1)
+  entitlements    entitlements[]
+  saved_courses   saved_courses[]
+  pathway_follows pathway_follows[]
 }
 
 /// Price history. TRIGGER offering_prices_no_update (function offering_prices_append_only)
@@ -88,35 +90,37 @@ model offering_prices {
 /// Saleable offering. CHECK offerings_schedule_check: cohort requires start_date and end_date;
 /// self_paced requires both to be null. CHECK offerings_check: end_date >= start_date.
 model offerings {
-  id                    String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  id                    String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   title                 String
   category              String
   summary               String
   description           String
-  outcomes              Json              @default("[]")
+  outcomes              Json               @default("[]")
   format                String
-  start_date            DateTime?         @db.Date
-  end_date              DateTime?         @db.Date
+  start_date            DateTime?          @db.Date
+  end_date              DateTime?          @db.Date
   /// Current price; history in offering_prices. CHECK offerings_price_cents_check: >= 0.
   price_cents           Int
   /// CHECK offerings_capacity_check: > 0.
   capacity              Int
-  approval_required     Boolean           @default(false)
-  published             Boolean           @default(false)
-  version               Int               @default(1)
-  created_at            DateTime          @default(now()) @db.Timestamptz(6)
+  approval_required     Boolean            @default(false)
+  published             Boolean            @default(false)
+  version               Int                @default(1)
+  created_at            DateTime           @default(now()) @db.Timestamptz(6)
   /// cohort is shown as Scheduled; self_paced as Self-paced (enum course_type).
-  course_type           CourseType        @default(cohort)
+  course_type           CourseType         @default(cohort)
   /// CHECK offerings_approval_valid_days_check: 1-365.
-  approval_valid_days   Int               @default(7)
+  approval_valid_days   Int                @default(7)
   /// Scheduled courses close enrollment this many days after start_date. CHECK offerings_enrollment_close_days_check: 0-365.
-  enrollment_close_days Int               @default(7)
+  enrollment_close_days Int                @default(7)
   /// CHECK offerings_canvas_course_url_check: null or matches ^https://[^[:space:]]+$.
   canvas_course_url     String?
   /// Set when unpublished, cleared when published again; distinguishes Unpublished from Draft.
-  unpublished_at        DateTime?         @db.Timestamptz(6)
+  unpublished_at        DateTime?          @db.Timestamptz(6)
   entitlements          entitlements[]
   offering_prices       offering_prices[]
+  collection_items      collection_items[]
+  saved_courses         saved_courses[]
 }
 
 /// Durable background provisioning job, claimed by the worker with FOR UPDATE SKIP LOCKED.
@@ -241,4 +245,66 @@ model staff_members {
   created_at       DateTime    @default(now()) @db.Timestamptz(6)
 
   @@unique([auth_provider, external_subject])
+}
+
+/// Staff-curated list of offerings (decision F3). A pathway is a collection with a
+/// recommended order; following it is free and registers nothing (F4, proposed).
+/// CHECK collections_slug_check: lowercase words joined by hyphens, at most 80 characters.
+/// CHECK collections_title_check: 3-120 characters. CHECK collections_summary_check: 10-500 characters.
+model collections {
+  id               String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  kind             CollectionKind
+  /// Public URL segment, fixed at creation.
+  slug             String             @unique
+  title            String
+  summary          String
+  published        Boolean            @default(false)
+  version          Int                @default(1)
+  created_at       DateTime           @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime           @default(now()) @db.Timestamptz(6)
+  collection_items collection_items[]
+  pathway_follows  pathway_follows[]
+}
+
+/// Ordered membership of an offering in a collection. CHECK collection_items_position_check: position > 0.
+model collection_items {
+  collection_id String      @db.Uuid
+  offering_id   String      @db.Uuid
+  position      Int
+  collections   collections @relation(fields: [collection_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  offerings     offerings   @relation(fields: [offering_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([collection_id, offering_id])
+  @@unique([collection_id, position])
+}
+
+/// A learner's private saved-courses list (decision F3).
+model saved_courses {
+  learner_id  String    @db.Uuid
+  offering_id String    @db.Uuid
+  created_at  DateTime  @default(now()) @db.Timestamptz(6)
+  learners    learners  @relation(fields: [learner_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  offerings   offerings @relation(fields: [offering_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([learner_id, offering_id])
+}
+
+/// A learner following a pathway. The service only allows kind = pathway. No progress
+/// is tracked until the Canvas connection (decision F11).
+model pathway_follows {
+  learner_id    String      @db.Uuid
+  collection_id String      @db.Uuid
+  created_at    DateTime    @default(now()) @db.Timestamptz(6)
+  learners      learners    @relation(fields: [learner_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  collections   collections @relation(fields: [collection_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([learner_id, collection_id])
+}
+
+/// Collection type: an unordered themed list, or a pathway with a recommended order.
+enum CollectionKind {
+  collection
+  pathway
+
+  @@map("collection_kind")
 }

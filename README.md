@@ -79,10 +79,11 @@ Stop application processes with Ctrl+C. `docker compose stop db` stops PostgreSQ
 2. Register for an open course as the demo learner. In My learning, select **Simulate payment** and watch the worker prepare demo access.
 3. Request Healthcare Communication, then open **Staff**, sign in as a demo staff member with the Approver role, and approve it in **Approvals**. Return to My learning, reserve a seat and simulate payment.
 4. Use Staff to create a draft offering, publish it and inspect the audit activity. This needs the Catalog manager role.
-5. In **Staff → Exceptions**, set *Outcome for new payments* to a failure, then simulate a payment in My learning. Watch the automatic retries, then review the exception in Staff and retry provisioning or record a manual enrollment with a reason. Set the outcome back to *Normal* afterwards; it applies to every demo learner.
-6. **Try the roles.** Use **Switch staff member** to act as each demo staff member:
+5. **Collections and pathways.** Filter the catalog by **Collection**, open the Data-Informed Leader pathway and select **Follow pathway**, then **Save course** on any course page. Both appear in My learning; neither registers you. As Casey Catalog Manager, use **Staff → Collections** to create, reorder and publish collections and pathways.
+6. In **Staff → Exceptions**, set *Outcome for new payments* to a failure, then simulate a payment in My learning. Watch the automatic retries, then review the exception in Staff and retry provisioning or record a manual enrollment with a reason. Set the outcome back to *Normal* afterwards; it applies to every demo learner.
+7. **Try the roles.** Use **Switch staff member** to act as each demo staff member:
    - Avery Approver can decide approvals but not edit offerings.
-   - Casey Catalog Manager manages offerings.
+   - Casey Catalog Manager manages offerings, collections and pathways.
    - Sam Support and Ivy (IT/Canvas) recover exceptions.
    - Fran Finance views reports, including sales on the **Dashboard** tab. Other staff see enrollment only.
    - Cory Content Editor holds the sales-page role, which is view-only until the sales page editor exists.

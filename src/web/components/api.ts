@@ -21,6 +21,37 @@ export type Offering = {
   enrollment_closes_on: string | null;
   enrollment_open: boolean;
   unpublished_at: string | null;
+  collections?: CollectionRef[];
+};
+// Staff-curated collections and pathways (decisions F3 and F4).
+export type CollectionKind = "collection" | "pathway";
+export type CollectionRef = {
+  slug: string;
+  title: string;
+  kind: CollectionKind;
+};
+export type CollectionSummary = CollectionRef & {
+  id: string;
+  summary: string;
+  course_count: number;
+};
+export type CollectionDetail = CollectionRef & {
+  id: string;
+  summary: string;
+  offerings: Offering[];
+};
+export type FollowedPathway = {
+  id: string;
+  slug: string;
+  title: string;
+  summary: string;
+  steps: {
+    id: string;
+    title: string;
+    course_type: "cohort" | "self_paced";
+    start_date: string | null;
+    registration_status: string | null;
+  }[];
 };
 export type Learning = {
   id: string;

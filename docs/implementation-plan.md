@@ -154,6 +154,7 @@ The dashboards:
   - Can a pathway have a bundled price? If so, it becomes a "bundle", which the first release defers.
   - Does completing a pathway earn a certificate? The plan says not to invent a certificate issuer.
 - **Dependencies:** progress needs authoritative completion data (R2), not just enrollment. Pathways that include Scheduled courses must handle cohorts that no longer run.
+- **Prototype (October 7, 2026):** pathways are collections of kind `pathway` with an ordered course list. Staff with `catalog:write` create drafts, reorder courses and publish; a published pathway needs at least two published courses. Learners follow a pathway from its public page (`/collections/{slug}`) and see it in My learning with each course's registration status. Following is free and registers nothing, and the order is a recommendation; both are F4 assumptions pending confirmation. There is no progress or completion until the Canvas connection (F11), no bundled pricing and no certificate.
 
 ### Collections
 
@@ -162,6 +163,7 @@ The dashboards:
   - **Collections are created by staff only**, through a reviewed publish workflow like offerings.
   - Learners get a separate, private **Saved courses** list (favorites or wishlist), not learner-created collections. Calling both "collections" would confuse people. Private lists avoid moderation and privacy work.
   - Shareable learner-created lists can be reconsidered later.
+- **Prototype (October 7, 2026):** built as recommended. Staff-curated collections (draft, publish, unpublish, audited) appear as a catalog **Collection** filter, a public page and "Part of" links on course pages; unpublished courses in a collection stay hidden from learners. Learners save courses privately from the course page and manage them in My learning. Sample data: Christian Leadership, Technology at Work and the Data-Informed Leader pathway.
 - **ACSI:** if a collection reflects a partner or credential, such as ACSI professional development, confirm whether it implies eligibility rules, partner pricing or reporting obligations (F5). If it does, it is more than a display grouping.
 
 ### Memberships

@@ -17,6 +17,7 @@ import {
   Select,
   Divider,
   InputAdornment,
+  Link,
   Paper,
   Stack,
   TextField,
@@ -34,6 +35,8 @@ import {
   money,
   courseStart,
   courseFormatLabel,
+  CollectionSummary,
+  CollectionDetail,
   Offering,
 } from "../components/api";
 const categories = ["Technology", "Leadership", "Healthcare", "Ministry"];
@@ -61,6 +64,9 @@ export default function Catalog() {
     [layout, setLayout] = useState<"list" | "grid">("list"),
     [courseType, setCourseType] = useState<CourseTypeFilter>("all"),
     [sort, setSort] = useState<Sort>("start"),
+    [collections, setCollections] = useState<CollectionSummary[]>([]),
+    [collectionSlug, setCollectionSlug] = useState(""),
+    [collection, setCollection] = useState<CollectionDetail>(),
     [urlReady, setUrlReady] = useState(false);
   // Keep filters in the URL so filtered views can be shared and reloaded.
   useEffect(() => {
@@ -75,6 +81,7 @@ export default function Catalog() {
     if (type && type in courseTypes) setCourseType(type as CourseTypeFilter);
     const sortParam = params.get("sort");
     if (sortParam && sortParam in sorts) setSort(sortParam as Sort);
+    setCollectionSlug(params.get("collection") ?? "");
     setUrlReady(true);
   }, []);
   useEffect(() => {
@@ -84,13 +91,14 @@ export default function Catalog() {
     if (selectedTopics.length) params.set("topics", selectedTopics.join(","));
     if (courseType !== "all") params.set("type", courseType);
     if (sort !== "start") params.set("sort", sort);
+    if (collectionSlug) params.set("collection", collectionSlug);
     const query = params.toString();
     window.history.replaceState(
       null,
       "",
       query ? `?${query}` : window.location.pathname,
     );
-  }, [urlReady, search, selectedTopics, courseType, sort]);
+  }, [urlReady, search, selectedTopics, courseType, sort, collectionSlug]);
   useEffect(() => {
     try {
       const saved = localStorage.getItem("ce-catalog-layout");
@@ -109,6 +117,32 @@ export default function Catalog() {
     }
   }
   useEffect(() => {
+    api<CollectionSummary[]>("collections")
+      .then(setCollections)
+      .catch(() => setCollections([]));
+  }, []);
+  // The selected collection supplies its course list, summary and kind.
+  useEffect(() => {
+    if (!collectionSlug) {
+      setCollection(undefined);
+      return;
+    }
+    let current = true;
+    api<CollectionDetail>(`collections/${collectionSlug}`)
+      .then((detail) => current && setCollection(detail))
+      .catch(() => {
+        if (!current) return;
+        setCollection(undefined);
+        setCollectionSlug("");
+      });
+    return () => {
+      current = false;
+    };
+  }, [collectionSlug]);
+  const inCollection = collection
+    ? new Set(collection.offerings.map((o) => o.id))
+    : undefined;
+  useEffect(() => {
     api<Offering[]>("offerings")
       .then(setOfferings)
       .catch((e) => setError(e.message))
@@ -119,6 +153,7 @@ export default function Catalog() {
       (o) =>
         (selectedTopics.length === 0 || selectedTopics.includes(o.category)) &&
         (courseType === "all" || o.course_type === courseType) &&
+        (!collectionSlug || (inCollection?.has(o.id) ?? false)) &&
         `${o.title} ${o.summary}`.toLowerCase().includes(search.toLowerCase()),
     )
     .sort((a, b) =>
@@ -132,11 +167,15 @@ export default function Catalog() {
               a.title.localeCompare(b.title),
     );
   const filtersActive =
-    search !== "" || selectedTopics.length > 0 || courseType !== "all";
+    search !== "" ||
+    selectedTopics.length > 0 ||
+    courseType !== "all" ||
+    collectionSlug !== "";
   function clearFilters() {
     setSearch("");
     setSelectedTopics([]);
     setCourseType("all");
+    setCollectionSlug("");
   }
   return (
     <>
@@ -170,7 +209,7 @@ export default function Catalog() {
               gap: 2,
               gridTemplateColumns: {
                 xs: "1fr 1fr",
-                md: "minmax(0, 2fr) repeat(3, minmax(0, 1fr))",
+                md: "minmax(0, 2fr) repeat(4, minmax(0, 1fr))",
               },
             }}
           >
@@ -248,6 +287,25 @@ export default function Catalog() {
             </FormControl>
             <TextField
               select
+              label="Collection"
+              value={collectionSlug}
+              onChange={(e) => setCollectionSlug(e.target.value)}
+              sx={{ gridColumn: { xs: "1 / -1", md: "auto" } }}
+              slotProps={{
+                select: { displayEmpty: true },
+                inputLabel: { shrink: true },
+              }}
+            >
+              <MenuItem value="">All collections</MenuItem>
+              {collections.map((c) => (
+                <MenuItem key={c.slug} value={c.slug}>
+                  {c.title}
+                  {c.kind === "pathway" ? " (pathway)" : ""}
+                </MenuItem>
+              ))}
+            </TextField>
+            <TextField
+              select
               label="Course type"
               value={courseType}
               onChange={(e) =>
@@ -287,11 +345,13 @@ export default function Catalog() {
             }}
           >
             <Typography variant="h6" component="h2">
-              {selectedTopics.length === 0
-                ? "All courses"
-                : selectedTopics.length === 1
-                  ? selectedTopics[0]
-                  : "Selected courses"}
+              {collection
+                ? collection.title
+                : selectedTopics.length === 0
+                  ? "All courses"
+                  : selectedTopics.length === 1
+                    ? selectedTopics[0]
+                    : "Selected courses"}
             </Typography>
             <Stack direction="row" spacing={2} sx={{ alignItems: "center" }}>
               <Typography
@@ -332,6 +392,30 @@ export default function Catalog() {
               </ToggleButtonGroup>
             </Stack>
           </Stack>
+          {collection && (
+            <Paper
+              variant="outlined"
+              component="section"
+              aria-label={`About ${collection.title}`}
+              sx={{ p: 2, mb: 2 }}
+            >
+              <Typography variant="body2">{collection.summary}</Typography>
+              <Link
+                href={`/collections/${collection.slug}`}
+                sx={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 0.5,
+                  mt: 1,
+                }}
+              >
+                {collection.kind === "pathway"
+                  ? `View the ${collection.title} pathway in order`
+                  : `View the ${collection.title} collection`}
+                <ArrowForwardIcon fontSize="small" aria-hidden="true" />
+              </Link>
+            </Paper>
+          )}
           {error && <Alert severity="error">{error}</Alert>}
           {loading && <LoadingCards label="Loading courses" image />}
           {!loading && !error && filtered.length === 0 && (
