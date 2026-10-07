@@ -41,6 +41,7 @@ export type ExceptionRow = {
     actor: string;
     action: string;
     details: { reason?: string; attempt?: number };
+    actor_email: string | null;
     created_at: string;
   }[];
 };
@@ -61,7 +62,11 @@ export function StaffExceptions({
   rows,
   outcome,
   onChanged,
+  canResolve,
+  canSimulate,
 }: {
+  canResolve: boolean;
+  canSimulate: boolean;
   rows: ExceptionRow[];
   outcome: string;
   onChanged: (message: string) => Promise<void>;
@@ -134,15 +139,20 @@ export function StaffExceptions({
       setBusy(false);
     }
   }
-  const reviewButton = (row: ExceptionRow) => (
-    <Button
-      variant="outlined"
-      onClick={(event) => review(row, event.currentTarget)}
-      aria-label={`Review exception for ${learnerLabel(row)}, ${row.title}`}
-    >
-      Review
-    </Button>
-  );
+  const reviewButton = (row: ExceptionRow) =>
+    !canResolve ? (
+      <Typography variant="body2" color="text.secondary">
+        Support or IT/Canvas role required
+      </Typography>
+    ) : (
+      <Button
+        variant="outlined"
+        onClick={(event) => review(row, event.currentTarget)}
+        aria-label={`Review exception for ${learnerLabel(row)}, ${row.title}`}
+      >
+        Review
+      </Button>
+    );
 
   return (
     <>
@@ -161,6 +171,12 @@ export function StaffExceptions({
           label="Outcome for new payments"
           value={outcome}
           onChange={(e) => changeOutcome(e.target.value)}
+          disabled={!canSimulate}
+          helperText={
+            canSimulate
+              ? undefined
+              : "Changing the simulation requires the Support or IT/Canvas administrator role."
+          }
           sx={{ mt: 2, minWidth: { sm: 380 } }}
           fullWidth
         >
@@ -318,8 +334,13 @@ export function StaffExceptions({
                         color="text.secondary"
                       >
                         {" "}
-                        · {actorLabels[event.actor] ?? "Learner"} ·{" "}
-                        {when(event.created_at)}
+                        ·{" "}
+                        {event.actor_email ??
+                          actorLabels[event.actor] ??
+                          (event.actor.startsWith("demo-learner")
+                            ? "Learner"
+                            : event.actor)}{" "}
+                        · {when(event.created_at)}
                       </Typography>
                     </Typography>
                   ))}

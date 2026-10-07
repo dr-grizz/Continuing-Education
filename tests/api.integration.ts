@@ -9,14 +9,28 @@ const userIds: string[] = [];
 const ids: string[] = [],
   actors: string[] = [],
   httpKeys: string[] = [];
-async function http(path: string, token?: string, body?: unknown) {
+const staffIds: string[] = [];
+let adminStaffId = "";
+// Staff-token calls act as a demo staff member: the seeded administrator unless
+// `staffAs` names another member, or nobody when `staffAs` is null (sign-in only).
+async function http(
+  path: string,
+  token?: string,
+  body?: unknown,
+  staffAs?: string | null,
+) {
   const key = randomUUID();
   httpKeys.push(key);
+  const staffId =
+    token === process.env.STAFF_API_TOKEN && staffAs !== null
+      ? (staffAs ?? adminStaffId)
+      : undefined;
   return fetch(`http://127.0.0.1:3001/api/v1/${path}`, {
     method: body ? "POST" : "GET",
     headers: {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(staffId ? { "X-Prototype-Staff-Id": staffId } : {}),
       "Idempotency-Key": key,
     },
     body: body ? JSON.stringify(body) : undefined,
@@ -40,6 +54,10 @@ async function learner(): Promise<Principal> {
 }
 async function main() {
   try {
+    const staffByEmail = async (email: string) =>
+      (await db.query("SELECT id FROM staff_members WHERE email=$1", [email]))
+        .rows[0].id as string;
+    adminStaffId = await staffByEmail("admin@cuce.test");
     assert.equal((await http("me/learning")).status, 401);
     assert.equal(
       (await http("staff/offerings", process.env.LEARNER_API_TOKEN)).status,
@@ -888,6 +906,432 @@ async function main() {
     console.log(
       "PASS: unpublishing needs a reason, hides the offering and stops new registrations and payments while paid enrollment completes",
     );
+
+    // Staff roles and mock sign-in (ADR 0004).
+    const STAFF = process.env.STAFF_API_TOKEN;
+    const approverId = await staffByEmail("approver@cuce.test");
+    const catalogId = await staffByEmail("catalog@cuce.test");
+    const financeId = await staffByEmail("finance@cuce.test");
+    const supportId = await staffByEmail("support@cuce.test");
+    const directory = await http(
+      "prototype/staff-directory",
+      STAFF,
+      undefined,
+      null,
+    );
+    assert.equal(directory.status, 200);
+    assert.ok((await directory.json()).length >= 6);
+    assert.equal(
+      (await http("staff/me", STAFF, undefined, null)).status,
+      403,
+      "the bare staff token only signs in",
+    );
+    assert.equal(
+      (await http("staff/offerings", STAFF, undefined, null)).status,
+      403,
+    );
+    const signIn = await http(
+      "prototype/staff-sessions",
+      STAFF,
+      { email: "Approver@CUCE.TEST" },
+      null,
+    );
+    assert.equal(signIn.status, 200);
+    assert.equal((await signIn.json()).id, approverId);
+    assert.equal(
+      (
+        await http(
+          "prototype/staff-sessions",
+          STAFF,
+          { email: "nobody@cuce.test" },
+          null,
+        )
+      ).status,
+      404,
+    );
+    const me = await (
+      await http("staff/me", STAFF, undefined, approverId)
+    ).json();
+    assert.deepEqual(me.roles, ["approver"]);
+    assert.ok(
+      me.scopes.includes("approvals:decide") &&
+        !me.scopes.includes("catalog:write"),
+    );
+
+    const draftBody = {
+      title: "Role test draft",
+      category: "Technology",
+      summary: "Role test summary text",
+      description: "Role test description for scope checks",
+      format: "Online",
+      courseType: "self_paced",
+      capacity: 2,
+      priceCents: 100,
+      approvalRequired: true,
+    };
+    assert.equal(
+      (await http("offerings", STAFF, draftBody, approverId)).status,
+      403,
+      "approver cannot create offerings",
+    );
+    assert.equal(
+      (await http("staff/offerings", STAFF, undefined, approverId)).status,
+      200,
+      "every staff role can view",
+    );
+    const created = await http("offerings", STAFF, draftBody, catalogId);
+    assert.equal(created.status, 201, "catalog manager can create offerings");
+    const roleDraft = await created.json();
+    ids.push(roleDraft.id);
+    assert.equal(
+      (
+        await http(
+          `offerings/${roleDraft.id}/publish`,
+          STAFF,
+          { version: roleDraft.version },
+          catalogId,
+        )
+      ).status,
+      201,
+    );
+    const roleLearner = await learner();
+    const roleRequest: any = await service.register(
+      roleLearner,
+      randomUUID(),
+      roleDraft.id,
+    );
+    assert.equal(roleRequest.status, "awaiting_approval");
+    assert.equal(
+      (
+        await http(
+          `approval-requests/${roleRequest.id}/decision`,
+          STAFF,
+          { decision: "approved" },
+          catalogId,
+        )
+      ).status,
+      403,
+      "catalog manager cannot decide approvals",
+    );
+    assert.equal(
+      (
+        await http(
+          `approval-requests/${roleRequest.id}/decision`,
+          STAFF,
+          { decision: "approved" },
+          approverId,
+        )
+      ).status,
+      201,
+    );
+    const decided = (
+      await db.query(
+        "SELECT actor FROM audit_events WHERE object_id=$1 AND action='approval.approved'",
+        [roleRequest.id],
+      )
+    ).rows[0];
+    assert.equal(
+      decided.actor,
+      `staff:${approverId}`,
+      "audit records the individual staff member",
+    );
+    const report = await (
+      await http("reconciliation", STAFF, undefined, financeId)
+    ).json();
+    const labeled = report.audit.find(
+      (entry: any) =>
+        entry.object_id === roleRequest.id &&
+        entry.action === "approval.approved",
+    );
+    assert.equal(labeled.actor_email, "approver@cuce.test");
+    assert.equal(
+      (
+        await http(
+          "prototype/simulation",
+          STAFF,
+          { provisioningOutcome: "normal" },
+          financeId,
+        )
+      ).status,
+      403,
+      "finance cannot change the simulation",
+    );
+    const currentOutcome = (await service.simulation()).provisioningOutcome;
+    assert.equal(
+      (
+        await http(
+          "prototype/simulation",
+          STAFF,
+          { provisioningOutcome: currentOutcome },
+          supportId,
+        )
+      ).status,
+      200,
+    );
+    assert.equal(
+      (await http("staff/members", STAFF, undefined, supportId)).status,
+      403,
+      "only staff administrators manage staff",
+    );
+    console.log(
+      "PASS: mock staff sign-in; role scopes gate catalog, approvals, simulation and staff management; audit names the staff member",
+    );
+
+    const newEmail = `role-test-${randomUUID().slice(0, 8)}@cuce.test`;
+    const added = await http("staff/members", STAFF, {
+      email: newEmail.toUpperCase(),
+      displayName: "Role Test",
+      roles: ["finance"],
+    });
+    assert.equal(added.status, 201);
+    const addedMember = await added.json();
+    staffIds.push(addedMember.id);
+    assert.equal(addedMember.email, newEmail);
+    assert.equal(
+      (
+        await http("staff/members", STAFF, {
+          email: newEmail,
+          displayName: "Duplicate",
+          roles: ["finance"],
+        })
+      ).status,
+      409,
+    );
+    assert.equal(
+      (
+        await http("staff/members", STAFF, {
+          email: `x-${newEmail}`,
+          displayName: "No roles",
+          roles: [],
+        })
+      ).status,
+      400,
+    );
+    const promoted = await http(`staff/members/${addedMember.id}`, STAFF, {
+      version: addedMember.version,
+      displayName: "Role Test",
+      roles: ["finance", "catalog_manager"],
+      active: true,
+    });
+    assert.equal(promoted.status, 200);
+    const promotedMember = await promoted.json();
+    assert.ok(
+      (
+        await (await http("staff/me", STAFF, undefined, addedMember.id)).json()
+      ).scopes.includes("catalog:write"),
+    );
+    const deactivated = await http(`staff/members/${addedMember.id}`, STAFF, {
+      version: promotedMember.version,
+      displayName: "Role Test",
+      roles: ["finance"],
+      active: false,
+    });
+    assert.equal(deactivated.status, 200);
+    assert.equal(
+      (await http("staff/me", STAFF, undefined, addedMember.id)).status,
+      401,
+      "inactive staff cannot act",
+    );
+    const admin = (
+      await db.query("SELECT version FROM staff_members WHERE id=$1", [
+        adminStaffId,
+      ])
+    ).rows[0];
+    const lockout = await http(`staff/members/${adminStaffId}`, STAFF, {
+      version: admin.version,
+      displayName: "Demo Staff Administrator",
+      roles: ["approver"],
+      active: true,
+    });
+    assert.equal(
+      lockout.status,
+      409,
+      "the last active staff administrator cannot be removed",
+    );
+    assert.match(
+      (await lockout.json()).message,
+      /At least one active staff administrator/,
+    );
+    const roles = await (
+      await http("staff/roles", STAFF, undefined, approverId)
+    ).json();
+    assert.equal(roles.length, 6);
+    assert.ok(
+      roles
+        .find((r: any) => r.role === "staff_admin")
+        .members.some((m: any) => m.id === adminStaffId),
+    );
+    console.log(
+      "PASS: staff administrators add members, change roles and deactivate access; the last administrator is protected",
+    );
+
+    // Learner management (staff Learners tab).
+    const managedEmail = `learner-mgmt-${randomUUID().slice(0, 8)}@example.test`;
+    const managedLearner: any = await service.demoUser(managedEmail);
+    userIds.push(managedLearner.id);
+    const mgmtOffering = await seed(false);
+    await service.register(
+      {
+        actor: `demo-learner:${managedLearner.id}`,
+        learnerId: managedLearner.id,
+        scopes: ["learner"],
+      },
+      randomUUID(),
+      mgmtOffering,
+    );
+    const learnerList = await (
+      await http(
+        `staff/learners?search=${encodeURIComponent(managedEmail)}`,
+        STAFF,
+        undefined,
+        approverId,
+      )
+    ).json();
+    assert.equal(learnerList.length, 1);
+    assert.deepEqual(
+      {
+        registrations: learnerList[0].registrations,
+        in_progress: learnerList[0].in_progress,
+        active: learnerList[0].active,
+      },
+      { registrations: 1, in_progress: 1, active: true },
+    );
+    const detail = await (
+      await http(
+        `staff/learners/${managedLearner.id}`,
+        STAFF,
+        undefined,
+        financeId,
+      )
+    ).json();
+    assert.equal(detail.registrations[0].status, "reserved");
+    assert.ok(
+      detail.activity.some((event: any) => event.action === "seat.reserved"),
+    );
+    const deactivate = {
+      version: detail.version,
+      active: false,
+      reason: "Duplicate account (integration test).",
+    };
+    assert.equal(
+      (
+        await http(
+          `staff/learners/${managedLearner.id}/access`,
+          STAFF,
+          deactivate,
+          approverId,
+        )
+      ).status,
+      403,
+      "approver cannot change learner access",
+    );
+    assert.equal(
+      (
+        await http(
+          `staff/learners/${managedLearner.id}/access`,
+          STAFF,
+          { ...deactivate, reason: "short" },
+          supportId,
+        )
+      ).status,
+      400,
+    );
+    assert.equal(
+      (
+        await http(
+          `staff/learners/${managedLearner.id}/access`,
+          STAFF,
+          deactivate,
+          supportId,
+        )
+      ).status,
+      200,
+    );
+    const asLearner = await fetch("http://127.0.0.1:3001/api/v1/me/learning", {
+      headers: {
+        Authorization: `Bearer ${process.env.LEARNER_API_TOKEN}`,
+        "X-Prototype-Learner-Id": managedLearner.id,
+      },
+    });
+    assert.equal(asLearner.status, 401, "deactivated learners cannot act");
+    await assert.rejects(
+      service.demoUser(managedEmail),
+      /deactivated/,
+      "deactivated learners cannot sign in",
+    );
+    assert.equal(
+      (
+        await http(
+          `staff/learners/${managedLearner.id}/access`,
+          STAFF,
+          deactivate,
+          supportId,
+        )
+      ).status,
+      409,
+      "stale version or same state is refused",
+    );
+    const deactivatedDetail = await (
+      await http(
+        `staff/learners/${managedLearner.id}`,
+        STAFF,
+        undefined,
+        supportId,
+      )
+    ).json();
+    assert.ok(deactivatedDetail.deactivated_at && !deactivatedDetail.active);
+    assert.equal(
+      (
+        await http(
+          `staff/learners/${managedLearner.id}/access`,
+          STAFF,
+          {
+            version: deactivatedDetail.version,
+            active: true,
+            reason: "Confirmed not a duplicate (test).",
+          },
+          supportId,
+        )
+      ).status,
+      200,
+    );
+    assert.equal(
+      (await service.demoUser(managedEmail)).id,
+      managedLearner.id,
+      "reactivated learners can sign in",
+    );
+    const legacyDetail = await (
+      await http(`staff/learners/${DEMO_LEARNER}`, STAFF, undefined, supportId)
+    ).json();
+    assert.equal(
+      (
+        await http(
+          `staff/learners/${DEMO_LEARNER}/access`,
+          STAFF,
+          {
+            version: legacyDetail.version,
+            active: false,
+            reason: "Must not be allowed (test).",
+          },
+          supportId,
+        )
+      ).status,
+      409,
+    );
+    const accessEvents = (
+      await db.query(
+        "SELECT action, actor FROM audit_events WHERE object_id=$1 AND action LIKE 'learner.%' ORDER BY id",
+        [managedLearner.id],
+      )
+    ).rows;
+    assert.deepEqual(
+      accessEvents.map((e) => e.action),
+      ["learner.deactivated", "learner.reactivated"],
+    );
+    assert.equal(accessEvents[0].actor, `staff:${supportId}`);
+    console.log(
+      "PASS: staff list and inspect learners; Support deactivates and reactivates access with a reason; deactivated learners are blocked; legacy learner protected",
+    );
   } finally {
     await db.query(
       "DELETE FROM operations WHERE entitlement_id IN (SELECT id FROM entitlements WHERE offering_id=ANY($1::uuid[]))",
@@ -910,6 +1354,16 @@ async function main() {
       [actors, httpKeys],
     );
     await db.query("DELETE FROM offerings WHERE id=ANY($1::uuid[])", [ids]);
+    await db.query(
+      "DELETE FROM audit_events WHERE object_id=ANY($1::uuid[]) OR actor=ANY($2::text[])",
+      [staffIds, staffIds.map((id) => `staff:${id}`)],
+    );
+    await db.query("DELETE FROM staff_members WHERE id=ANY($1::uuid[])", [
+      staffIds,
+    ]);
+    await db.query("DELETE FROM audit_events WHERE object_id=ANY($1::uuid[])", [
+      userIds,
+    ]);
     await db.query("DELETE FROM learners WHERE id=ANY($1::uuid[])", [userIds]);
     await db.end();
   }

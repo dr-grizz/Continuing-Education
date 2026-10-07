@@ -28,8 +28,13 @@ import { PrototypeGuard, requireScope } from "./auth";
 import {
   DemoUserDto,
   DecisionDto,
+  LearnerAccessDto,
+  LearnerQueryDto,
   ExceptionActionDto,
   SimulationDto,
+  StaffMemberDto,
+  StaffSessionDto,
+  StaffUpdateDto,
   UnpublishDto,
   OfferingDto,
   OfferingEditDto,
@@ -62,6 +67,12 @@ class CatalogController {
   required: false,
   description:
     "Select an existing demo learner with the learner token. Omit for legacy sample learner. Mock identity only.",
+})
+@ApiHeader({
+  name: "X-Prototype-Staff-Id",
+  required: false,
+  description:
+    "Select an active demo staff member with the staff token; their roles decide the allowed scopes. Mock identity only.",
 })
 @ApiHeader({
   name: "Idempotency-Key",
@@ -118,7 +129,7 @@ class WorkflowController {
     return this.portal.operation(id, req.principal);
   }
   @Get("staff/offerings") staffList(@Req() req: any, @Query() query: QueryDto) {
-    requireScope(req, "catalog:write");
+    requireScope(req, "staff:read");
     return this.portal.list(query, true);
   }
   @Post("offerings") create(
@@ -177,7 +188,7 @@ class WorkflowController {
   @Get("offerings/:id/prices")
   @ApiOperation({ summary: "Append-only price history, newest first" })
   prices(@Req() req: any, @Param("id", ParseUUIDPipe) id: string) {
-    requireScope(req, "catalog:write");
+    requireScope(req, "staff:read");
     return this.portal.prices(id);
   }
   @Post("offerings/:id/settings")
@@ -196,7 +207,7 @@ class WorkflowController {
     return this.portal.updateSettings(req.principal, key, id, dto);
   }
   @Get("approval-requests") approvals(@Req() req: any) {
-    requireScope(req, "approvals:decide");
+    requireScope(req, "staff:read");
     return this.portal.approvals();
   }
   @Post("approval-requests/:id/decision") decide(
@@ -226,7 +237,7 @@ class WorkflowController {
     @Headers("idempotency-key") key: string,
     @Body() dto: SimulationDto,
   ) {
-    requireScope(req, "exceptions:resolve");
+    requireScope(req, "prototype:simulate");
     return this.portal.setSimulation(
       req.principal,
       key,
@@ -268,6 +279,96 @@ class WorkflowController {
   ) {
     requireScope(req, "exceptions:resolve");
     return this.portal.recover(req.principal, key, id, "resolve", dto.reason);
+  }
+  @Post("prototype/staff-sessions")
+  @HttpCode(200)
+  @ApiOperation({
+    summary:
+      "PROTOTYPE ONLY: mock staff sign-in by email (no password); SSO replaces this later",
+  })
+  staffSession(@Req() req: any, @Body() dto: StaffSessionDto) {
+    requireScope(req, "staff:session");
+    return this.portal.staffSession(dto.email);
+  }
+  @Get("prototype/staff-directory")
+  @ApiOperation({
+    summary: "PROTOTYPE ONLY: active demo staff for mock sign-in",
+  })
+  staffDirectory(@Req() req: any) {
+    requireScope(req, "staff:session");
+    return this.portal.staffDirectory();
+  }
+  @Get("staff/me")
+  @ApiOperation({ summary: "The selected staff member, roles and scopes" })
+  staffMe(@Req() req: any) {
+    requireScope(req, "staff:read");
+    return this.portal.staffMe(req.principal);
+  }
+  @Get("staff/roles")
+  @ApiOperation({ summary: "Role catalog: labels, descriptions and scopes" })
+  staffRolesCatalog(@Req() req: any) {
+    requireScope(req, "staff:read");
+    return this.portal.roleCatalog();
+  }
+  @Get("staff/members")
+  staffMembers(@Req() req: any) {
+    requireScope(req, "staff:manage");
+    return this.portal.staffMembers();
+  }
+  @Post("staff/members")
+  createStaff(
+    @Req() req: any,
+    @Headers("idempotency-key") key: string,
+    @Body() dto: StaffMemberDto,
+  ) {
+    requireScope(req, "staff:manage");
+    return this.portal.createStaff(req.principal, key, dto);
+  }
+  @Post("staff/members/:id")
+  @HttpCode(200)
+  @ApiOperation({
+    summary:
+      "Update name, roles or active status (version-checked; keeps one active staff administrator)",
+  })
+  updateStaff(
+    @Req() req: any,
+    @Headers("idempotency-key") key: string,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body() dto: StaffUpdateDto,
+  ) {
+    requireScope(req, "staff:manage");
+    return this.portal.updateStaff(req.principal, key, id, dto);
+  }
+  @Get("staff/learners")
+  @ApiOperation({
+    summary: "Learners with registration counts (search by email)",
+  })
+  staffLearners(@Req() req: any, @Query() query: LearnerQueryDto) {
+    requireScope(req, "staff:read");
+    return this.portal.staffLearners(query.search);
+  }
+  @Get("staff/learners/:id")
+  @ApiOperation({
+    summary: "Learner profile, registrations and recent activity",
+  })
+  staffLearner(@Req() req: any, @Param("id", ParseUUIDPipe) id: string) {
+    requireScope(req, "staff:read");
+    return this.portal.staffLearner(id);
+  }
+  @Post("staff/learners/:id/access")
+  @HttpCode(200)
+  @ApiOperation({
+    summary:
+      "Deactivate or reactivate a learner account with an audited reason (version-checked)",
+  })
+  setLearnerAccess(
+    @Req() req: any,
+    @Headers("idempotency-key") key: string,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body() dto: LearnerAccessDto,
+  ) {
+    requireScope(req, "learners:manage");
+    return this.portal.setLearnerAccess(req.principal, key, id, dto);
   }
   @Get("reconciliation") report(@Req() req: any) {
     requireScope(req, "reports:read");

@@ -164,6 +164,43 @@ Automated accessibility scanning and a real screen-reader session remain outstan
 
 ## Latest implementation record
 
+October 7, 2026: learner management, plus two UI requests (branch `staff-roles`).
+- **Database:** migration `3_learner_access` adds `learners.active`, `deactivated_at` (CHECK: set exactly when inactive) and `version`. The main database was backed up before applying it.
+- **API:**
+  - `GET /staff/learners` (search, registration counts, last activity) and `GET /staff/learners/{id}` (registrations, payments, jobs and recent activity), for any staff member.
+  - `POST /staff/learners/{id}/access` (version-checked, reason required, audited as `learner.deactivated` or `learner.reactivated`), which needs the new `learners:manage` scope, granted to Support.
+  - Deactivated learners are refused at mock sign-in (403) and on every learner request (401). Existing paid enrollments continue. The legacy sample learner cannot be deactivated.
+- **UI:** a new **Learners** tab (search, sort, paging, cards on phones) with a Learner details dialog and the account-access action. The staff sign-in panel is centered. The **Users** tab is renamed **Staff**, with the list headed "Staff members". Audit labels now include the offering, staff and learner events.
+- **Verification:**
+  - Integration suite 17/17. The new group covers list counts, details, the Support-only access change, reason validation, blocking of deactivated learners, reactivation, stale-state refusal, legacy protection and audit actors.
+  - Browser check from the keyboard:
+    - the centered sign-in panel
+    - the approver's view-only learner details, with focus returning to View
+    - as Support, deactivating with reason validation (sign-in refused), then reactivating
+
+    The walkthrough audit entries were removed afterwards.
+
+October 7, 2026: staff roles with mock staff sign-in, plus user and role management UIs ([ADR 0004](../adr/0004-staff-roles-mock-sign-in.md)), on branch `staff-roles`.
+- **Database:** migration `2_staff_roles` adds the `staff_role` enum and the `staff_members` table, with an email check, an at-least-one-role check and reserved SSO columns. It seeds six synthetic demo staff.
+- **API:**
+  - Roles map to scopes in `src/server/roles.ts`.
+  - The staff token alone now only runs mock sign-in. Acting requires `X-Prototype-Staff-Id`, and the guard grants that active member's scopes.
+  - Audit actors are `staff:<id>`, and the activity log and exception history show the member's email.
+  - New endpoints: `staff/me`, `staff/roles`, `staff/members` (list, create, update), `prototype/staff-sessions` and `prototype/staff-directory`.
+  - Read endpoints moved to `staff:read`. The simulation needs `prototype:simulate`.
+  - The last active staff administrator is protected.
+- **UI:** staff sign-in screen, session bar with Switch staff member, permission-aware actions, and the Users and Roles tabs. A server failure now moves focus to the error summary in the staff and offering forms.
+- **Verification:**
+  - Two new integration groups: role scopes gate catalog, approvals, simulation and staff management, and audit names the member; staff administrators add, promote and deactivate members, and the last administrator is protected. Suite: 16/16. Migration tests: 9/9.
+  - Browser check from the keyboard:
+    - sign-in, then the approver's view-only offerings, hidden Users tab and Roles tab
+    - administrator: Roles → Manage people filtered to Approver
+    - add-staff validation summary and a successful add with roles
+    - the self-lockout refusal, with the error summary focused
+
+    The walkthrough staff member was removed afterwards.
+- **Demo staff domain:** seeded demo staff use the reserved `@cuce.test` domain, for example `approver@cuce.test`. An interim rename to `@cu.edu`, which may be a real institution's domain, was folded back into the unshared `2_staff_roles` seed. The local database was backed up first and its migration history corrected to match.
+
 October 6, 2026: converted four status and type columns to PostgreSQL enums (issue #2 follow-up).
 - **Migration:** `prisma/migrations/1_status_enums` converts `course_type`, `entitlements.status`, `operations.status` and `operations.simulated_outcome` in place, replacing four value-list checks and recreating the schedule rule. Prisma's draft would have dropped and re-added the columns, deleting their data, so the migration was rewritten by hand.
 - **Code:** request validation now reads the allowed values from the generated `CourseType` and `SimulatedOutcome` enums, and raw SQL casts parameters written to enum columns.

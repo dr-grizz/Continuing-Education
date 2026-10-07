@@ -178,7 +178,7 @@ Enforce atomic capacity reservation and one active entitlement per learner/offer
 
 | Source assumption or gap | Implementation treatment |
 | --- | --- |
-| Canvas Catalog is not actively maintained | Remove that unsupported rationale. Instructure currently offers [Canvas Catalog](https://www.instructure.com/canvas/catalog). Retain the custom-portal direction provisionally; document its fit/cost justification with the sponsor before major integration work. |
+| Canvas Catalog is not actively maintained | Remove that unsupported rationale. Instructure currently offers [Canvas Catalog](https://www.instructure.com/canvas/catalog). **Decided October 6, 2026:** Catalog does not fit the program's requirements; build the custom portal ([ADR 0003](adr/0003-custom-portal-not-canvas-catalog.md)). The specific unmet requirements are still to be recorded in the ADR. |
 | A 30-minute hold always guarantees a paid seat | Use atomic capacity allocation and Stripe session reconciliation. Disable delayed payment methods for the initial pilot. A later delayed-payment release must retain capacity while processing or define a Finance-approved exception/refund policy. |
 | Browser cancellation releases a seat | A return/cancel page is not authoritative. Release only after confirmed expiration/cancellation semantics; reconcile sessions if webhooks are delayed. Stripe supports expiration from 30 minutes to 24 hours and sends an expiration event. See [Stripe inventory guidance](https://docs.stripe.com/payments/checkout/managing-limited-inventory). |
 | Email code cannot be used on another device | Bind the code challenge to the requesting browser/session and enforce attempt limits. A code alone does not establish that property. Have Security approve recovery and account-linking behavior. |
@@ -678,7 +678,7 @@ Milestones are dependency based, not promised dates. Start content migration and
 
 Owners: portal lead, Program Operations, IT Identity, Canvas Administration, Finance and Security.
 
-Deliver the domain glossary; ADRs for build-versus-buy, UI library, backend/hosting, authentication and job persistence; identity API mock and versioned contract; approved Canvas mapping; and a decision register with owner/due date. Confirm approval, capacity, tax, refund/dispute, age, retention, expiry and recovery policies.
+Deliver the domain glossary; ADRs for build-versus-buy, UI library, backend/hosting, authentication and job persistence; identity API mock and versioned contract; approved Canvas mapping; and a decision register with owner/due date (maintained in [docs/decision-register.md](decision-register.md)). Confirm approval, capacity, tax, refund/dispute, age, retention, expiry and recovery policies.
 
 Identity contract covers `findIdentity`, asynchronous Courtesy provisioning/status, setting expiry earlier or later, identity status, disablement and reinstatement. Include idempotency, error taxonomy, ambiguous-match handling, least-data responses and proof of portal sponsorship. Permanent deletion is not a portal operation.
 

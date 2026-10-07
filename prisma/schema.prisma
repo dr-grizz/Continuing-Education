@@ -58,11 +58,16 @@ model entitlements {
 
 /// Demo learner. The email-less row 00000000-0000-4000-8000-000000000001 is the legacy sample learner.
 model learners {
-  id           String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  id             String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   /// CHECK learners_email_check: lowercase, trimmed, 3-254 characters. Null only for the legacy learner.
-  email        String?        @unique
-  created_at   DateTime       @default(now()) @db.Timestamptz(6)
-  entitlements entitlements[]
+  email          String?        @unique
+  created_at     DateTime       @default(now()) @db.Timestamptz(6)
+  /// Deactivated learners cannot sign in or act; existing enrollments continue.
+  active         Boolean        @default(true)
+  /// Set while deactivated. CHECK learners_access_check: set exactly when active is false.
+  deactivated_at DateTime?      @db.Timestamptz(6)
+  version        Int            @default(1)
+  entitlements   entitlements[]
 }
 
 /// Price history. TRIGGER offering_prices_no_update (function offering_prices_append_only)
@@ -199,4 +204,38 @@ enum SimulatedOutcome {
   canvas_failure
 
   @@map("simulated_outcome")
+}
+
+/// Staff role, mapped to permission scopes in src/server/roles.ts. The first five are the
+/// plan's M5 roles; staff_admin (manage staff and roles) is a prototype proposal.
+enum StaffRole {
+  approver
+  catalog_manager
+  support
+  finance
+  it_canvas_admin
+  staff_admin
+
+  @@map("staff_role")
+}
+
+/// Staff directory. Prototype sign-in is mock (pick a member, no password); an SSO add-on
+/// later sets auth_provider/external_subject and resolves verified identities to a row.
+/// CHECK staff_members_email_check: lowercase, trimmed, 3-254 characters.
+model staff_members {
+  id               String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email            String      @unique
+  display_name     String
+  /// One or more roles; their scopes are combined. CHECK staff_members_roles_check: at least one.
+  roles            StaffRole[]
+  /// Inactive members cannot sign in or act.
+  active           Boolean     @default(true)
+  /// "mock" today; an SSO add-on records its provider here.
+  auth_provider    String      @default("mock")
+  /// Provider subject (for example an SSO "sub"); null for mock members.
+  external_subject String?
+  version          Int         @default(1)
+  created_at       DateTime    @default(now()) @db.Timestamptz(6)
+
+  @@unique([auth_provider, external_subject])
 }

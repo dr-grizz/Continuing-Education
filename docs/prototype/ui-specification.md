@@ -192,7 +192,17 @@ Mock sign-in. The Email field (`autoComplete="username"`) and Password field (`c
 
 ### Staff (`/staff`)
 
-Header with the API documentation link and the demo-access info note. Tabs: Offerings, Approvals (count), Exceptions (count), Activity. The tab row scrolls on phones, with scroll arrows shown.
+- **Staff sign-in (mock, [ADR 0004](../adr/0004-staff-roles-mock-sign-in.md)):** shown when no staff session exists.
+  - A radio group lists active demo staff (name, email, role chips) inside a labelled fieldset.
+  - "Sign in as staff" submits; an inline error appears if nobody is chosen.
+  - An info note says SSO replaces this screen later.
+- **Staff session bar:** "Signed in as {name} ({email})", role chips, and **Switch staff member**, which returns to sign-in. The workspace remounts per member, so no data or tab carries over.
+- **Permission-aware UI:** controls appear only when the member's scopes allow them; the API still enforces every scope.
+  - Without `catalog:write`, Offerings shows a view-only note and hides New offering, Edit, Publish and Unpublish.
+  - Without `approvals:decide`, Approvals shows "Approver role required" in place of the decision buttons.
+  - Without `exceptions:resolve`, Exceptions shows "Support or IT/Canvas role required" instead of Review.
+  - Without `prototype:simulate`, the simulation select is disabled with an explanation.
+- **Header and tabs:** the header keeps the API documentation link. Tabs are Offerings, Approvals (count), Exceptions (count), Activity, **Learners**, **Staff** (staff administrators only) and **Roles**. The tab row scrolls on phones, with scroll arrows shown.
 
 - **Offerings:**
   - Search by title, Status filter (All, Published, Draft), live count.
@@ -239,6 +249,29 @@ Header with the API documentation link and the demo-access info note. Tabs: Offe
   - Search across event, course and learner.
   - Sortable Time (default newest first), Event and By columns, plus a Details column with the course and the affected learner.
   - Shows the 200 most recent events (API limit), paged on the client.
+
+- **Learners** (`src/web/components/staff-learners.tsx`, all staff):
+  - Search by email, a live "N of M learners" count, a sort select on phones, and paging.
+  - A table at `md` and wider (cards below): Learner, Registrations (with enrolled and in-progress counts), access status (Active or Deactivated), Joined, Last activity, View. Learner, Registrations, Joined and Last activity are sortable.
+  - **View** opens Learner details:
+    - Email, join date and any deactivation date.
+    - Registrations: course, status in learner wording, paid or quoted price, date.
+    - Recent activity: up to 50 events, with reasons.
+  - **Account access** (requires `learners:manage`, held by Support): a required Reason field (10–500 characters, audited, inline error) and **Deactivate learner** (error color) or **Reactivate learner**.
+    - Others see "Changing account access requires the Support role."
+    - The legacy sample learner cannot be deactivated.
+    - Focus returns to the View button on close.
+- **Staff** (`src/web/components/staff-admin.tsx`, requires `staff:manage`):
+  - A Role filter (fed by Roles → Manage people) and a live "N of M staff members" count.
+  - A table on tablets and desktops, cards on phones: Name ("(you)" marks yourself), Email, role chips, Active/Inactive, Edit.
+  - **Add staff member** and **Edit** open one dialog that follows the Forms pattern. Fields:
+    - Name (2–120 characters).
+    - Email (create only; locked when editing).
+    - Roles (checkbox fieldset, at least one).
+    - Active switch (edit only).
+  - Editing yourself shows a warning.
+  - A server rejection, such as removing the last active staff administrator, appears in the error summary, which receives focus.
+- **Roles:** one card per role with its description, its permissions in plain language, and the people who hold it (inactive people are marked). Staff administrators get **Manage people**, which opens the Staff tab filtered to that role. Role permissions are read-only.
 
 ## Known gaps
 
