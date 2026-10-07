@@ -11,16 +11,9 @@ import {
 import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
 import ArrowDownwardIcon from "@mui/icons-material/ArrowDownward";
 import CloseIcon from "@mui/icons-material/Close";
+import { visuallyHidden } from "./visually-hidden";
 
 export type OrderedOption = { id: string; title: string; note?: string };
-const visuallyHidden = {
-  position: "absolute",
-  width: 1,
-  height: 1,
-  overflow: "hidden",
-  clip: "rect(0 0 0 0)",
-  whiteSpace: "nowrap",
-} as const;
 
 // Keyboard-operable ordered picker: add from a select, move up or down, remove.
 // Focus stays on the moved item's arrow (switching arrows at the ends) or moves

@@ -39,7 +39,7 @@ Resolved October 5, 2026: My learning no longer loses keyboard focus (focus move
 
 | Gap | Current behavior | Needed | Milestone |
 | --- | --- | --- | --- |
-| Accessibility evidence | Keyboard, focus, contrast and 320–375px reflow are checked. Automated axe scans of the key pages and staff dialogs run in CI (October 7, 2026). No screen-reader session, forced-colors, 200–400% zoom or cross-browser review has been recorded | Complete the README checklist for catalog, sign-in, registration, learner status and staff dialogs/tables; record findings | M1 exit; release gate |
+| Accessibility evidence | Keyboard, focus, contrast and 320–375px reflow are checked. Automated checks run in CI (October 7, 2026): axe scans of the key pages and staff dialogs in Chrome, Firefox and WebKit, forced colors, and reflow at 320 px with 200% text and increased text spacing. No screen-reader session has been recorded; deferred on October 7, 2026, and still required | Run the [VoiceOver review script](prototype/screen-reader-review.md) and record findings before the closed pilot | M1 exit; release gate |
 | Pending and declined learner messages | API behavior is verified; the browser view as the affected learner is not | Review both states in the browser as the learner | M2 |
 | Catalog and staff paging | The API returns up to 100 offerings and 200 audit events; the catalog has no pagination; staff sorting and paging are client-side within those limits | Server-side search, sort and paging before catalog or audit volume approaches the limits | M2 |
 | Brand baseline | Figtree, a free font similar to Proxima Nova (the cedarville.edu font), is used; colors are provisional and copy is unreviewed | Cedarville Marketing to approve Figtree as the substitute or supply a licensed brand font; approve colors, logo use and content | M1 exit |
@@ -169,9 +169,9 @@ The dashboards:
 ### Explore landing tab
 
 - **What:** the catalog opens on an **Explore** tab beside the complete **Courses**, **Collections** and **Pathways** tabs. It features up to 5 courses first, then 3 pathways and 3 collections Personal next steps live in My learning instead: enrolled courses (Enrolled courses) above registrations in progress, and a **Next** marker on each followed pathway.
-- **Selection:** staff with `catalog:write` choose and order the picks on **Staff → Explore page**, saved as one audited change. Empty spots fill automatically (open scheduled courses by soonest start, then the newest self-paced courses; newest collections and pathways). Only published items can be picked, and unpublishing removes a pick. Popularity ranking was rejected: with little data it is noise, and it keeps the same items on top.
+- **Selection:** catalog managers (`catalog:write`) and content editors (`content:write`) choose and order the picks on **Staff → Explore page**, saved as one audited change (decision F12). Empty spots fill automatically (open scheduled courses by soonest start, then the newest self-paced courses; newest collections and pathways). Only published items can be picked, and unpublishing removes a pick. Popularity ranking was rejected: with little data it is noise, and it keeps the same items on top.
 - **Prototype (October 7, 2026):** built as above. A For you section on Explore was tried and removed at review; its next-step marker moved to My learning. The former hard-coded three-course spotlight was replaced; its picks were carried over as the first featured courses.
-- **Open:** whether Marketing or the Content editor role (F2) should own the picks; the pathway **Next** marker switches to completion-based progress after the Canvas connection (F11).
+- **Open:** the pathway **Next** marker switches to completion-based progress after the Canvas connection (F11).
 
 
 - **What:** a monthly or yearly fee that gives continuing access.

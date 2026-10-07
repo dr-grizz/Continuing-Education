@@ -18,6 +18,7 @@ import {
 } from "@mui/material";
 import DownloadIcon from "@mui/icons-material/Download";
 import { api, money, Offering } from "./api";
+import { visuallyHidden } from "./visually-hidden";
 
 type Point = { bucket: string; value: number };
 type Dashboard = {
@@ -86,14 +87,6 @@ const ranges: Record<string, string> = {
   "365": "Last 12 months",
   "0": "All time",
 };
-const visuallyHidden = {
-  position: "absolute",
-  width: 1,
-  height: 1,
-  overflow: "hidden",
-  clip: "rect(0 0 0 0)",
-  whiteSpace: "nowrap",
-} as const;
 const bucketLabel = (bucket: string, size: string, long = false) => {
   const date = new Date(`${bucket}T12:00:00`);
   if (size === "month")

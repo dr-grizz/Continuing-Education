@@ -22,7 +22,7 @@ Real authentication (university SSO with MFA for staff) is not available yet. Pr
     | Finance | `reports:sales` (sales figures on the dashboard; refunds arrive in M5) |
     | IT/Canvas administrator | `exceptions:resolve`, `prototype:simulate` |
     | Staff administrator | `staff:manage` |
-    | Content editor (added Oct 7, 2026) | `content:write`, reserved for the planned sales page editor; no endpoint uses it yet |
+    | Content editor (added Oct 7, 2026) | `content:write`: Explore tab picks (decision F12, shared with `catalog:write`); reserved for the planned sales page editor |
 
   - Role permissions are fixed in code. Staff administrators assign roles to people but cannot change what a role allows.
 - **Mock staff sign-in:** the staff token alone grants only `staff:session`, which allows looking up the staff directory and running mock sign-in.

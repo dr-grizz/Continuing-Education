@@ -22,6 +22,7 @@ import {
 } from "../../../components/api";
 import { useDemoAuth } from "../../../components/demo-auth";
 import { LoadingCards } from "../../../components/loading";
+import { visuallyHidden } from "../../../components/visually-hidden";
 // A staff-curated collection, or a pathway whose courses are in a recommended
 // order. Following a pathway is free and registers nothing (decision F4, proposed).
 export default function Collection({
@@ -225,11 +226,3 @@ export default function Collection({
     </>
   );
 }
-const visuallyHidden = {
-  position: "absolute",
-  width: 1,
-  height: 1,
-  overflow: "hidden",
-  clip: "rect(0 0 0 0)",
-  whiteSpace: "nowrap",
-} as const;

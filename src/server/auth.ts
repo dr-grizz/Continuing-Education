@@ -84,3 +84,11 @@ export function requireScope(req: { principal: Principal }, scope: string) {
   if (!req.principal.scopes.includes(scope))
     throw new ForbiddenException(`Required scope: ${scope}`);
 }
+/** Allows the request when the principal holds any one of the scopes. */
+export function requireAnyScope(
+  req: { principal: Principal },
+  ...scopes: string[]
+) {
+  if (!scopes.some((scope) => req.principal.scopes.includes(scope)))
+    throw new ForbiddenException(`Required scope: one of ${scopes.join(", ")}`);
+}

@@ -48,7 +48,7 @@ export const roleDescriptions: Record<StaffRole, string> = {
     "Recovers identity and Canvas failures, including recording manual enrollment.",
   staff_admin: "Adds staff members, assigns roles and deactivates access.",
   content_editor:
-    "Edits customizable sales pages. Planned: until the sales page editor exists, this role can view the workspace only.",
+    "Chooses the learner Explore tab picks and will edit customizable sales pages once the sales page editor exists.",
 };
 export const scopeDescriptions: Record<string, string> = {
   "staff:read":
@@ -56,10 +56,12 @@ export const scopeDescriptions: Record<string, string> = {
   "reports:read": "Read reports and the audit log",
   "reports:sales": "View sales figures on the dashboard",
   "approvals:decide": "Approve or decline approval requests",
-  "catalog:write": "Create, edit, publish and unpublish offerings",
+  "catalog:write":
+    "Create, edit, publish and unpublish offerings and collections; choose the Explore tab picks",
   "exceptions:resolve": "Retry provisioning or record manual enrollment",
   "prototype:simulate": "Change the prototype provisioning simulation",
   "staff:manage": "Manage staff members and their roles",
   "learners:manage": "Deactivate or reactivate learner accounts",
-  "content:write": "Edit sales pages (planned; no editing screens yet)",
+  "content:write":
+    "Choose the Explore tab picks; edit sales pages (planned, no editing screens yet)",
 };

@@ -52,6 +52,8 @@ const theme = createTheme({
           outline: "3px solid currentColor !important",
           outlineOffset: "3px",
         },
+        // Tab rows clip overflow, so tabs draw their focus ring inside.
+        ".MuiTab-root.Mui-focusVisible": { outlineOffset: "-3px" },
       },
     },
     MuiInputBase: {
@@ -72,7 +74,39 @@ const theme = createTheme({
         }),
       },
     },
-    MuiButton: { defaultProps: { disableElevation: true } },
+    // Windows High Contrast and other forced-color modes drop backgrounds, so
+    // states shown only by a fill get a system color or a border instead.
+    MuiButton: {
+      defaultProps: { disableElevation: true },
+      styleOverrides: {
+        contained: {
+          "@media (forced-colors: active)": { border: "1px solid ButtonText" },
+        },
+      },
+    },
+    MuiToggleButton: {
+      styleOverrides: {
+        root: {
+          "@media (forced-colors: active)": {
+            "&.Mui-selected": {
+              forcedColorAdjust: "none",
+              backgroundColor: "Highlight",
+              color: "HighlightText",
+            },
+          },
+        },
+      },
+    },
+    MuiTabs: {
+      styleOverrides: {
+        indicator: {
+          "@media (forced-colors: active)": {
+            forcedColorAdjust: "none",
+            backgroundColor: "Highlight",
+          },
+        },
+      },
+    },
     MuiPaper: { defaultProps: { elevation: 0 } },
     MuiTextField: { defaultProps: { size: "small" } },
     // Helper text on a disabled field explains why it is locked, so it keeps

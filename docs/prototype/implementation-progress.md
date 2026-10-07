@@ -89,17 +89,17 @@ Local website: `http://127.0.0.1:3000/`. API documentation: `http://localhost:30
 - [x] Move focus to error summaries, including after server failures.
 - [x] Check affected workflows from the keyboard, at phone width and in dark mode after each change.
 - [x] Maintain 20 API integration groups covering scopes, concurrency, idempotency, policies, failures, roles, learners, the dashboard, collections and pathways, and Explore.
-- [x] Run axe scans (WCAG 2.2 A and AA) of 28 pages, tabs and dialogs in light, dark and phone layouts, and run every check in CI on each pull request.
+- [x] Run axe scans (WCAG 2.2 A and AA) of 29 pages, tabs and dialogs in light, dark and phone layouts and in Firefox and WebKit, plus forced-colors, reflow and text-resizing checks, on each pull request.
 
 ## Recommended next prototype tasks
 
 Complete these using synthetic data and local services before moving to external integrations.
 
 1. [x] Add CI for format, type checks, build, migration tests and integration tests with an isolated database. Added October 7, 2026.
-2. [ ] Add automated accessibility scans (axe) for the key pages and dialogs, then a manual screen-reader review of sign-in, registration, status changes, staff forms, dialogs and tables. The scans were added October 7, 2026; the screen-reader review is still pending.
+2. [ ] **Deferred (October 7, 2026), required before the closed pilot:** run a manual screen-reader review of sign-in, registration, status changes, staff forms, dialogs and tables using the [VoiceOver review script](screen-reader-review.md). The automated checks are in place; the session itself is pending.
 3. [x] Build staff-curated collections, private saved courses and pathway browsing (decisions F3 and F4). Built October 7, 2026, on the recommended F3 answer and proposed F4 assumptions.
 4. [ ] Add automated checks for reservation expiry and renewal and for worker restart. A manual crash/restart drill passed on October 5 and 6, 2026.
-5. [ ] Test zoom, forced colors, error announcements and cross-browser behavior; record unresolved findings before accepting the UI baseline.
+5. [x] Test zoom, forced colors and cross-browser behavior. Automated October 7, 2026: forced colors, reflow at 320 px, 200% text, text spacing, and axe in Firefox and WebKit. Error announcements are covered by the screen-reader script (task 2).
 6. [ ] Improve the learner profile if needed; email is the only identity attribute and there is no profile screen.
 
 ## Integration and production tasks
@@ -166,6 +166,25 @@ A real screen-reader session, forced colors and cross-browser checks remain outs
 | UI asset attribution                  | [Image credits](image-credits.md) and [logo source](../../src/web/public/brand/SOURCE.txt) |
 
 ## Latest implementation record
+
+October 7, 2026: accessibility baseline: forced colors, reflow, zoom and cross-browser checks (branch `a11y-baseline`).
+
+- **Decisions:** F3 and F4 confirmed as built. New F12: catalog managers and content editors both choose the Explore picks; `POST /staff/explore` now accepts `catalog:write` or `content:write`.
+- **Forced colors (Windows High Contrast),** found from screenshots and fixed:
+  - The white logo vanished, and every header link looked current. The brand header now keeps its colors (`forced-color-adjust: none`).
+  - The selected tab and the selected List/Grid option were shown only by a fill. They now use the system Highlight color.
+  - Filled buttons looked like plain text and now get a border.
+  - Tab focus rings were clipped by the tab row and are now drawn inside.
+  - `forced-colors.spec.ts` checks these.
+- **Reflow and text resizing:** `reflow.spec.ts` checks every learner page and staff tab at 320 px (400% zoom), with 200% text and with WCAG 1.4.12 text spacing.
+  - It found a real bug: the visually-hidden helper used `width: 1`, which MUI reads as 100%. The screen-reader-only spans made the pathway page, My learning and the staff dashboard wider than the window at every size.
+  - Five copies were replaced by one correct shared helper (`components/visually-hidden.ts`); all checks pass.
+- **Cross-browser:** the axe scans also run in Firefox and WebKit, and CI installs all three engines.
+  - WebKit passes all 29 scans locally.
+  - Firefox cannot start inside this local command sandbox, so it is verified in CI; it can also be run with `npm run test:a11y -- --project=firefox`.
+- **Screen reader:** a [VoiceOver review script](screen-reader-review.md) with expected announcements for 34 steps across the catalog, sign-in, registration, My learning, pathways and the staff workspace. It needs a person to run it.
+- **Tooling:** `npm run db:remove-test-learner -- <email>` removes a synthetic learner and their records (reserved test domains only). The scan teardown uses it.
+- **Verification:** 126 checks pass locally (Chrome three layouts, WebKit, forced colors, reflow). Integration 20/20. Record counts are unchanged after the runs.
 
 October 7, 2026: cleaned test data out of the local database, and made the test suites clean up after themselves.
 

@@ -1671,7 +1671,12 @@ async function main() {
     assert.equal(
       (await http("staff/explore", STAFF, pickBody, approverId)).status,
       403,
-      "changing Explore picks needs catalog:write",
+      "changing Explore picks needs catalog:write or content:write",
+    );
+    assert.equal(
+      (await http("staff/explore", STAFF, pickBody, contentId)).status,
+      200,
+      "content editors also curate the Explore picks",
     );
     assert.equal(
       (
@@ -1771,7 +1776,7 @@ async function main() {
       true,
     );
     console.log(
-      "PASS: Explore shows staff picks first and fills the rest; only published items, by catalog managers; unpublishing removes a pick",
+      "PASS: Explore shows staff picks first and fills the rest; only published items, by catalog managers or content editors; unpublishing removes a pick",
     );
   } finally {
     // Restore the site-wide Explore picks, then remove this run's audit entries for them.

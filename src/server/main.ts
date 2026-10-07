@@ -24,7 +24,7 @@ import {
   SwaggerModule,
 } from "@nestjs/swagger";
 import { prisma, sql } from "../domain/prisma";
-import { PrototypeGuard, requireScope } from "./auth";
+import { PrototypeGuard, requireAnyScope, requireScope } from "./auth";
 import {
   CollectionDto,
   ExploreDto,
@@ -284,14 +284,16 @@ class WorkflowController {
   @Post("staff/explore")
   @HttpCode(200)
   @ApiOperation({
-    summary: "Replace the Explore tab picks (published items only), audited",
+    summary:
+      "Replace the Explore tab picks (published items only), audited; catalog:write or content:write",
   })
   setExplore(
     @Req() req: any,
     @Headers("idempotency-key") key: string,
     @Body() dto: ExploreDto,
   ) {
-    requireScope(req, "catalog:write");
+    // Decided Oct 7, 2026: catalog managers and content editors both curate Explore.
+    requireAnyScope(req, "catalog:write", "content:write");
     return this.portal.setExplore(req.principal, key, dto);
   }
   @Get("staff/collections")

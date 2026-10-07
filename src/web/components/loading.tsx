@@ -1,14 +1,6 @@
 "use client";
 import { Box, Paper, Skeleton, Stack } from "@mui/material";
-
-const visuallyHidden = {
-  position: "absolute",
-  width: 1,
-  height: 1,
-  overflow: "hidden",
-  clip: "rect(0 0 0 0)",
-  whiteSpace: "nowrap",
-} as const;
+import { visuallyHidden } from "./visually-hidden";
 
 // Placeholder cards shaped like the content they replace; announced once by label.
 export function LoadingCards({

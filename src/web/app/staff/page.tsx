@@ -870,7 +870,7 @@ function StaffWorkspace({ session }: { session: Session }) {
       )}
       {loaded && tab === "explore" && (
         <StaffExplore
-          canManage={canCatalog}
+          canManage={canCatalog || can("content:write")}
           offerings={courses}
           onChanged={setMessage}
         />

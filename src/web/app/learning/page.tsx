@@ -27,6 +27,7 @@ import {
   money,
   Offering,
 } from "../../components/api";
+import { visuallyHidden } from "../../components/visually-hidden";
 const labels: Record<string, string> = {
   awaiting_approval: "Awaiting approval",
   approved: "Approved — reserve a seat",
@@ -626,17 +627,7 @@ export default function LearningPage() {
         </Box>
       )}
       {/* Polite announcements for status changes that happen in the background. */}
-      <Box
-        role="status"
-        sx={{
-          position: "absolute",
-          width: 1,
-          height: 1,
-          overflow: "hidden",
-          clip: "rect(0 0 0 0)",
-          whiteSpace: "nowrap",
-        }}
-      >
+      <Box role="status" sx={visuallyHidden}>
         {announcement}
       </Box>
       <Snackbar

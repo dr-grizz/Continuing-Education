@@ -131,7 +131,8 @@ export function StaffExplore({
       </Box>
       {!canManage && (
         <Alert severity="info" role="note" sx={{ mb: 2 }}>
-          Your role can view the picks. Catalog managers change them.
+          Your role can view the picks. Catalog managers and content editors
+          change them.
         </Alert>
       )}
       {error && (
