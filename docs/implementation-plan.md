@@ -169,9 +169,9 @@ The dashboards:
 ### Explore landing tab
 
 - **What:** the catalog opens on an **Explore** tab beside the complete **Courses**, **Collections** and **Pathways** tabs. It features up to 5 courses first, then 3 pathways and 3 collections Personal next steps live in My learning instead: enrolled courses (Enrolled courses) above registrations in progress, and a **Next** marker on each followed pathway.
-- **Selection:** staff with `catalog:write` choose and order the picks on **Staff → Explore page**, saved as one audited change. Empty spots fill automatically (open scheduled courses by soonest start, then the newest self-paced courses; newest collections and pathways). Only published items can be picked, and unpublishing removes a pick. Popularity ranking was rejected: with little data it is noise, and it keeps the same items on top.
+- **Selection:** catalog managers (`catalog:write`) and content editors (`content:write`) choose and order the picks on **Staff → Explore page**, saved as one audited change (decision F12). Empty spots fill automatically (open scheduled courses by soonest start, then the newest self-paced courses; newest collections and pathways). Only published items can be picked, and unpublishing removes a pick. Popularity ranking was rejected: with little data it is noise, and it keeps the same items on top.
 - **Prototype (October 7, 2026):** built as above. A For you section on Explore was tried and removed at review; its next-step marker moved to My learning. The former hard-coded three-course spotlight was replaced; its picks were carried over as the first featured courses.
-- **Open:** whether Marketing or the Content editor role (F2) should own the picks; the pathway **Next** marker switches to completion-based progress after the Canvas connection (F11).
+- **Open:** the pathway **Next** marker switches to completion-based progress after the Canvas connection (F11).
 
 
 - **What:** a monthly or yearly fee that gives continuing access.

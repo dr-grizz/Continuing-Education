@@ -86,7 +86,7 @@ Stop application processes with Ctrl+C. `docker compose stop db` stops PostgreSQ
    - Casey Catalog Manager manages offerings, collections and pathways.
    - Sam Support and Ivy (IT/Canvas) recover exceptions.
    - Fran Finance views reports, including sales on the **Dashboard** tab. Other staff see enrollment only.
-   - Cory Content Editor holds the sales-page role, which is view-only until the sales page editor exists.
+   - Cory Content Editor chooses the Explore tab picks (with catalog managers) and will edit sales pages once that editor exists.
    - The Demo Staff Administrator holds every role and manages people in the **Staff** and **Roles** tabs.
 
    - In **Learners**, any staff member can inspect a learner's registrations and activity. Sam Support can deactivate or reactivate a learner, with a reason; a deactivated learner cannot sign in or act.
