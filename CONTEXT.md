@@ -3,7 +3,9 @@
 - **Course product:** instructional subject and reusable catalog description.
 - **Offering:** saleable instance/cohort with dates, capacity, approval rule and eventual Canvas mapping. The prototype stores sample course descriptions directly on offerings; product normalization is deferred.
 - **Course type:** `cohort` uses scheduled start/end dates; `self_paced` means learn on your own and start anytime, with no cohort dates. User-facing labels are **Scheduled** and **Self-paced**; show **Start anytime** for self-paced courses. Course type is distinct from delivery format and access-duration policies.
-- **Learner:** internal portal person; the prototype persists one demo learner per normalized email in PostgreSQL. Existing shared sample registrations remain on an email-less legacy learner. Sign-in is mocked; no passwords are stored.
+- **Staff member:** a portal staff user in the `staff_members` directory. Members have one or more roles and are deactivated rather than deleted. Sign-in is mock in the prototype; university SSO replaces it later.
+- **Staff role:** approver, catalog manager, support, Finance, IT/Canvas administrator or staff administrator. Each role grants permission scopes; endpoints check scopes, not role names.
+- **Learner:** internal portal person (Support can deactivate an account, which blocks sign-in and learner actions while existing paid enrollments continue); the prototype persists one demo learner per normalized email in PostgreSQL. Existing shared sample registrations remain on an email-less legacy learner. Sign-in is mocked; no passwords are stored.
 - **Entitlement:** learner-to-offering access justification, distinct from payment and identity status.
 - **Approval validity:** how long an approval lets the learner reserve a seat (default 7 days, set per offering). Lapsed or declined approvals can be requested again.
 - **Enrollment window:** Scheduled courses accept registration until a set number of days after the start date (default 7, set per offering). Self-paced courses never close.

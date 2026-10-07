@@ -4,7 +4,7 @@ Local Next.js + Material UI website, NestJS REST API, PostgreSQL and durable sim
 
 ## Implementation progress
 
-See the [prototype implementation progress](docs/prototype/implementation-progress.md) for completed tasks, remaining todos, recent changes and verification evidence. The [implementation plan](docs/implementation-plan.md) describes the broader delivery scope and production gates.
+Open project decisions, their owners and due dates are tracked in the [M0 decision register](docs/decision-register.md). See the [prototype implementation progress](docs/prototype/implementation-progress.md) for completed tasks, remaining todos, recent changes and verification evidence. The [implementation plan](docs/implementation-plan.md) describes the broader delivery scope and production gates.
 
 ## Run locally
 
@@ -77,15 +77,25 @@ Stop application processes with Ctrl+C. `docker compose stop db` stops PostgreSQ
 
 1. Browse/search courses and view a course detail page.
 2. Register for an open course as the demo learner. In My learning, select **Simulate payment** and watch the worker prepare demo access.
-3. Request Healthcare Communication, then use **Staff → Approvals** to approve it. Return to My learning, reserve a seat and simulate payment.
-4. Use Staff to create a draft offering, publish it and inspect the audit activity.
+3. Request Healthcare Communication, then open **Staff**, sign in as a demo staff member with the Approver role, and approve it in **Approvals**. Return to My learning, reserve a seat and simulate payment.
+4. Use Staff to create a draft offering, publish it and inspect the audit activity. This needs the Catalog manager role.
 5. In **Staff → Exceptions**, set *Outcome for new payments* to a failure, then simulate a payment in My learning. Watch the automatic retries, then review the exception in Staff and retry provisioning or record a manual enrollment with a reason. Set the outcome back to *Normal* afterwards; it applies to every demo learner.
+6. **Try the roles.** Use **Switch staff member** to act as each demo staff member:
+   - Avery Approver can decide approvals but not edit offerings.
+   - Casey Catalog Manager manages offerings.
+   - Sam Support and Ivy (IT/Canvas) recover exceptions.
+   - Fran Finance views reports.
+   - The Demo Staff Administrator holds every role and manages people in the **Staff** and **Roles** tabs.
+
+   - In **Learners**, any staff member can inspect a learner's registrations and activity. Sam Support can deactivate or reactivate a learner, with a reason; a deactivated learner cannot sign in or act.
+
+   Staff sign-in is mock: no password, and anyone can pick anyone. See [ADR 0004](docs/adr/0004-staff-roles-mock-sign-in.md); university SSO replaces it later.
 
 Design uses standard MUI navigation, forms, tables, alerts and dialogs. The [UI specification](docs/prototype/ui-specification.md) records the theme tokens, layouts, patterns and page behavior. Colors, the font and text branding are provisional; institutional brand assets and course content need review.
 
 ## Automation
 
-The API uses `/api/v1`, server-side scope checks and `Idempotency-Key` on writes. Three random prototype tokens live in `.env`: learner, staff and read-only automation. The web demo role selector is local convenience, not production security. Never expose this prototype publicly or add real learner data. API/worker refuse `NODE_ENV=production`.
+The API uses `/api/v1`, server-side scope checks and `Idempotency-Key` on writes. Three random prototype tokens live in `.env`: learner, staff and read-only automation. Staff act as a mock-signed-in demo staff member whose roles decide their scopes; this is local convenience, not production security. Never expose this prototype publicly or add real learner data. API/worker refuse `NODE_ENV=production`.
 
 Read the automation token locally into a shell variable without printing it, then request:
 
@@ -94,7 +104,7 @@ curl http://localhost:3001/api/v1/reconciliation \
   -H "Authorization: Bearer $CE_AUTOMATION_TOKEN"
 ```
 
-Public catalog requests need no token. The read-only automation token cannot create offerings or decide approvals. Use the staff token for authorized prototype write experiments; do not embed tokens in committed scripts. OpenAPI describes requests and required command headers. Registration/payment jobs expose their status at `/api/v1/operations/{id}`. `GET /api/v1/exceptions` lists failed provisioning for staff and the read-only automation token; only the staff token can change the simulation (`/api/v1/prototype/simulation`) or recover exceptions. OAuth/service-account management and signed outbound notifications are planned, not implemented.
+Public catalog requests need no token. The read-only automation token cannot create offerings or decide approvals. The staff token alone only performs mock staff sign-in (`POST /api/v1/prototype/staff-sessions` with an email, and `GET /api/v1/prototype/staff-directory`). To act as staff, also send `X-Prototype-Staff-Id` with an active staff member's ID; that member's roles decide the scopes, and audit entries record them as `staff:<id>`. Do not embed tokens in committed scripts. OpenAPI describes requests and required command headers. Registration/payment jobs expose their status at `/api/v1/operations/{id}`. `GET /api/v1/exceptions` lists failed provisioning for staff and the read-only automation token; only staff with the Support or IT/Canvas administrator role can change the simulation (`/api/v1/prototype/simulation`) or recover exceptions. OAuth/service-account management and signed outbound notifications are planned, not implemented.
 
 ## Verify
 
@@ -119,6 +129,6 @@ Integration tests require the website, API and PostgreSQL running. They check au
 
 Accessibility is part of every UI review. Scale checks to the change; a narrow UI change does not require repeating unrelated integration tests. The first manual catalog review is recorded in `docs/prototype/accessibility-check.txt`.
 
-Mock sign-in accepts any email and any password at `/sign-in`. Emails are normalized and saved in the PostgreSQL `learners` table; the password is never saved or sent. An HTTP-only cookie selects the demo learner for 30 days. Sign-out clears that cookie, while registrations remain in the database. Each email has its own course registrations, and staff access remains open for local prototyping. Anyone can sign in as any demo email; this is not production authentication. Existing shared sample registrations remain attached to the legacy email-less learner.
+Mock sign-in accepts any email and any password at `/sign-in`. Emails are normalized and saved in the PostgreSQL `learners` table; the password is never saved or sent. An HTTP-only cookie selects the demo learner for 30 days. Sign-out clears that cookie, while registrations remain in the database. Each email has its own course registrations, and staff use a separate mock staff sign-in (ADR 0004). Anyone can sign in as any demo email; this is not production authentication. Existing shared sample registrations remain attached to the legacy email-less learner.
 
 For API automation, use the learner token with `POST /api/v1/prototype/users` and an email JSON body to obtain a learner ID. Pass `X-Prototype-Learner-Id` with that token on learner workflow requests. `GET /api/v1/me` returns the selected learner. Omitting the header selects the legacy sample learner for direct API demos; signed-out web workflow requests are rejected.

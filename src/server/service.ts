@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
@@ -10,7 +11,9 @@ import {
   type entitlements,
   type offerings,
   type SimulatedOutcome,
+  type StaffRole,
 } from "../generated/prisma/client";
+import { DEMO_LEARNER } from "../domain/db";
 import {
   offeringColumns,
   prisma,
@@ -19,6 +22,16 @@ import {
   Tx,
 } from "../domain/prisma";
 import {
+  roleDescriptions,
+  roleLabels,
+  scopeDescriptions,
+  scopesFor,
+  staffRoles,
+} from "./roles";
+import {
+  LearnerAccessDto,
+  StaffMemberDto,
+  StaffUpdateDto,
   OfferingDto,
   OfferingEditDto,
   OfferingSettingsDto,
@@ -106,6 +119,14 @@ function validateSchedule(data: OfferingDto) {
     );
   }
 }
+const staffSelect = {
+  id: true,
+  email: true,
+  display_name: true,
+  roles: true,
+  active: true,
+  version: true,
+} as const;
 // Prisma date columns take a Date; YYYY-MM-DD parses as UTC midnight, preserving the day.
 const toDate = (value?: string | null) => (value ? new Date(value) : null);
 // Command responses are stored as JSON, exactly as JSON.stringify renders them.
@@ -117,12 +138,18 @@ export class PortalService {
   async demoUser(email: string) {
     const normalized = email.trim().toLowerCase();
     // Matching where/create/update values let Prisma use a native ON CONFLICT upsert.
-    return prisma.learners.upsert({
+    const learner = await prisma.learners.upsert({
       where: { email: normalized },
       create: { email: normalized },
       update: { email: normalized },
-      select: { id: true, email: true, created_at: true },
+      select: { id: true, email: true, created_at: true, active: true },
     });
+    if (!learner.active)
+      throw new ForbiddenException(
+        "This learner account is deactivated. Contact the program office.",
+      );
+    const { active, ...profile } = learner;
+    return profile;
   }
   async me(principal: Principal) {
     const learner = await prisma.learners.findUnique({
@@ -743,6 +770,21 @@ export class PortalService {
           },
         })
       : [];
+    const staffIds = [
+      ...new Set(
+        history
+          .filter((event) => event.actor.startsWith("staff:"))
+          .map((event) => event.actor.slice("staff:".length)),
+      ),
+    ];
+    const staffEmails = new Map(
+      (
+        await prisma.staff_members.findMany({
+          where: { id: { in: staffIds } },
+          select: { id: true, email: true },
+        })
+      ).map((member) => [`staff:${member.id}`, member.email]),
+    );
     return rows.map((row) => ({
       id: row.id,
       status: row.status,
@@ -757,7 +799,10 @@ export class PortalService {
       simulated_outcome: row.operations?.simulated_outcome ?? null,
       history: history
         .filter((event) => event.object_id === row.id)
-        .map(({ object_id, ...event }) => event),
+        .map(({ object_id, ...event }) => ({
+          ...event,
+          actor_email: staffEmails.get(event.actor) ?? null,
+        })),
     }));
   }
   // Staff recovery for registrations whose simulated provisioning exhausted its retries.
@@ -820,6 +865,298 @@ export class PortalService {
       },
     );
   }
+  // Mock staff sign-in (ADR 0004): any active member may be selected without a password.
+  // An SSO add-on replaces this lookup with a verified provider identity.
+  async staffSession(email: string) {
+    const member = await prisma.staff_members.findUnique({
+      where: { email: email.trim().toLowerCase() },
+      select: staffSelect,
+    });
+    if (!member?.active)
+      throw new NotFoundException("No active staff member with that email.");
+    return member;
+  }
+  async staffDirectory() {
+    return prisma.staff_members.findMany({
+      where: { active: true },
+      select: { id: true, email: true, display_name: true, roles: true },
+      orderBy: { display_name: "asc" },
+    });
+  }
+  async staffMe(principal: Principal) {
+    const member = await prisma.staff_members.findUniqueOrThrow({
+      where: { id: principal.staffId },
+      select: staffSelect,
+    });
+    return { ...member, scopes: scopesFor(member.roles) };
+  }
+  async roleCatalog() {
+    const members = await prisma.staff_members.findMany({
+      select: {
+        id: true,
+        display_name: true,
+        email: true,
+        roles: true,
+        active: true,
+      },
+    });
+    return staffRoles.map((role) => ({
+      role,
+      label: roleLabels[role],
+      description: roleDescriptions[role],
+      scopes: scopesFor([role]).map((scope) => ({
+        scope,
+        description: scopeDescriptions[scope] ?? scope,
+      })),
+      members: members
+        .filter((member) => member.roles.includes(role))
+        .map(({ roles, ...member }) => member),
+    }));
+  }
+  async staffMembers() {
+    return prisma.staff_members.findMany({
+      select: { ...staffSelect, auth_provider: true, created_at: true },
+      orderBy: [{ active: "desc" }, { display_name: "asc" }],
+    });
+  }
+  async createStaff(principal: Principal, key: string, data: StaffMemberDto) {
+    return this.command(
+      principal,
+      key,
+      { action: "staff.create", data },
+      async (tx) => {
+        const email = data.email.trim().toLowerCase();
+        if (await tx.staff_members.findUnique({ where: { email } }))
+          throw new ConflictException("A staff member with that email exists.");
+        const member = await tx.staff_members.create({
+          data: {
+            email,
+            display_name: data.displayName.trim(),
+            roles: data.roles,
+          },
+          select: staffSelect,
+        });
+        await audit(tx, principal.actor, "staff.created", member.id, {
+          roles: member.roles,
+        });
+        return member;
+      },
+    );
+  }
+  async updateStaff(
+    principal: Principal,
+    key: string,
+    id: string,
+    data: StaffUpdateDto,
+  ) {
+    return this.command(
+      principal,
+      key,
+      { action: "staff.update", id, data },
+      async (tx) => {
+        // Serialize role changes so two admins cannot remove each other concurrently.
+        await sql(
+          tx,
+          "SELECT 1 AS locked FROM (SELECT pg_advisory_xact_lock(hashtextextended('staff-admins',0))) l",
+        );
+        const before = await tx.staff_members.findFirst({
+          where: { id, version: data.version },
+          select: staffSelect,
+        });
+        if (!before)
+          throw new ConflictException(
+            "Staff member changed or does not exist. Refresh and retry.",
+          );
+        const roles = data.roles as StaffRole[];
+        const remainsAdmin = data.active && roles.includes("staff_admin");
+        if (before.roles.includes("staff_admin") && !remainsAdmin) {
+          const otherAdmins = await tx.staff_members.count({
+            where: {
+              id: { not: id },
+              active: true,
+              roles: { has: "staff_admin" },
+            },
+          });
+          if (!otherAdmins)
+            throw new ConflictException(
+              "At least one active staff administrator is required.",
+            );
+        }
+        const member = await tx.staff_members.update({
+          where: { id },
+          data: {
+            display_name: data.displayName.trim(),
+            roles,
+            active: data.active,
+            version: { increment: 1 },
+          },
+          select: staffSelect,
+        });
+        await audit(tx, principal.actor, "staff.updated", id, {
+          before: {
+            display_name: before.display_name,
+            roles: before.roles,
+            active: before.active,
+          },
+          after: {
+            display_name: member.display_name,
+            roles: member.roles,
+            active: member.active,
+          },
+        });
+        return member;
+      },
+    );
+  }
+  // Staff learner management: list, details and account access (support role).
+  async staffLearners(search?: string) {
+    const term = search?.trim() ? `%${search.trim()}%` : "";
+    return sql<{
+      id: string;
+      email: string | null;
+      created_at: Date;
+      active: boolean;
+      deactivated_at: Date | null;
+      version: number;
+      registrations: number;
+      enrolled: number;
+      in_progress: number;
+      last_activity: Date | null;
+    }>(
+      prisma,
+      `SELECT l.id,l.email,l.created_at,l.active,l.deactivated_at,l.version,
+        count(e.id)::integer AS registrations,
+        count(e.id) FILTER (WHERE e.status='enrolled')::integer AS enrolled,
+        count(e.id) FILTER (WHERE e.status IN ('awaiting_approval','approved','reserved','provisioning','exception'))::integer AS in_progress,
+        (SELECT max(a.created_at) FROM audit_events a WHERE a.actor='demo-learner:'||l.id::text
+          OR a.object_id IN (SELECT x.id FROM entitlements x WHERE x.learner_id=l.id)) AS last_activity
+      FROM learners l LEFT JOIN entitlements e ON e.learner_id=l.id
+      WHERE ($1='' OR l.email ILIKE $1)
+      GROUP BY l.id ORDER BY l.created_at DESC LIMIT 500`,
+      term,
+    );
+  }
+  async staffLearner(id: string) {
+    const learner = await prisma.learners.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        email: true,
+        created_at: true,
+        active: true,
+        deactivated_at: true,
+        version: true,
+        entitlements: {
+          orderBy: { created_at: "desc" },
+          select: {
+            id: true,
+            status: true,
+            created_at: true,
+            quoted_price_cents: true,
+            reserved_until: true,
+            approval_expires_at: true,
+            offerings: { select: { id: true, title: true, price_cents: true } },
+            orders: { select: { amount_cents: true, created_at: true } },
+            operations: {
+              select: { status: true, stage: true, attempts: true },
+            },
+          },
+        },
+      },
+    });
+    if (!learner) throw new NotFoundException("Learner not found.");
+    const registrationIds = learner.entitlements.map((e) => e.id);
+    const activity = await prisma.audit_events.findMany({
+      where: {
+        OR: [
+          { actor: `demo-learner:${id}` },
+          { object_id: { in: [id, ...registrationIds] } },
+        ],
+      },
+      orderBy: { id: "desc" },
+      take: 50,
+      select: {
+        actor: true,
+        action: true,
+        object_id: true,
+        details: true,
+        created_at: true,
+      },
+    });
+    const titles = new Map(
+      learner.entitlements.map((e) => [e.id, e.offerings.title]),
+    );
+    const { entitlements, ...profile } = learner;
+    return {
+      ...profile,
+      legacy: id === DEMO_LEARNER,
+      registrations: entitlements.map(
+        ({ offerings: offering, orders, operations, ...e }) => ({
+          ...e,
+          offering_id: offering.id,
+          title: offering.title,
+          price_cents: offering.price_cents,
+          paid_cents: orders?.amount_cents ?? null,
+          paid_at: orders?.created_at ?? null,
+          operation_status: operations?.status ?? null,
+          operation_stage: operations?.stage ?? null,
+        }),
+      ),
+      activity: activity.map((event) => ({
+        ...event,
+        offering_title: event.object_id
+          ? (titles.get(event.object_id) ?? null)
+          : null,
+      })),
+    };
+  }
+  async setLearnerAccess(
+    principal: Principal,
+    key: string,
+    id: string,
+    data: LearnerAccessDto,
+  ) {
+    return this.command(
+      principal,
+      key,
+      { action: "learner.access", id, data },
+      async (tx) => {
+        if (id === DEMO_LEARNER)
+          throw new ConflictException(
+            "The legacy sample learner cannot be deactivated; direct API demos rely on it.",
+          );
+        const updated = await tx.learners.updateMany({
+          where: { id, version: data.version, active: !data.active },
+          data: {
+            active: data.active,
+            deactivated_at: data.active ? null : new Date(),
+            version: { increment: 1 },
+          },
+        });
+        if (!updated.count)
+          throw new ConflictException(
+            "Learner changed or is already in that state. Refresh and retry.",
+          );
+        await audit(
+          tx,
+          principal.actor,
+          data.active ? "learner.reactivated" : "learner.deactivated",
+          id,
+          { reason: data.reason.trim() },
+        );
+        return tx.learners.findUniqueOrThrow({
+          where: { id },
+          select: {
+            id: true,
+            email: true,
+            active: true,
+            deactivated_at: true,
+            version: true,
+          },
+        });
+      },
+    );
+  }
   async report() {
     const [
       simulated_orders,
@@ -846,11 +1183,14 @@ export class PortalService {
     }>(
       prisma,
       `SELECT a.actor,a.action,a.object_id,a.created_at,
-        CASE WHEN a.actor LIKE 'demo-learner:%' THEN coalesce(actor_learner.email,'Legacy demo learner') END AS actor_email,
+        CASE WHEN a.actor LIKE 'demo-learner:%' THEN coalesce(actor_learner.email,'Legacy demo learner')
+          WHEN a.actor LIKE 'staff:%' THEN actor_staff.email END AS actor_email,
         coalesce(o.title,eo.title) AS offering_title,
-        subject_learner.email AS subject_email
+        coalesce(subject_learner.email,subject_staff.email) AS subject_email
       FROM audit_events a
       LEFT JOIN learners actor_learner ON a.actor='demo-learner:'||actor_learner.id::text
+      LEFT JOIN staff_members actor_staff ON a.actor='staff:'||actor_staff.id::text
+      LEFT JOIN staff_members subject_staff ON subject_staff.id=a.object_id
       LEFT JOIN offerings o ON o.id=a.object_id
       LEFT JOIN entitlements e ON e.id=a.object_id
       LEFT JOIN offerings eo ON eo.id=e.offering_id

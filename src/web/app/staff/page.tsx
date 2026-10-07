@@ -31,6 +31,15 @@ import {
 } from "../../components/api";
 import { LoadingCards } from "../../components/loading";
 import {
+  RoleChips,
+  StaffMember,
+  StaffRole,
+  StaffSignIn,
+  useStaffSession,
+} from "../../components/staff-session";
+import { StaffRoles, StaffUsers } from "../../components/staff-admin";
+import { StaffLearners } from "../../components/staff-learners";
+import {
   OfferingForm,
   StaffOffering,
   UnpublishDialog,
@@ -91,7 +100,30 @@ const statusColors = {
 const wideOnly = { display: { xs: "none", sm: "block" } };
 const phoneOnly = { display: { xs: "block", sm: "none" } };
 export default function Staff() {
-  const [tab, setTab] = useState(0),
+  const session = useStaffSession();
+  if (!session.ready)
+    return <LoadingCards label="Loading staff session" count={1} />;
+  if (!session.member) return <StaffSignIn onSignIn={session.signIn} />;
+  // Remount per staff member so switching people never keeps their data or tab.
+  return <StaffWorkspace key={session.member.id} session={session} />;
+}
+type Session = ReturnType<typeof useStaffSession>;
+type TabName =
+  | "offerings"
+  | "approvals"
+  | "exceptions"
+  | "activity"
+  | "learners"
+  | "users"
+  | "roles";
+
+function StaffWorkspace({ session }: { session: Session }) {
+  const member = session.member as StaffMember;
+  const { can } = session;
+  const canCatalog = can("catalog:write");
+  const canDecide = can("approvals:decide");
+  const [tab, setTab] = useState<TabName>("offerings"),
+    [roleFilter, setRoleFilter] = useState<StaffRole | "all">("all"),
     [courses, setCourses] = useState<StaffOffering[]>([]),
     [requests, setRequests] = useState<ApprovalRequest[]>([]),
     [report, setReport] = useState<{
@@ -205,36 +237,37 @@ export default function Staff() {
       setBusy(false);
     }
   }
-  const rowActions = (c: StaffOffering) => (
-    <>
-      <Button
-        onClick={() => {
-          setEditing(c);
-          setFormOpen(true);
-        }}
-        aria-label={`Edit ${c.title}`}
-      >
-        Edit
-      </Button>
-      {c.published ? (
+  const rowActions = (c: StaffOffering) =>
+    !canCatalog ? null : (
+      <>
         <Button
-          color="error"
-          onClick={() => setUnpublishing(c)}
-          aria-label={`Unpublish ${c.title}`}
+          onClick={() => {
+            setEditing(c);
+            setFormOpen(true);
+          }}
+          aria-label={`Edit ${c.title}`}
         >
-          Unpublish
+          Edit
         </Button>
-      ) : (
-        <Button
-          disabled={busy}
-          onClick={() => publish(c)}
-          aria-label={`Publish ${c.title}`}
-        >
-          Publish
-        </Button>
-      )}
-    </>
-  );
+        {c.published ? (
+          <Button
+            color="error"
+            onClick={() => setUnpublishing(c)}
+            aria-label={`Unpublish ${c.title}`}
+          >
+            Unpublish
+          </Button>
+        ) : (
+          <Button
+            disabled={busy}
+            onClick={() => publish(c)}
+            aria-label={`Publish ${c.title}`}
+          >
+            Publish
+          </Button>
+        )}
+      </>
+    );
   return (
     <>
       <Stack
@@ -261,10 +294,38 @@ export default function Staff() {
           API documentation
         </Button>
       </Stack>
-      <Alert severity="info" role="note" sx={{ mt: 3 }}>
-        Demo staff access is enabled locally. Production SSO, roles and
-        integration checks are not connected.
-      </Alert>
+      <Paper
+        variant="outlined"
+        component="section"
+        aria-label="Staff session"
+        sx={{ mt: 3, p: 2 }}
+      >
+        <Stack
+          direction={{ xs: "column", md: "row" }}
+          sx={{ justifyContent: "space-between", gap: 1.5 }}
+        >
+          <Box>
+            <Typography>
+              Signed in as <strong>{member.display_name}</strong>{" "}
+              <Typography component="span" color="text.secondary">
+                ({member.email})
+              </Typography>
+            </Typography>
+            <Box sx={{ mt: 1 }}>
+              <RoleChips roles={member.roles} />
+            </Box>
+          </Box>
+          <Stack direction="row" sx={{ gap: 1, alignItems: "flex-start" }}>
+            <Button variant="outlined" onClick={session.signOut}>
+              Switch staff member
+            </Button>
+          </Stack>
+        </Stack>
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5 }}>
+          Prototype mock sign-in: your roles decide what you can do here.
+          University SSO will replace staff sign-in later.
+        </Typography>
+      </Paper>
       {error && !formOpen && (
         <Alert severity="error" sx={{ mt: 2 }}>
           {error}
@@ -293,13 +354,16 @@ export default function Staff() {
         sx={{ mt: 3, mb: 3, borderBottom: 1, borderColor: "divider" }}
         aria-label="Staff workspace"
       >
-        <Tab label="Offerings" />
-        <Tab label={`Approvals (${requests.length})`} />
-        <Tab label={`Exceptions (${exceptions.length})`} />
-        <Tab label="Activity" />
+        <Tab value="offerings" label="Offerings" />
+        <Tab value="approvals" label={`Approvals (${requests.length})`} />
+        <Tab value="exceptions" label={`Exceptions (${exceptions.length})`} />
+        <Tab value="activity" label="Activity" />
+        <Tab value="learners" label="Learners" />
+        {can("staff:manage") && <Tab value="users" label="Staff" />}
+        <Tab value="roles" label="Roles" />
       </Tabs>
       {!loaded && !error && <LoadingCards label="Loading staff workspace" />}
-      {loaded && tab === 0 && (
+      {loaded && tab === "offerings" && (
         <>
           <Stack
             direction="row"
@@ -312,18 +376,26 @@ export default function Staff() {
             <Typography variant="h6" component="h2">
               Course offerings
             </Typography>
-            <Button
-              variant="contained"
-              startIcon={<AddIcon />}
-              onClick={() => {
-                setError("");
-                setEditing(undefined);
-                setFormOpen(true);
-              }}
-            >
-              New offering
-            </Button>
+            {canCatalog && (
+              <Button
+                variant="contained"
+                startIcon={<AddIcon />}
+                onClick={() => {
+                  setError("");
+                  setEditing(undefined);
+                  setFormOpen(true);
+                }}
+              >
+                New offering
+              </Button>
+            )}
           </Stack>
+          {!canCatalog && (
+            <Alert severity="info" role="note" sx={{ mb: 2 }}>
+              View only: creating, editing and publishing offerings requires the
+              Catalog manager role.
+            </Alert>
+          )}
           <Stack direction={{ xs: "column", sm: "row" }} sx={{ gap: 2, mb: 2 }}>
             <TextField
               label="Search offerings"
@@ -477,7 +549,7 @@ export default function Staff() {
           <TablePager view={offeringsView} label="Offerings" />
         </>
       )}
-      {loaded && tab === 1 && (
+      {loaded && tab === "approvals" && (
         <>
           <Stack
             direction="row"
@@ -547,22 +619,32 @@ export default function Staff() {
                     <Typography variant="body2" color="text.secondary">
                       Requested {new Date(r.created_at).toLocaleDateString()}
                     </Typography>
-                    <Stack direction="row" sx={{ gap: 1, mt: 1.5 }}>
-                      <Button
-                        disabled={busy}
-                        variant="outlined"
-                        onClick={() => decide(r, "approved")}
+                    {canDecide ? (
+                      <Stack direction="row" sx={{ gap: 1, mt: 1.5 }}>
+                        <Button
+                          disabled={busy}
+                          variant="outlined"
+                          onClick={() => decide(r, "approved")}
+                        >
+                          Approve
+                        </Button>
+                        <Button
+                          disabled={busy}
+                          color="error"
+                          onClick={() => decide(r, "declined")}
+                        >
+                          Decline
+                        </Button>
+                      </Stack>
+                    ) : (
+                      <Typography
+                        variant="body2"
+                        color="text.secondary"
+                        sx={{ mt: 1.5 }}
                       >
-                        Approve
-                      </Button>
-                      <Button
-                        disabled={busy}
-                        color="error"
-                        onClick={() => decide(r, "declined")}
-                      >
-                        Decline
-                      </Button>
-                    </Stack>
+                        Deciding requires the Approver role.
+                      </Typography>
+                    )}
                   </Paper>
                 ))}
               </Stack>
@@ -611,27 +693,33 @@ export default function Staff() {
                           {new Date(r.created_at).toLocaleDateString()}
                         </TableCell>
                         <TableCell>
-                          <Stack
-                            direction="row"
-                            sx={{
-                              gap: 1,
-                            }}
-                          >
-                            <Button
-                              disabled={busy}
-                              variant="outlined"
-                              onClick={() => decide(r, "approved")}
+                          {canDecide ? (
+                            <Stack
+                              direction="row"
+                              sx={{
+                                gap: 1,
+                              }}
                             >
-                              Approve
-                            </Button>
-                            <Button
-                              disabled={busy}
-                              color="error"
-                              onClick={() => decide(r, "declined")}
-                            >
-                              Decline
-                            </Button>
-                          </Stack>
+                              <Button
+                                disabled={busy}
+                                variant="outlined"
+                                onClick={() => decide(r, "approved")}
+                              >
+                                Approve
+                              </Button>
+                              <Button
+                                disabled={busy}
+                                color="error"
+                                onClick={() => decide(r, "declined")}
+                              >
+                                Decline
+                              </Button>
+                            </Stack>
+                          ) : (
+                            <Typography variant="body2" color="text.secondary">
+                              Approver role required
+                            </Typography>
+                          )}
                         </TableCell>
                       </TableRow>
                     ))}
@@ -643,8 +731,10 @@ export default function Staff() {
           )}
         </>
       )}
-      {loaded && tab === 2 && (
+      {loaded && tab === "exceptions" && (
         <StaffExceptions
+          canResolve={can("exceptions:resolve")}
+          canSimulate={can("prototype:simulate")}
           rows={exceptions}
           outcome={outcome}
           onChanged={async (text) => {
@@ -653,7 +743,7 @@ export default function Staff() {
           }}
         />
       )}
-      {loaded && tab === 3 && (
+      {loaded && tab === "activity" && (
         <>
           <Stack
             direction="row"
@@ -758,6 +848,34 @@ export default function Staff() {
           </TableContainer>
           <TablePager view={activityView} label="Activity" />
         </>
+      )}
+      {tab === "learners" && (
+        <StaffLearners
+          canManage={can("learners:manage")}
+          onChanged={setMessage}
+        />
+      )}
+      {tab === "users" && (
+        <StaffUsers
+          canManage={can("staff:manage")}
+          currentId={member.id}
+          roleFilter={roleFilter}
+          onRoleFilter={setRoleFilter}
+          onChanged={async (text, selfChanged) => {
+            setMessage(text);
+            // Your own role or status changes apply immediately.
+            if (selfChanged) await session.refresh();
+          }}
+        />
+      )}
+      {tab === "roles" && (
+        <StaffRoles
+          canManage={can("staff:manage")}
+          onAssign={(role) => {
+            setRoleFilter(role);
+            setTab("users");
+          }}
+        />
       )}
       <OfferingForm
         open={formOpen}

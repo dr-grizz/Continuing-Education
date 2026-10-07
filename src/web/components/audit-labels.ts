@@ -19,6 +19,12 @@ export const auditLabels: Record<string, string> = {
   "offering.created": "Draft offering created",
   "prototype.offering_published": "Offering published",
   "offering.settings_changed": "Offering settings changed",
+  "offering.edited": "Offering edited",
+  "offering.unpublished": "Offering unpublished",
+  "staff.created": "Staff member added",
+  "staff.updated": "Staff member updated",
+  "learner.deactivated": "Learner deactivated",
+  "learner.reactivated": "Learner reactivated",
 };
 export const actorLabels: Record<string, string> = {
   "demo-staff": "Staff (demo)",

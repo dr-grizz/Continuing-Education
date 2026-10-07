@@ -18,6 +18,16 @@ async function proxy(
       ? process.env.STAFF_API_TOKEN
       : process.env.LEARNER_API_TOKEN;
   if (token) headers.Authorization = `Bearer ${token}`;
+  // Staff calls act as the signed-in demo staff member; their roles decide access.
+  const staffId = request.cookies.get("ce-demo-staff")?.value;
+  if (role === "staff") {
+    if (!staffId)
+      return NextResponse.json(
+        { message: "Staff sign-in required." },
+        { status: 401 },
+      );
+    headers["X-Prototype-Staff-Id"] = staffId;
+  }
   const learnerId = request.cookies.get("ce-demo-learner")?.value;
   if (role !== "staff" && learnerId)
     headers["X-Prototype-Learner-Id"] = learnerId;

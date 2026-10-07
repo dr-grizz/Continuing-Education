@@ -132,6 +132,10 @@ export function OfferingForm({
         .catch(() => setPrices([]));
   }, [open, offering]);
 
+  // Move focus to the summary once a server failure has rendered it.
+  useEffect(() => {
+    if (failure) summary.current?.focus();
+  }, [failure]);
   function validate() {
     const found: Partial<Record<Field, string>> = {};
     if (!length(values.title, 3, 120))
@@ -213,7 +217,6 @@ export function OfferingForm({
       );
     } catch (e) {
       setFailure((e as Error).message);
-      setTimeout(() => summary.current?.focus());
     } finally {
       setBusy(false);
     }

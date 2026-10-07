@@ -85,10 +85,13 @@ export function SortSelect<T>({
   view,
   options,
   label = "Sort by",
+  display = { xs: "flex", sm: "none" },
 }: {
   view: TableView<T>;
   options: Record<string, string>;
   label?: string;
+  // Shown wherever the matching list uses cards instead of a sortable table.
+  display?: Record<string, string>;
 }) {
   const value = `${view.sort.key}:${view.sort.direction}`;
   return (
@@ -100,7 +103,7 @@ export function SortSelect<T>({
         const [key, direction] = event.target.value.split(":");
         view.setSort(key, direction as Direction);
       }}
-      sx={{ display: { xs: "flex", sm: "none" } }}
+      sx={{ display }}
     >
       {Object.entries(options).map(([option, text]) => (
         <MenuItem key={option} value={option}>
