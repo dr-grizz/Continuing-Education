@@ -1155,7 +1155,21 @@ async function main() {
     const roles = await (
       await http("staff/roles", STAFF, undefined, approverId)
     ).json();
-    assert.equal(roles.length, 6);
+    assert.equal(roles.length, 7);
+    const contentId = await staffByEmail("content@cuce.test");
+    const contentMe = await (
+      await http("staff/me", STAFF, undefined, contentId)
+    ).json();
+    assert.deepEqual(
+      [...contentMe.scopes].sort(),
+      ["content:write", "reports:read", "staff:read"],
+      "content editors view the workspace and hold the reserved sales-page scope only",
+    );
+    assert.equal(
+      (await http("offerings", STAFF, draftBody, contentId)).status,
+      403,
+      "content editors cannot create or change offerings",
+    );
     assert.ok(
       roles
         .find((r: any) => r.role === "staff_admin")
@@ -1331,6 +1345,54 @@ async function main() {
     assert.equal(accessEvents[0].actor, `staff:${supportId}`);
     console.log(
       "PASS: staff list and inspect learners; Support deactivates and reactivates access with a reason; deactivated learners are blocked; legacy learner protected",
+    );
+
+    // Sample staff dashboard.
+    const asApprover = await (
+      await http(
+        `staff/dashboard?days=7&offeringId=${mgmtOffering}`,
+        STAFF,
+        undefined,
+        approverId,
+      )
+    ).json();
+    assert.equal(asApprover.sales, null, "sales need the reports:sales scope");
+    assert.equal(asApprover.enrollment.registrations, 1);
+    assert.equal(asApprover.enrollment.in_progress, 1);
+    assert.equal(
+      asApprover.enrollment.trend.length,
+      7,
+      "one bucket per day for 7 days",
+    );
+    assert.equal(
+      asApprover.enrollment.trend.reduce(
+        (sum: number, point: any) => sum + point.value,
+        0,
+      ),
+      1,
+    );
+    assert.equal(asApprover.completion.available, false);
+    const asFinance = await (
+      await http("staff/dashboard?days=30", STAFF, undefined, financeId)
+    ).json();
+    assert.ok(
+      asFinance.sales && typeof asFinance.sales.gross_cents === "number",
+    );
+    assert.equal(
+      asFinance.sales.trend.reduce(
+        (sum: number, point: any) => sum + point.value,
+        0,
+      ),
+      asFinance.sales.gross_cents,
+      "sales trend sums to gross",
+    );
+    assert.equal(
+      (await http("staff/dashboard?days=5", STAFF, undefined, financeId))
+        .status,
+      400,
+    );
+    console.log(
+      "PASS: dashboard reports enrollment to all staff, sales only to Finance, filtered by date range and offering",
     );
   } finally {
     await db.query(

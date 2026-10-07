@@ -202,7 +202,7 @@ Mock sign-in. The Email field (`autoComplete="username"`) and Password field (`c
   - Without `approvals:decide`, Approvals shows "Approver role required" in place of the decision buttons.
   - Without `exceptions:resolve`, Exceptions shows "Support or IT/Canvas role required" instead of Review.
   - Without `prototype:simulate`, the simulation select is disabled with an explanation.
-- **Header and tabs:** the header keeps the API documentation link. Tabs are Offerings, Approvals (count), Exceptions (count), Activity, **Learners**, **Staff** (staff administrators only) and **Roles**. The tab row scrolls on phones, with scroll arrows shown.
+- **Header and tabs:** the header keeps the API documentation link. Tabs are **Dashboard** (default), Offerings, Approvals (count), Exceptions (count), Activity, **Learners**, **Staff** (staff administrators only) and **Roles**. The tab row scrolls on phones, with scroll arrows shown.
 
 - **Offerings:**
   - Search by title, Status filter (All, Published, Draft), live count.
@@ -250,6 +250,23 @@ Mock sign-in. The Email field (`autoComplete="username"`) and Password field (`c
   - Sortable Time (default newest first), Event and By columns, plus a Details column with the course and the affected learner.
   - Shows the 200 most recent events (API limit), paged on the client.
 
+- **Dashboard** (`src/web/components/staff-dashboard.tsx`, all staff; sample on prototype data):
+  - **Filters**, in one row above everything: date range (last 7, 30 or 90 days, last 12 months, all time) and offering. A note shows the sample date range. A one-line polite live summary announces filter results.
+  - **Enrollment:**
+    - KPI tiles: new registrations, enrolled, in progress, awaiting approval, needs staff review, and seats filled now as a percentage with a meter.
+    - A "New registrations per day, week or month" column chart.
+    - A By offering table (cards below `md`) with seat meters (`role="meter"`) and Export CSV.
+  - **Sales (simulated)**, only with `reports:sales` (otherwise "Sales figures require the Finance role"):
+    - Tiles: gross, orders, average order (two decimals), first-time and returning buyers, and refunds ("—", arriving with Stripe).
+    - A gross sales chart.
+    - A Sales by offering table with Export CSV.
+  - **Completion:** a placeholder until the Canvas connection (R2, F11).
+  - **Charts** (dataviz method):
+    - Single series, so there is no legend. Uses one validated hue per mode (`#2a78d6` light, `#3987e5` dark; the brand navy fails as a data fill), with a same-ramp meter track.
+    - Bars are at most 24px wide, with 4px rounded tops and a single baseline. The y-axis shows 0 and a rounded maximum; x-axis labels are sparse.
+    - One tab stop: arrow keys, Home and End move between bars. Hover or focus shows a tooltip, with the value first. The current value is announced politely.
+    - **Show table** gives every value.
+  - **CSV export** contains aggregates only, and neutralizes formula injection.
 - **Learners** (`src/web/components/staff-learners.tsx`, all staff):
   - Search by email, a live "N of M learners" count, a sort select on phones, and paging.
   - A table at `md` and wider (cards below): Learner, Registrations (with enrolled and in-progress counts), access status (Active or Deactivated), Joined, Last activity, View. Learner, Registrations, Joined and Last activity are sortable.

@@ -59,7 +59,153 @@ Resolved October 5, 2026: My learning no longer loses keyboard focus (focus move
 
 First release: non-credit offerings, self-purchase, one offering per checkout, one-time payments, optional approval, existing or Courtesy identities, verified Canvas enrollment, learner status and staff operations. Separate course products from saleable offerings/cohorts.
 
-Defer subscriptions, group purchasing, bundles, automated transfers and LTI 1.3. Staff-assisted transfers still need a documented, auditable procedure before the pilot. Certificates initially link to the approved record system; do not invent a certificate issuer or retention policy.
+Defer subscriptions, group purchasing, bundles, automated transfers and LTI 1.3. Memberships, bulk enrollment and priced pathways or collections are [requested additions](#requested-feature-additions) that overlap these deferrals; they stay out of the first release unless the sponsor moves them (decision register F-series). Staff-assisted transfers still need a documented, auditable procedure before the pilot. Certificates initially link to the approved record system; do not invent a certificate issuer or retention policy.
+
+## Requested feature additions
+
+Requested October 7, 2026. These features extend the portal beyond the first release described above. Each lists its purpose, dependencies, risks and open decisions. Proposed milestones are in [Requested features by milestone](#requested-features-by-milestone), and the open decisions are tracked as F1–F11 in the [decision register](decision-register.md#product-features). None is approved for implementation until its decisions have owners.
+
+| Feature | Summary | Main dependencies | Proposed timing |
+| --- | --- | --- | --- |
+| Enrollment and sales dashboards | Staff views of enrollment and sales trends (compared with Teachable below) | Real orders (M3) and verified enrollments (M4); Finance reconciliation | Enrollment: M4. Sales: M6 |
+| Completion dashboard | Completion and progress by offering, cohort and pathway | **Canvas connection** (M4), completion evidence (R2, F11) | After the Canvas connection (M4+) |
+| Customizable sales pages | Staff-edited marketing pages for offerings, pathways and collections | Brand approval (O4); content and accessibility review | After M2, before the pilot |
+| Pathways | Staff-defined sequences of courses that learners follow | Catalog (M2); completion evidence (R2) for progress | Browse and follow: M2+. Progress: M4+ |
+| Collections | Staff-curated groupings such as Bible Minor, Christian Leadership and ACSI | Catalog (M2) | M2+ |
+| Saved courses | A learner's private favorites or wishlist (recommended instead of learner-created collections) | Learner sign-in (A4) | M2+ |
+| Memberships | Monthly or yearly fee for continuing access | Stripe subscriptions; Finance, tax and refund policy; Canvas and Courtesy lifecycle | After the pilot |
+| Coupons | Discount codes at checkout | Stripe Checkout (M3); Finance discount policy | M3+ |
+| Bulk enrollment | Staff or organizations enroll many learners at once | Identity provisioning at scale (C1, M4); invoicing policy | After M4 |
+| User exports | Downloadable learner, registration and order data | Privacy, retention and export policy (P7); staff roles | M5 |
+
+### Enrollment, sales and completion dashboards
+
+**Comparison with Teachable (reviewed October 7, 2026).** Teachable is the likely current platform (see migration scope O2). Its reporting is split in two:
+
+- **Sales Analytics Dashboard:**
+  - Built on Retool, a third-party tool. Only the school's primary owner can open it, and only on paid plans.
+  - Metrics: sales, conversions, refunds, failed payments, subscriptions, monthly recurring revenue (24 months), churn, lifetime value, free-to-paid conversion and time to convert, total students and first-time subscription enrollments.
+  - Filters by date range and product. The transactions, subscriptions and failed-payments tables export as CSV.
+- **Transactions page:** CSV exports emailed to the owner, including fees, tax, refunds, earnings and payouts.
+- **Per-course reports:** lesson completion, video engagement, quiz scores, leaderboards with enrollment and completion dates, and individual student progress. They filter by user tag and export as CSV.
+
+Teachable has **no separate enrollment dashboard**; enrollment counts sit inside its sales and course reports. Its completion data exists because it hosts the course content.
+
+**What this portal adopts from it:**
+
+- date-range and product filters, plus offering, collection and pathway filters
+- refunds and failed payments shown beside sales
+- CSV export of each underlying table, under the user-export rules
+- monthly recurring revenue and churn, only if memberships (F6) go ahead
+- free-to-paid conversion, only if free offerings are introduced
+
+**Where this portal deliberately differs:**
+
+- Access is by role scope, not one owner.
+- Dashboards are built into the portal, not an external tool, so permissions, audit and accessibility stay under our control.
+- Completion data comes from Canvas, not the portal.
+
+**Sample in the prototype (October 7, 2026):** a Staff → **Dashboard** tab (`GET /staff/dashboard`) demonstrates the enrollment and sales dashboards on prototype data. It has date-range and offering filters, KPI tiles, accessible single-series column charts with table views, offering tables with seat meters, CSV export of aggregates, and a completion placeholder. Sales appear only with the new `reports:sales` scope, granted to Finance. Refunds and failed payments show as not yet available.
+
+The dashboards:
+
+- **Enrollment dashboard** (Program Operations):
+  - New registrations, approvals pending, seats filled versus capacity, enrolled versus provisioning versus exceptions, by offering, collection, pathway and date range.
+  - It can use portal data alone, but "enrolled" must mean verified Canvas enrollment (M4).
+- **Sales dashboard** (Finance and Program Operations):
+  - Gross sales, discounts, refunds, failed payments and net, by offering, coupon, membership and period, with first-time versus returning buyers.
+  - Figures must reconcile to Stripe, which is the financial source of truth. The dashboard is operational insight, not financial evidence. Label any simulated or test-mode data.
+- **Completion dashboard** (Program Operations and instructors), a **separate feature, built only after the Canvas connection** (M4+):
+  - Course completion rate and completion over time, by offering, cohort and pathway.
+  - Learners not yet started, in progress and complete, with time to complete.
+  - Pathway progress across courses.
+  - Teachable's video and quiz analytics depend on hosting the content. Canvas keeps its own learning analytics, so the portal should link to Canvas reports rather than copy lesson-level data.
+  - The data source is Canvas: course completion, module requirements or grades, as decided in R2 and F11. Pull it on a schedule or through Canvas events; never infer completion from the offering end date.
+  - Learner-level views follow the export privacy rules (F9) and may need instructor-specific access.
+- **Access:**
+  - Dashboards show aggregates.
+  - Drilling down to individual learners follows the user-export rules.
+  - Sales figures need a new `reports:sales` scope (for example, Finance and Program Operations).
+  - Enrollment and completion figures fit the existing `reports:read`. A narrower instructor scope may be needed for completion.
+- **Accessibility:** charts need text alternatives and table views; colour must not be the only signal.
+
+### Customizable sales pages
+
+- **What:** marketing landing pages for an offering, a pathway or a collection. Staff edit them without code changes.
+- **Building blocks:** use structured blocks, not free-form HTML, which would be a cross-site scripting risk and an accessibility risk. Blocks include:
+  - hero with image and alternative text
+  - rich text with limited formatting
+  - learning outcomes
+  - instructor or partner details
+  - testimonials (with consent records)
+  - frequently asked questions
+  - price and call to action
+- **Workflow:** draft, preview, then publish, versioned and audited like offerings. Published pages change only through a reviewed edit.
+- **Search and sharing:** stable, readable URLs (slugs), page titles, descriptions and social-sharing images.
+- **Ownership:** Marketing approves brand and content. A **Content editor** staff role (added October 7, 2026, with the reserved `content:write` scope) separates page editing from catalog management: content editors cannot change prices, policies or publication.
+- **Gates:** each published page passes the accessibility checklist. Prices and dates are pulled from the offering, never typed into page text, so they cannot drift.
+
+### Pathways
+
+- **What:** a staff-defined, ordered sequence of courses, such as Bible Foundations 1 → 2 → 3. Staff create, publish and retire pathways; learners **follow** one to see their progress and the next recommended course.
+- **Decisions (F4):**
+  - Does following a pathway register or charge for anything, or does each course stay a separate purchase?
+  - Are earlier courses prerequisites, or only a recommended order?
+  - Can a pathway have a bundled price? If so, it becomes a "bundle", which the first release defers.
+  - Does completing a pathway earn a certificate? The plan says not to invent a certificate issuer.
+- **Dependencies:** progress needs authoritative completion data (R2), not just enrollment. Pathways that include Scheduled courses must handle cohorts that no longer run.
+
+### Collections
+
+- **What:** staff-curated, published groupings for discovery and marketing, such as **Bible Minor**, **Christian Leadership** and **ACSI**. Unlike pathways, collections have no order or progress. They can appear as catalog filters and landing pages.
+- **Recommendation for the open question (F3):**
+  - **Collections are created by staff only**, through a reviewed publish workflow like offerings.
+  - Learners get a separate, private **Saved courses** list (favorites or wishlist), not learner-created collections. Calling both "collections" would confuse people. Private lists avoid moderation and privacy work.
+  - Shareable learner-created lists can be reconsidered later.
+- **ACSI:** if a collection reflects a partner or credential, such as ACSI professional development, confirm whether it implies eligibility rules, partner pricing or reporting obligations (F5). If it does, it is more than a display grouping.
+
+### Memberships
+
+- **What:** a monthly or yearly fee that gives continuing access.
+- **Decisions (F6):**
+  - Access to what: all self-paced courses, a collection, or a library?
+  - Price, trials, proration, cancellation and refund rules, and tax.
+  - What happens on lapse: a grace period, then removal of Canvas access?
+  - How memberships combine with one-time purchases.
+- **Implementation:** Stripe Billing subscriptions with signed webhooks. Entitlements become time-bounded while a membership is active. Subscription status changes must be reconciled, as with M3 checkout.
+- **Lifecycle impact:** Courtesy account expiry (P8) must treat an active membership as a protected entitlement. A lapsed membership must not disable an identity that other entitlements still need.
+- **Scope note:** this reverses the first release's "defer subscriptions" and needs Finance and IT Identity approval before design.
+
+### Coupons
+
+- **Rules:** discount codes with percent or fixed amount, valid dates, total and per-learner limits, applicable offerings or collections, and stacking rules. Implement them as Stripe Coupons and Promotion Codes, mirrored in the portal for audit and reporting.
+- **Price consistency:**
+  - The quoted price at reservation records any discount, consistent with price quoting.
+  - Approval-gated offerings apply coupons only at checkout.
+  - A 100% discount still needs a non-payment fulfillment path with Finance-approved records.
+- **Governance (F7):** Finance approves who can create coupons and the discount limits. Coupon creation and use are audited, and abuse controls include rate limits and single-use codes.
+
+### Bulk enrollment
+
+- **What:** enroll many learners at once.
+  - **Staff-assisted:** upload a CSV of learners for an offering.
+  - **Organizational purchase:** an organization buys seats for its people. This is the "group purchasing" the first release defers.
+- **Processing:**
+  - Validate every row first and show a per-row report before committing: duplicates, approval needs, capacity, eligibility.
+  - Process each row idempotently as durable jobs. Report partial success; never apply all-or-nothing silently.
+- **Identity:** each learner may need a Courtesy account. Bulk volume makes ambiguous-match handling (C1) and IT rate limits critical.
+- **Decisions (F8):** payment by invoice versus card, who may bulk-enroll, seat reservation for organizations, and notification rules.
+
+### User exports
+
+- **What:** CSV exports of learners, registrations, orders and audit activity for staff reporting.
+- **Privacy first (F9):**
+  - Only roles approved by Security and the Registrar can export, for example through a new `exports:run` scope.
+  - Exports carry the minimum fields, with a field selection.
+  - Every export is audited (who, what, filters, row count).
+  - Files are generated on demand and not stored long term.
+  - Retention and handling follow P7 and institutional data policy.
+- **Formats:** CSV, with spreadsheet formula injection neutralized. Large exports run as background jobs.
 
 ## Interface requirement: established open-source components
 
@@ -91,6 +237,12 @@ This is a deliberate design recommendation: a complete component system reduces 
 | Staff catalog | Draft/publish, price history, section validation | Table or Community DataGrid, forms, Dialog |
 | Approvals/exceptions | Filters, owner, age, evidence and permitted actions | Table or Community DataGrid, Drawer, Dialog, Alert |
 | Reconciliation/lifecycle | Unmatched records, proposed changes, audit trail | Table, date inputs, CSV export, confirmation Dialog |
+| Dashboards (requested) | Enrollment and sales trends, filters, table alternatives to charts | Cards, Table, date inputs; MUI X Charts (Community) only with an ADR |
+| Sales page editor (requested) | Structured blocks, preview, publish, version history | Forms, Dialog, Stepper or Tabs; no free-form HTML |
+| Pathways and collections (requested) | Ordered or curated course lists, follow and progress, saved courses | List, Card, Chip, Stepper (pathway progress) |
+| Coupons (requested) | Code rules, limits, usage | Table, forms, Dialog |
+| Bulk enrollment (requested) | CSV upload, per-row validation report, job progress | File input, Table, Alert, progress indicator |
+| Exports (requested) | Dataset and field selection, audit notice, download | Forms, Alert, Button |
 
 Before full UI development, review catalog, course detail, learner status and staff exception screens using realistic sample data at mobile and desktop sizes. Acceptance requires brand consistency, recognizable library patterns and successful keyboard completion of the main tasks.
 
@@ -737,6 +889,29 @@ Deliver dashboards/alerts for webhook failures, queue age, provisioning delays a
 Run one low-risk offering with a small cohort after production gates pass. Exercise lifecycle expiry in the isolated environment; monitor the real pilot through offering completion before broader release.
 
 Exit: all criteria below pass and Program Operations, IT Identity, Canvas Administration and Finance approve results.
+
+### Requested features by milestone
+
+These placements are proposals, not commitments. Each feature starts only after its F-series decisions have owners.
+
+- **M2+ (catalog extensions):**
+  - staff-curated collections
+  - learner saved courses
+  - pathway browse and follow, without progress
+  - customizable sales pages, after brand approval (O4)
+- **M3+:** coupons, after Finance discount policy (F7).
+- **M4+:**
+  - pathway progress, once completion evidence (R2) is approved
+  - enrollment dashboard on verified enrollments
+  - **completion dashboard**, built only after the Canvas connection is live and the completion source (R2, F11) is approved
+- **M5:** user exports, after privacy approval (F9).
+- **M6:** sales dashboard, reconciled to Stripe.
+- **After the pilot:**
+  - memberships (F6)
+  - bulk enrollment and organizational purchasing (F8)
+  - any priced pathway or collection bundles (F4)
+
+  These revisit first-release deferrals and need sponsor approval.
 
 ### Parallel workstream — Existing course migration
 

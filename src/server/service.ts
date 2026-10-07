@@ -1157,6 +1157,152 @@ export class PortalService {
       },
     );
   }
+  // Sample staff dashboard (plan: enrollment, sales and completion dashboards).
+  // Enrollment for all staff; sales only with reports:sales; completion waits for Canvas.
+  async dashboard(principal: Principal, days = 30, offeringId?: string) {
+    const offering = offeringId ?? null;
+    const [range] = await sql<{ from: string; to: string; bucket: string }>(
+      prisma,
+      `SELECT to_char(f,'YYYY-MM-DD') AS from, to_char(current_date,'YYYY-MM-DD') AS to,
+        CASE WHEN current_date-f<=31 THEN 'day' WHEN current_date-f<=180 THEN 'week' ELSE 'month' END AS bucket
+      FROM (SELECT CASE WHEN $1::int>0 THEN current_date-($1::int-1)
+        ELSE coalesce((SELECT min(created_at)::date FROM entitlements),current_date) END AS f) r`,
+      days,
+    );
+    const inRange = `e.created_at::date BETWEEN $1::date AND $2::date AND ($3::uuid IS NULL OR e.offering_id=$3::uuid)`;
+    const args = [range.from, range.to, offering];
+    const [totals] = await sql<{
+      registrations: number;
+      enrolled: number;
+      in_progress: number;
+      awaiting_approval: number;
+      exceptions: number;
+      not_continuing: number;
+    }>(
+      prisma,
+      `SELECT count(*)::int AS registrations,
+        count(*) FILTER (WHERE e.status='enrolled')::int AS enrolled,
+        count(*) FILTER (WHERE e.status IN ('approved','reserved','provisioning'))::int AS in_progress,
+        count(*) FILTER (WHERE e.status='awaiting_approval')::int AS awaiting_approval,
+        count(*) FILTER (WHERE e.status='exception')::int AS exceptions,
+        count(*) FILTER (WHERE e.status IN ('declined','expired','approval_expired'))::int AS not_continuing
+      FROM entitlements e WHERE ${inRange}`,
+      ...args,
+    );
+    const [seats] = await sql<{ capacity: number; in_use: number }>(
+      prisma,
+      `SELECT coalesce(sum(o.capacity),0)::int AS capacity, coalesce(sum(${seatsInUse}),0)::int AS in_use
+      FROM offerings o WHERE o.published AND ($1::uuid IS NULL OR o.id=$1::uuid)`,
+      offering,
+    );
+    const series = (value: string, from: string) => `
+      WITH buckets AS (
+        SELECT generate_series(date_trunc($4,$1::date), date_trunc($4,$2::date), ('1 '||$4)::interval)::date AS bucket)
+      SELECT to_char(b.bucket,'YYYY-MM-DD') AS bucket, coalesce(${value},0)::int AS value
+      FROM buckets b LEFT JOIN (${from}) x ON x.bucket=b.bucket
+      GROUP BY b.bucket ORDER BY b.bucket`;
+    const registrationsTrend = await sql<{ bucket: string; value: number }>(
+      prisma,
+      series(
+        "sum(x.n)",
+        `SELECT date_trunc($4,e.created_at)::date AS bucket, count(*) AS n FROM entitlements e WHERE ${inRange} GROUP BY 1`,
+      ),
+      ...args,
+      range.bucket,
+    );
+    const byOffering = await sql<{
+      id: string;
+      title: string;
+      published: boolean;
+      capacity: number;
+      seats_in_use: number;
+      registrations: number;
+      enrolled: number;
+      in_progress: number;
+      awaiting_approval: number;
+    }>(
+      prisma,
+      `SELECT o.id,o.title,o.published,o.capacity,${seatsInUse} AS seats_in_use,
+        count(e.id)::int AS registrations,
+        count(e.id) FILTER (WHERE e.status='enrolled')::int AS enrolled,
+        count(e.id) FILTER (WHERE e.status IN ('approved','reserved','provisioning'))::int AS in_progress,
+        count(e.id) FILTER (WHERE e.status='awaiting_approval')::int AS awaiting_approval
+      FROM offerings o LEFT JOIN entitlements e ON e.offering_id=o.id AND e.created_at::date BETWEEN $1::date AND $2::date
+      WHERE ($3::uuid IS NULL OR o.id=$3::uuid) AND (o.published OR o.unpublished_at IS NOT NULL)
+      GROUP BY o.id ORDER BY count(e.id) DESC, o.title`,
+      ...args,
+    );
+    let sales = null;
+    if (principal.scopes.includes("reports:sales")) {
+      const paidInRange = `r.created_at::date BETWEEN $1::date AND $2::date AND ($3::uuid IS NULL OR e.offering_id=$3::uuid)`;
+      const [money] = await sql<{
+        orders: number;
+        gross_cents: number;
+        first_time_buyers: number;
+        returning_buyers: number;
+      }>(
+        prisma,
+        `WITH paid AS (
+          SELECT r.id,r.amount_cents,e.learner_id,
+            r.created_at=(SELECT min(r2.created_at) FROM orders r2 JOIN entitlements e2 ON e2.id=r2.entitlement_id WHERE e2.learner_id=e.learner_id) AS first_order
+          FROM orders r JOIN entitlements e ON e.id=r.entitlement_id WHERE ${paidInRange})
+        SELECT count(*)::int AS orders, coalesce(sum(amount_cents),0)::int AS gross_cents,
+          count(DISTINCT learner_id) FILTER (WHERE first_order)::int AS first_time_buyers,
+          count(DISTINCT learner_id) FILTER (WHERE NOT first_order)::int AS returning_buyers
+        FROM paid`,
+        ...args,
+      );
+      const salesTrend = await sql<{ bucket: string; value: number }>(
+        prisma,
+        series(
+          "sum(x.cents)",
+          `SELECT date_trunc($4,r.created_at)::date AS bucket, sum(r.amount_cents) AS cents
+          FROM orders r JOIN entitlements e ON e.id=r.entitlement_id WHERE ${paidInRange} GROUP BY 1`,
+        ),
+        ...args,
+        range.bucket,
+      );
+      const salesByOffering = await sql<{
+        id: string;
+        title: string;
+        orders: number;
+        gross_cents: number;
+      }>(
+        prisma,
+        `SELECT o.id,o.title,count(r.id)::int AS orders,coalesce(sum(r.amount_cents),0)::int AS gross_cents
+        FROM orders r JOIN entitlements e ON e.id=r.entitlement_id JOIN offerings o ON o.id=e.offering_id
+        WHERE ${paidInRange} GROUP BY o.id ORDER BY 4 DESC, o.title`,
+        ...args,
+      );
+      sales = {
+        ...money,
+        // Refunds and failed payments arrive with Stripe (M3) and refunds (M5).
+        refunds_cents: null,
+        failed_payments: null,
+        net_cents: money.gross_cents,
+        trend: salesTrend,
+        by_offering: salesByOffering,
+      };
+    }
+    return {
+      range: { days, ...range },
+      offering_id: offering,
+      simulated: true,
+      enrollment: {
+        ...totals,
+        seats_capacity: seats.capacity,
+        seats_in_use: seats.in_use,
+        trend: registrationsTrend,
+        by_offering: byOffering,
+      },
+      sales,
+      completion: {
+        available: false,
+        reason:
+          "Completion data comes from Canvas and is planned after the Canvas connection (decisions R2 and F11).",
+      },
+    };
+  }
   async report() {
     const [
       simulated_orders,

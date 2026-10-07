@@ -39,6 +39,7 @@ import {
 } from "../../components/staff-session";
 import { StaffRoles, StaffUsers } from "../../components/staff-admin";
 import { StaffLearners } from "../../components/staff-learners";
+import { StaffDashboard } from "../../components/staff-dashboard";
 import {
   OfferingForm,
   StaffOffering,
@@ -109,6 +110,7 @@ export default function Staff() {
 }
 type Session = ReturnType<typeof useStaffSession>;
 type TabName =
+  | "dashboard"
   | "offerings"
   | "approvals"
   | "exceptions"
@@ -122,7 +124,7 @@ function StaffWorkspace({ session }: { session: Session }) {
   const { can } = session;
   const canCatalog = can("catalog:write");
   const canDecide = can("approvals:decide");
-  const [tab, setTab] = useState<TabName>("offerings"),
+  const [tab, setTab] = useState<TabName>("dashboard"),
     [roleFilter, setRoleFilter] = useState<StaffRole | "all">("all"),
     [courses, setCourses] = useState<StaffOffering[]>([]),
     [requests, setRequests] = useState<ApprovalRequest[]>([]),
@@ -354,6 +356,7 @@ function StaffWorkspace({ session }: { session: Session }) {
         sx={{ mt: 3, mb: 3, borderBottom: 1, borderColor: "divider" }}
         aria-label="Staff workspace"
       >
+        <Tab value="dashboard" label="Dashboard" />
         <Tab value="offerings" label="Offerings" />
         <Tab value="approvals" label={`Approvals (${requests.length})`} />
         <Tab value="exceptions" label={`Exceptions (${exceptions.length})`} />
@@ -848,6 +851,9 @@ function StaffWorkspace({ session }: { session: Session }) {
           </TableContainer>
           <TablePager view={activityView} label="Activity" />
         </>
+      )}
+      {loaded && tab === "dashboard" && (
+        <StaffDashboard offerings={courses} canSales={can("reports:sales")} />
       )}
       {tab === "learners" && (
         <StaffLearners

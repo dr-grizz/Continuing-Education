@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
+import { Type } from "class-transformer";
 import {
   CourseType,
   SimulatedOutcome,
@@ -227,4 +228,15 @@ export class LearnerQueryDto {
   @IsString()
   @MaxLength(254)
   search?: string;
+}
+export class DashboardQueryDto {
+  @ApiPropertyOptional({
+    enum: [7, 30, 90, 365, 0],
+    description: "Days back from today; 0 means all time. Default 30.",
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsIn([7, 30, 90, 365, 0])
+  days?: number;
+  @ApiPropertyOptional() @IsOptional() @IsUUID() offeringId?: string;
 }

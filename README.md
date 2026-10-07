@@ -84,7 +84,8 @@ Stop application processes with Ctrl+C. `docker compose stop db` stops PostgreSQ
    - Avery Approver can decide approvals but not edit offerings.
    - Casey Catalog Manager manages offerings.
    - Sam Support and Ivy (IT/Canvas) recover exceptions.
-   - Fran Finance views reports.
+   - Fran Finance views reports, including sales on the **Dashboard** tab. Other staff see enrollment only.
+   - Cory Content Editor holds the sales-page role, which is view-only until the sales page editor exists.
    - The Demo Staff Administrator holds every role and manages people in the **Staff** and **Roles** tabs.
 
    - In **Learners**, any staff member can inspect a learner's registrations and activity. Sam Support can deactivate or reactivate a learner, with a reason; a deactivated learner cannot sign in or act.

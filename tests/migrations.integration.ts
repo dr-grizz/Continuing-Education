@@ -183,7 +183,7 @@ async function main() {
     assert.equal(
       (await fresh.pool.query("SELECT count(*)::int AS n FROM staff_members"))
         .rows[0].n,
-      6,
+      7,
       "demo staff seeded",
     );
     console.log(

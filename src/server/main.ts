@@ -27,6 +27,7 @@ import { prisma, sql } from "../domain/prisma";
 import { PrototypeGuard, requireScope } from "./auth";
 import {
   DemoUserDto,
+  DashboardQueryDto,
   DecisionDto,
   LearnerAccessDto,
   LearnerQueryDto,
@@ -338,6 +339,19 @@ class WorkflowController {
   ) {
     requireScope(req, "staff:manage");
     return this.portal.updateStaff(req.principal, key, id, dto);
+  }
+  @Get("staff/dashboard")
+  @ApiOperation({
+    summary:
+      "Sample dashboard: enrollment for all staff; sales with reports:sales; completion after Canvas",
+  })
+  dashboard(@Req() req: any, @Query() query: DashboardQueryDto) {
+    requireScope(req, "staff:read");
+    return this.portal.dashboard(
+      req.principal,
+      query.days ?? 30,
+      query.offeringId,
+    );
   }
   @Get("staff/learners")
   @ApiOperation({
