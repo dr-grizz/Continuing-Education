@@ -167,6 +167,19 @@ A real screen-reader session, forced colors and cross-browser checks remain outs
 
 ## Latest implementation record
 
+October 7, 2026: cleaned test data out of the local database, and made the test suites clean up after themselves.
+
+- **Removed (after a backup in `backups/`):**
+  - Test learners: `verify-a`/`verify-b` (October 1 verification), `portal-demo-a`/`b` (October 1 browser checks), `smoke-prisma` (October 6) and `a11y-scan`.
+  - The two "Verify …" courses, with their 11 registrations, orders, jobs and price history.
+  - Audit entries left by tests and walkthroughs: simulation switches, the October 6 backdating and the temporary unpublish/republish.
+  - Idempotency records of removed or retired actors.
+- **Kept:** seed data (legacy sample learner, six sample courses, seven demo staff, three collections) and the registration of the learner who signed in on October 5. The database now holds 2 learners, 3 registrations, 12 audit entries and 6 command records.
+- **Test fixes:**
+  - The integration suite now also removes the simulation-switch audit entries it creates and any commands made as its test learners (one helper's idempotency keys were not tracked).
+  - The accessibility scans gained a teardown that removes the `a11y-scan` learner and its records.
+  - Verified: record counts are identical before and after each suite.
+
 October 7, 2026: in My learning, the **Available to you** section is renamed **Enrolled courses**, without the description line under the heading.
 
 October 7, 2026: placeholder Canvas links open an explanation instead of a dead page. **Open course in Canvas** checks the offering's Canvas address. Reserved example and test domains (the sample `canvas.example.edu` addresses) open a "Canvas course not connected yet" dialog showing the placeholder; real addresses still open in a new tab. Replacing the address on the offering is all that is needed later. Checked from the keyboard (the dialog opens for the right course; Escape closes it and focus returns to the button), and a new accessibility scan enrolls its synthetic learner through the normal flow and scans the dialog.

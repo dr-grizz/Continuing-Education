@@ -1401,17 +1401,20 @@ async function main() {
     );
 
     // Collections, pathways, saved courses and follows (decisions F3 and F4).
-    const learnerCall = (path: string, learnerId: string, body?: unknown) =>
-      fetch(`http://127.0.0.1:3001/api/v1/${path}`, {
+    const learnerCall = (path: string, learnerId: string, body?: unknown) => {
+      const key = randomUUID();
+      httpKeys.push(key);
+      return fetch(`http://127.0.0.1:3001/api/v1/${path}`, {
         method: body ? "POST" : "GET",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${process.env.LEARNER_API_TOKEN}`,
           "X-Prototype-Learner-Id": learnerId,
-          "Idempotency-Key": randomUUID(),
+          "Idempotency-Key": key,
         },
         body: body ? JSON.stringify(body) : undefined,
       });
+    };
     const firstStep = await seed(false),
       secondStep = await seed(false),
       hiddenStep = await seed(false);
@@ -1774,8 +1777,9 @@ async function main() {
     // Restore the site-wide Explore picks, then remove this run's audit entries for them.
     if (explorePicks)
       await http("staff/explore", process.env.STAFF_API_TOKEN, explorePicks);
+    // Site-wide settings the run changed and restored leave audit entries too.
     await db.query(
-      "DELETE FROM audit_events WHERE action='explore.updated' AND created_at>=$1",
+      "DELETE FROM audit_events WHERE action IN ('explore.updated','prototype.simulation_changed') AND created_at>=$1",
       [testStarted],
     );
     await db.query("DELETE FROM audit_events WHERE object_id=ANY($1::uuid[])", [
@@ -1814,6 +1818,10 @@ async function main() {
     ]);
     await db.query("DELETE FROM audit_events WHERE object_id=ANY($1::uuid[])", [
       userIds,
+    ]);
+    // Commands made as a test learner through the API use its demo-learner actor.
+    await db.query("DELETE FROM commands WHERE actor=ANY($1::text[])", [
+      userIds.map((id) => `demo-learner:${id}`),
     ]);
     await db.query("DELETE FROM learners WHERE id=ANY($1::uuid[])", [userIds]);
     await db.end();

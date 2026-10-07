@@ -4,6 +4,7 @@ import { defineConfig, devices } from "@playwright/test";
 // keyboard and screen-reader review (see the README checklist).
 export default defineConfig({
   testDir: "tests/accessibility",
+  globalTeardown: "./tests/accessibility/teardown.ts",
   timeout: 60_000,
   retries: process.env.CI ? 1 : 0,
   workers: 1,
