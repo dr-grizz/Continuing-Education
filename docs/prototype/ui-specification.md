@@ -143,7 +143,7 @@ Outlined `Paper`. Catalog cards add a hover and focus-within state: primary bord
 | `declined` | Request declined | "You can request approval again"; Request approval again |
 | `reserved` | Seat reserved | Shows the deadline time; Simulate payment |
 | `provisioning` | Preparing access | Three-step progress: Payment recorded → Identity prepared → Enrollment verified |
-| `enrolled` | Enrolled | **Open course in Canvas** (new tab; accessible name "Open {course} in Canvas (opens in a new tab)") when a Canvas URL is mapped; otherwise a note that the link will appear when staff connect the course |
+| `enrolled` | Enrolled | **Open course in Canvas** when a Canvas URL is mapped: a real address opens in a new tab (accessible name "Open {course} in Canvas (opens in a new tab)"); a placeholder address (`example.com/.org/.net/.edu`, `.test`, `.example`, `.invalid`, `localhost`) opens a "Canvas course not connected yet" dialog showing the placeholder (`aria-haspopup="dialog"`, name "Open {course} in Canvas"; focus returns to the button on close); otherwise a note that the link will appear when staff connect the course |
 | `expired` | Reservation expired | Reserve a seat while the approval (if any) is still valid; otherwise Request approval again |
 | `provisioning` (retrying) | Preparing access | "Taking longer than usual… retrying automatically; no action is needed" |
 | any unpaid status on an unpublished offering | No longer offered | "This course is no longer open for registration…"; no actions, and the title is not linked |
@@ -201,9 +201,9 @@ Mock sign-in. The Email field (`autoComplete="username"`) and Password field (`c
 
 - Signed out: a panel with a sign-in button.
 - Signed in: the session email, then registrations in two `h2` sections of outlined cards (category, `h3` linked title, schedule, status chip, and the status-specific content from the table above). The page polls every 2.5 seconds.
-  - **Available to you:** enrolled courses. Those with a Canvas link come first, then those ready now (self-paced or already started), then upcoming by start date. Enrolled cards show no progress steps, only the Canvas link or the "link will appear" note.
+  - **Enrolled courses** (no description line): those with a Canvas link come first, then those ready now (self-paced or already started), then upcoming by start date. Enrolled cards show no progress steps, only the Canvas link or the "link will appear" note.
   - **Registrations:** everything else in progress (approval, reservation, payment, preparing access, support review); declined and expired requests last.
-  - When the worker enrolls a course, its card moves to Available to you. If focus was inside that card, focus follows it to its next action (Open course in Canvas) and the status region announces the change.
+  - When the worker enrolls a course, its card moves to Enrolled courses. If focus was inside that card, focus follows it to its next action (Open course in Canvas) and the status region announces the change.
 - **Pathways you follow** (`h2`, shown when the learner follows any): one card per pathway with an `h3` link to its page and an ordered list of its published courses, each with the learner's registration status or "Not registered". A **Next** chip marks the first course that is not registered (or whose request expired, lapsed or was declined). No completion progress until Canvas.
 - **Saved courses** (`h2`, shown when the learner has any): one card per course with a linked `h3` title, schedule and price, and **Remove** (accessible name "Remove {course} from saved courses"). After removal, focus moves to the section heading and the status region announces it; removing the last course leaves the section with "No saved courses" and a Browse courses link.
 - Action errors stay inside the affected card. Successes show a snackbar ("Seat reserved for …", "Payment simulated for …").

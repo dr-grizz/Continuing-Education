@@ -99,6 +99,43 @@ test.describe("learner pages", () => {
     await scan(page, "My learning");
   });
 });
+test("placeholder Canvas link dialog", async ({ page }) => {
+  // Enroll the scan's synthetic learner in a sample course (placeholder Canvas
+  // address) through the normal flow; later runs reuse the same registration.
+  await page.request.post("/api/demo-session", {
+    data: { email: "a11y-scan@example.test" },
+  });
+  const command = (path: string, data: object) =>
+    page.request.post(`/api/${path}`, {
+      data,
+      headers: { "Idempotency-Key": crypto.randomUUID() },
+    });
+  const registration = await (
+    await command("registrations", {
+      offeringId: "10000000-0000-4000-8000-000000000001",
+    })
+  ).json();
+  if (registration.status === "reserved")
+    await command(
+      `prototype/registrations/${registration.id}/simulate-payment`,
+      {},
+    );
+  await expect
+    .poll(
+      async () =>
+        (await (await page.request.get("/api/me/learning")).json()).find(
+          (row: { id: string }) => row.id === registration.id,
+        )?.status,
+      { timeout: 30_000 },
+    )
+    .toBe("enrolled");
+  await page.goto("/learning");
+  await page
+    .getByRole("button", { name: "Open Practical Data Analysis in Canvas" })
+    .click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await scan(page, "Placeholder Canvas link dialog");
+});
 test.describe("staff workspace", () => {
   test("staff sign-in", async ({ page }) => {
     await page.request.delete("/api/staff-session");

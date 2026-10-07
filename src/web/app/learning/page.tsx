@@ -1,5 +1,6 @@
 "use client";
 import { useDemoAuth } from "../../components/demo-auth";
+import { CanvasLinkButton } from "../../components/canvas-link";
 import { LoadingCards } from "../../components/loading";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -17,7 +18,6 @@ import {
   Stepper,
   Typography,
 } from "@mui/material";
-import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import {
   api,
   date,
@@ -104,7 +104,7 @@ export default function LearningPage() {
         })
         .map((row) => `${row.title}: ${labels[row.status] || row.status}.`);
       if (changes.length) setAnnouncement(changes.join(" "));
-      // A card moves between "Available to you" and "Registrations" when it is
+      // A card moves between "Enrolled courses" and "Registrations" when it is
       // enrolled; if focus was inside it, follow the card to its new place.
       const focused = [...cards.current.entries()].find(([, element]) =>
         element.contains(document.activeElement),
@@ -196,7 +196,7 @@ export default function LearningPage() {
       setBusy("");
     }
   }
-  // Enrolled courses come first ("Available to you"): those with a Canvas link
+  // The "Enrolled courses" section comes first: courses with a Canvas link
   // first, then ready now (self-paced or already started), then upcoming by
   // start date. Everything else is a registration in progress, closed last.
   const today = new Date().toISOString().slice(0, 10);
@@ -417,20 +417,11 @@ export default function LearningPage() {
               <Typography>
                 Your Canvas account and course enrollment are ready.
               </Typography>
-              <Button
-                variant="contained"
-                href={row.canvas_course_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                endIcon={<OpenInNewIcon />}
-                aria-label={`Open ${row.title} in Canvas (opens in a new tab)`}
-                data-next-action
-              >
-                Open course in Canvas
-              </Button>
-              <Typography variant="caption" color="text.secondary">
-                Prototype link to a placeholder Canvas address.
-              </Typography>
+              <CanvasLinkButton
+                id={row.offering_id}
+                url={row.canvas_course_url}
+                title={row.title}
+              />
             </Stack>
           ) : row.status === "enrolled" ? (
             <Alert severity="success" role="note">
@@ -480,15 +471,11 @@ export default function LearningPage() {
       {available.length > 0 && (
         <Box
           component="section"
-          aria-labelledby="available-heading"
+          aria-labelledby="enrolled-heading"
           sx={{ mt: 4 }}
         >
-          <Typography id="available-heading" variant="h5" component="h2">
-            Available to you
-          </Typography>
-          <Typography color="text.secondary" sx={{ mt: 0.5 }}>
-            Courses you are enrolled in. Courses you can open in Canvas are
-            listed first.
+          <Typography id="enrolled-heading" variant="h5" component="h2">
+            Enrolled courses
           </Typography>
           <Stack spacing={3} sx={{ mt: 2 }}>
             {available.map(renderCard)}

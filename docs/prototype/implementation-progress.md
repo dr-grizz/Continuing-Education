@@ -52,7 +52,7 @@ Local website: `http://127.0.0.1:3000/`. API documentation: `http://localhost:30
 - [x] Add sortable, searchable, paged staff tables with card layouts on phones.
 - [x] Add staff-curated collections and pathways: a catalog Collection filter, public collection and pathway pages, and "Part of" links on course pages.
 - [x] Let learners save courses privately and follow pathways, both shown in My learning; neither registers or charges.
-- [x] Open the catalog on an Explore tab (staff-picked courses, pathways and collections with automatic fill), beside Courses, Collections and Pathways tabs; group My learning into Available to you and Registrations.
+- [x] Open the catalog on an Explore tab (staff-picked courses, pathways and collections with automatic fill), beside Courses, Collections and Pathways tabs; group My learning into Enrolled courses and Registrations.
 
 ### Learners and registration
 
@@ -166,6 +166,10 @@ A real screen-reader session, forced colors and cross-browser checks remain outs
 | UI asset attribution                  | [Image credits](image-credits.md) and [logo source](../../src/web/public/brand/SOURCE.txt) |
 
 ## Latest implementation record
+
+October 7, 2026: in My learning, the **Available to you** section is renamed **Enrolled courses**, without the description line under the heading.
+
+October 7, 2026: placeholder Canvas links open an explanation instead of a dead page. **Open course in Canvas** checks the offering's Canvas address. Reserved example and test domains (the sample `canvas.example.edu` addresses) open a "Canvas course not connected yet" dialog showing the placeholder; real addresses still open in a new tab. Replacing the address on the offering is all that is needed later. Checked from the keyboard (the dialog opens for the right course; Escape closes it and focus returns to the button), and a new accessibility scan enrolls its synthetic learner through the normal flow and scans the dialog.
 
 October 7, 2026: enrolled courses in My learning show no progress steps, and courses with a Canvas link are listed first under Available to you, then ready now, then upcoming. Checked in the browser with a synthetic learner who has three linked and two unlinked enrolled courses.
 
