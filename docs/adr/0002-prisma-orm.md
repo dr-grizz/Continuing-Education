@@ -14,7 +14,7 @@ Decision:
 - Models keep **snake_case** field names that match the columns, so API responses and the web UI do not change.
 - **One migration authority:** `npm run db:migrate` (`scripts/db-migrate.ts`).
   - It holds the legacy advisory lock (21001001).
-  - If the database was built by legacy migrations 001–007, it applies any missing legacy migration, verifies all seven are present, and records `prisma/migrations/0_baseline` as applied (`prisma migrate resolve --applied`) without replaying it.
+  - If the database was built by legacy migrations 001–007, it applies any missing legacy migration, verifies all seven are present, and records `prisma/migrations/000_baseline` (originally `0_baseline`; renumbered October 7, 2026) as applied (`prisma migrate resolve --applied`) without replaying it.
   - It then runs `prisma migrate deploy`.
   - It refuses a database that has application tables but no migration history.
   - `schema_migrations` and `src/domain/001–007` stay as read-only history.

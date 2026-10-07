@@ -651,7 +651,7 @@ async function main() {
   // Refuse to start until npm run db:migrate has recorded the Prisma baseline.
   const migrated = await sql(
     prisma,
-    "SELECT 1 AS ok FROM _prisma_migrations WHERE migration_name='0_baseline' AND finished_at IS NOT NULL AND rolled_back_at IS NULL",
+    "SELECT 1 AS ok FROM _prisma_migrations WHERE migration_name='000_baseline' AND finished_at IS NOT NULL AND rolled_back_at IS NULL",
   ).catch(() => []);
   if (!migrated.length) throw new Error("Run npm run db:migrate first.");
   for (const name of [

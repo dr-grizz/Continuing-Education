@@ -147,6 +147,7 @@ Outlined `Paper`. Catalog cards add a hover and focus-within state: primary bord
 | `reserved` | Seat reserved | Shows the deadline time; Simulate payment |
 | `provisioning` | Preparing access | Three-step progress: Payment recorded → Identity prepared → Enrollment verified |
 | `enrolled` | Enrolled | **Open course in Canvas** when a Canvas URL is mapped: a real address opens in a new tab (accessible name "Open {course} in Canvas (opens in a new tab)"); a placeholder address (`example.com/.org/.net/.edu`, `.test`, `.example`, `.invalid`, `localhost`) opens a "Canvas course not connected yet" dialog showing the placeholder (`aria-haspopup="dialog"`, name "Open {course} in Canvas"; focus returns to the button on close); otherwise a note that the link will appear when staff connect the course |
+| `refunded` | Refunded, access ended | Info note (`role="note"`): the course was refunded and access has ended; contact the program office to register again. No actions. Listed with closed registrations. |
 | `expired` | Reservation expired | Reserve a seat while the approval (if any) is still valid; otherwise Request approval again |
 | `provisioning` (retrying) | Preparing access | "Taking longer than usual… retrying automatically; no action is needed" |
 | any unpaid status on an unpublished offering | No longer offered | "This course is no longer open for registration…"; no actions, and the title is not linked |

@@ -320,6 +320,12 @@ export class PortalService {
             ].includes(row.status))
         )
           return row;
+        // A refunded registration keeps its order history; registering again
+        // needs staff help for now (one order and one job per registration).
+        if (row?.status === "refunded")
+          throw new ConflictException(
+            "This course was refunded and your access has ended. Contact the program office to register again.",
+          );
         if (!offering.enrollment_open)
           throw new ConflictException(
             `Enrollment closed on ${offering.enrollment_closes_label}.`,
@@ -748,8 +754,9 @@ export class PortalService {
     );
   }
   // charge.refunded from Stripe: Finance refunded in the Stripe Dashboard.
-  // Records the refunded amount and closes any open portal request. Course
-  // access is unchanged until decision P5 says otherwise.
+  // Records the refunded amount and closes any open portal request. A full
+  // refund ends course access (decision P5, October 7, 2026); a partial refund
+  // is recorded and flagged, with access unchanged.
   private async applyRefund(
     tx: Tx,
     charge: Stripe.Charge,
@@ -787,6 +794,7 @@ export class PortalService {
         stripe_refund_id: refundId,
       },
     });
+    const full = refunded >= order.amount_cents;
     await audit(
       tx,
       "stripe-webhook",
@@ -795,10 +803,36 @@ export class PortalService {
       {
         order_id: order.id,
         refunded_cents: refunded,
-        full: refunded === order.amount_cents,
+        full,
         ...(closed.count ? {} : { without_portal_request: true }),
+        ...(full ? {} : { partial_access_unchanged: true }),
       },
     );
+    if (!full) return;
+    const [registration] = await sql<{ status: string }>(
+      tx,
+      "SELECT status FROM entitlements WHERE id=$1::uuid FOR UPDATE",
+      order.entitlement_id,
+    );
+    if (!registration || registration.status === "refunded") return;
+    await tx.entitlements.update({
+      where: { id: order.entitlement_id },
+      data: { status: "refunded", reserved_until: null },
+    });
+    // An enrollment still being prepared must not complete after the refund.
+    await tx.operations.updateMany({
+      where: {
+        entitlement_id: order.entitlement_id,
+        status: { in: ["pending", "running"] },
+      },
+      data: { status: "failed", error: "Refunded: course access ended" },
+    });
+    await audit(tx, "stripe-webhook", "access.ended", order.entitlement_id, {
+      reason: "full refund",
+      previous_status: registration.status,
+      canvas:
+        "Remove the Canvas enrollment manually until Canvas is connected.",
+    });
   }
   // Read-only transaction list for staff with payments:read.
   async transactions() {
@@ -1769,7 +1803,7 @@ export class PortalService {
         count(*) FILTER (WHERE e.status IN ('approved','reserved','provisioning'))::int AS in_progress,
         count(*) FILTER (WHERE e.status='awaiting_approval')::int AS awaiting_approval,
         count(*) FILTER (WHERE e.status='exception')::int AS exceptions,
-        count(*) FILTER (WHERE e.status IN ('declined','expired','approval_expired'))::int AS not_continuing
+        count(*) FILTER (WHERE e.status IN ('declined','expired','approval_expired','refunded'))::int AS not_continuing
       FROM entitlements e WHERE ${inRange}`,
       ...args,
     );

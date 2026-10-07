@@ -167,6 +167,18 @@ A real screen-reader session, forced colors and cross-browser checks remain outs
 
 ## Latest implementation record
 
+October 7, 2026: a full refund ends course access (decision P5), and migrations renumbered (branch `staff-admin-layout`).
+
+- **Refunds:**
+  - On a full `charge.refunded`, the registration becomes **Refunded**, which frees the seat. Any unfinished enrollment job is stopped, and an `access.ended` audit entry notes that Canvas removal is manual until Canvas is connected.
+  - Partial refunds are recorded and flagged with access unchanged. A refunded registration cannot restart on its own; the learner is asked to contact the program office.
+  - Migration `010_refunded_status` adds the status, and `011_refunded_access_backfill` applies the rule to earlier refunds. It caught today's sandbox test refund.
+  - Learners see "Refunded, access ended" with an explanation; staff learner details and the Transactions page say the same.
+- **Migration names:** renumbered with three digits (`000_baseline` … `011_…`). Prisma applies migrations alphabetically, and `10_refunded_status` would have sorted before `1_status_enums`, failing on any fresh database such as CI's.
+  - `npm run db:migrate` renames history recorded under the old names automatically, before deploying. The local database was backed up, then renamed, with nothing re-applied.
+  - A new migration test covers the rename (10/10).
+- **Verification:** integration 23/23 (full refund ends access and stops jobs, no restart after refund, partial refund leaves access). Migration tests 10/10. In the browser: the refunded learner's My learning card. Record counts unchanged after test runs.
+
 October 7, 2026: admin-style staff layout (branch `staff-admin-layout`, stacked on `stripe-checkout`).
 
 - **Layout:** staff pages are full width, with a grouped left sidebar (Overview, Catalog, Learners, Finance, Administration) in place of the 12-tab row. The sidebar collapses to an icon rail on desktop and becomes a drawer on phones. A compact session panel replaces the large header.

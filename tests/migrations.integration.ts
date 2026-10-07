@@ -205,6 +205,24 @@ async function main() {
     assert.equal((await migrationNames(fresh.pool)).length, committed.length);
     console.log("PASS: a second migration run changes nothing");
 
+    // 2b. History recorded under the old one- and two-digit names is renamed to
+    // the three-digit names without re-applying anything.
+    await fresh.pool.query(
+      "UPDATE _prisma_migrations SET migration_name=regexp_replace(migration_name,'^0*([0-9])','\\1')",
+    );
+    assert.ok(
+      (await migrationNames(fresh.pool)).some(
+        (m) => m.migration_name === "10_refunded_status",
+      ),
+      "old names restored for the test",
+    );
+    await migrate(fresh.url, { quiet: true });
+    assert.deepEqual(await migrationNames(fresh.pool), allApplied);
+    assert.deepEqual(await snapshot(fresh.pool), before.data);
+    console.log(
+      "PASS: history under old migration names is renamed, not re-applied",
+    );
+
     // 3. Adoption of an existing 001-007 database with live records.
     const legacy = await createDb();
     const legacyClient = await legacy.pool.connect();
@@ -339,7 +357,7 @@ async function main() {
       `import { defineConfig, env } from "prisma/config";\nexport default defineConfig({ schema: "../prisma/schema.prisma", migrations: { path: "migrations" }, datasource: { url: env("DATABASE_URL") } });\n`,
     );
     process.env.PRISMA_CONFIG_PATH = path.join(workspace, "prisma.config.ts");
-    const failing = path.join(workspace, "migrations", "90_failing_change");
+    const failing = path.join(workspace, "migrations", "900_failing_change");
     mkdirSync(failing);
     writeFileSync(
       path.join(failing, "migration.sql"),
@@ -347,10 +365,10 @@ async function main() {
     );
     await assert.rejects(migrate(legacy.url, { quiet: true }));
     const failedRow = (await migrationNames(legacy.pool)).find(
-      (m) => m.migration_name === "90_failing_change",
+      (m) => m.migration_name === "900_failing_change",
     );
     assert.deepEqual(failedRow, {
-      migration_name: "90_failing_change",
+      migration_name: "900_failing_change",
       finished: false,
       rolled_back: false,
     });
@@ -374,7 +392,7 @@ async function main() {
         "migrate",
         "resolve",
         "--rolled-back",
-        "90_failing_change",
+        "900_failing_change",
         "--config",
         process.env.PRISMA_CONFIG_PATH,
       ],
@@ -383,7 +401,7 @@ async function main() {
     const corrective = path.join(
       workspace,
       "migrations",
-      "91_offering_subtitle",
+      "901_offering_subtitle",
     );
     mkdirSync(corrective);
     writeFileSync(
@@ -408,8 +426,8 @@ async function main() {
       history.map((m) => [m.migration_name, m.finished, m.rolled_back]),
       [
         ...committed.map((name) => [name, true, false]),
-        ["90_failing_change", false, true],
-        ["91_offering_subtitle", true, false],
+        ["900_failing_change", false, true],
+        ["901_offering_subtitle", true, false],
       ],
     );
     console.log(

@@ -6,7 +6,7 @@ import { applyLegacyMigrations, legacyMigrations } from "./legacy-migrations";
 // Single migration authority (issue #2). Adopts a database built by legacy migrations
 // 001-007 by recording the Prisma baseline as applied (never replaying it), then
 // applies reviewed Prisma migrations with `prisma migrate deploy`.
-const BASELINE = "0_baseline";
+const BASELINE = "000_baseline";
 // Same advisory lock key as the legacy runner, so old and new runners never overlap.
 const LOCK = 21001001;
 const prismaBin = path.resolve(__dirname, "../node_modules/.bin/prisma");
@@ -38,6 +38,20 @@ export async function migrate(
         to_regclass('public._prisma_migrations') IS NOT NULL AS prisma,
         to_regclass('public.offerings') IS NOT NULL AS tables`)
     ).rows[0];
+    // Migrations were renumbered with three digits (October 7, 2026) because
+    // Prisma applies them in alphabetical order, where "10_x" sorts before
+    // "1_x". Rename history recorded under the old names before deploying.
+    if (state.prisma) {
+      const renamed = await client.query(
+        `UPDATE _prisma_migrations
+           SET migration_name = lpad(split_part(migration_name, '_', 1), 3, '0') || substr(migration_name, position('_' in migration_name))
+         WHERE migration_name ~ '^[0-9]{1,2}_'`,
+      );
+      if (renamed.rowCount)
+        log(
+          `Renamed ${renamed.rowCount} migration records to three-digit names.`,
+        );
+    }
     const baselined =
       state.prisma &&
       (
