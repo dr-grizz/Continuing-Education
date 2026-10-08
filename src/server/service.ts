@@ -2516,6 +2516,64 @@ export class PortalService {
 
   // Sales pages (decision F2): content editors edit a draft and publish it as a
   // numbered, append-only revision. The course page shows the published page.
+  // Sales page images: raster formats only, checked by their first bytes so a
+  // file cannot claim to be an image it is not.
+  async uploadMedia(
+    principal: Principal,
+    key: string,
+    data: { fileName: string; contentType: string; data: string },
+  ) {
+    const bytes = Buffer.from(data.data, "base64");
+    if (!bytes.length || bytes.length > 5 * 1024 * 1024)
+      throw new BadRequestException("Images must be 5 MB or smaller.");
+    const signatures: Record<string, (b: Buffer) => boolean> = {
+      "image/png": (b) =>
+        b.subarray(0, 8).equals(Buffer.from("89504e470d0a1a0a", "hex")),
+      "image/jpeg": (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff,
+      "image/gif": (b) => b.subarray(0, 4).toString("latin1") === "GIF8",
+      "image/webp": (b) =>
+        b.subarray(0, 4).toString("latin1") === "RIFF" &&
+        b.subarray(8, 12).toString("latin1") === "WEBP",
+    };
+    if (!signatures[data.contentType]?.(bytes))
+      throw new BadRequestException(
+        "The file is not a PNG, JPEG, WebP or GIF image.",
+      );
+    return this.command(
+      principal,
+      key,
+      {
+        action: "media.upload",
+        fileName: data.fileName,
+        sha: createHash("sha256").update(bytes).digest("hex"),
+      },
+      async (tx) => {
+        const media = await tx.media_assets.create({
+          data: {
+            content_type: data.contentType,
+            file_name: data.fileName,
+            size: bytes.length,
+            bytes,
+            created_by: principal.actor,
+          },
+          select: { id: true },
+        });
+        await audit(tx, principal.actor, "media.uploaded", media.id, {
+          file_name: data.fileName,
+          size: bytes.length,
+        });
+        return { id: media.id, url: `/media/${media.id}` };
+      },
+    );
+  }
+  async media(id: string) {
+    const file = await prisma.media_assets.findUnique({
+      where: { id },
+      select: { content_type: true, bytes: true },
+    });
+    if (!file) throw new NotFoundException("Image not found.");
+    return file;
+  }
   // One offering's staff page: the offering, registration counts by status,
   // its sales page status and offering-level activity (not learner records).
   async staffOffering(id: string) {

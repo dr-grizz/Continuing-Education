@@ -1,5 +1,7 @@
 "use client";
-import { Box, Paper, Typography } from "@mui/material";
+import { Fragment } from "react";
+import { Box, Link, Paper, Typography } from "@mui/material";
+import type { Mark, RichDoc, RichNode } from "../../domain/rich-text";
 
 // Sales page blocks as learners see them, shared by the course page and the
 // staff preview. Everything renders as plain text (no HTML), so a page cannot
@@ -15,6 +17,7 @@ export const heroImages = [
 export type HeroImage = (typeof heroImages)[number]["key"];
 
 export type Block =
+  | { type: "rich_text"; doc: RichDoc }
   | {
       type: "hero";
       image: HeroImage;
@@ -51,6 +54,7 @@ export type SalesPage = {
 };
 
 export const blockLabels: Record<Block["type"], string> = {
+  rich_text: "Rich text",
   hero: "Hero image",
   text: "Text",
   outcomes: "Learning outcomes",
@@ -110,6 +114,8 @@ export function SalesPageBlocks({
     <Box sx={{ display: "grid", gap: 4 }}>
       {page.blocks.map((block, index) => {
         switch (block.type) {
+          case "rich_text":
+            return <RichTextView key={index} doc={block.doc} level={level} />;
           case "hero":
             return (
               <Box key={index}>
@@ -225,5 +231,152 @@ export function SalesPageBlocks({
         }
       })}
     </Box>
+  );
+}
+
+/**
+ * Rich text as learners see it. Built from the server-checked JSON with React
+ * elements, never HTML. Content headings 2-4 start at `level`.
+ */
+export function RichTextView({
+  doc,
+  level = 2,
+}: {
+  doc: RichDoc;
+  level?: Level;
+}) {
+  return (
+    <Box sx={{ "& > :first-of-type": { mt: 0 } }}>
+      {doc.content.map(renderNode(level))}
+    </Box>
+  );
+}
+const renderNode =
+  (level: number) =>
+  (node: RichNode, index: number): React.ReactNode => {
+    const children = () => node.content?.map(renderNode(level));
+    switch (node.type) {
+      case "paragraph":
+        return (
+          <Typography key={index} sx={{ my: 1.5, lineHeight: 1.85 }}>
+            {children()}
+          </Typography>
+        );
+      case "heading": {
+        const n = Number(node.attrs?.level ?? 2);
+        return (
+          <Typography
+            key={index}
+            variant={n === 2 ? "h5" : n === 3 ? "h6" : "subtitle1"}
+            component={tag(level + n - 2)}
+            sx={{ mt: 3, mb: 1, fontWeight: 600 }}
+          >
+            {children()}
+          </Typography>
+        );
+      }
+      case "bulletList":
+      case "orderedList":
+        return (
+          <Box
+            key={index}
+            component={node.type === "bulletList" ? "ul" : "ol"}
+            start={
+              node.type === "orderedList"
+                ? Number(node.attrs?.start ?? 1)
+                : undefined
+            }
+            sx={{ pl: 3, my: 1.5, lineHeight: 1.8, "& p": { my: 0.5 } }}
+          >
+            {children()}
+          </Box>
+        );
+      case "listItem":
+        return <li key={index}>{children()}</li>;
+      case "blockquote":
+        return (
+          <Box
+            key={index}
+            component="blockquote"
+            sx={{
+              mx: 0,
+              my: 2,
+              pl: 2,
+              borderLeft: 4,
+              borderColor: "secondary.main",
+            }}
+          >
+            {children()}
+          </Box>
+        );
+      case "horizontalRule":
+        return (
+          <Box
+            key={index}
+            component="hr"
+            sx={{ my: 3, border: 0, borderTop: 1, borderColor: "divider" }}
+          />
+        );
+      case "hardBreak":
+        return <br key={index} />;
+      case "image":
+        return (
+          // Uploaded portal images; sizes vary, so CSS keeps them within the column.
+          <img
+            key={index}
+            src={String(node.attrs?.src)}
+            alt={String(node.attrs?.alt ?? "")}
+            style={{
+              maxWidth: "100%",
+              height: "auto",
+              display: "block",
+              margin: "16px 0",
+              borderRadius: 8,
+            }}
+          />
+        );
+      case "videoEmbed":
+        return (
+          <Box
+            key={index}
+            sx={{ my: 2, position: "relative", aspectRatio: "16 / 9" }}
+          >
+            <iframe
+              src={String(node.attrs?.src)}
+              title={String(node.attrs?.title || "Video")}
+              loading="lazy"
+              allow="fullscreen; picture-in-picture; encrypted-media"
+              allowFullScreen
+              referrerPolicy="strict-origin-when-cross-origin"
+              style={{
+                position: "absolute",
+                inset: 0,
+                width: "100%",
+                height: "100%",
+                border: 0,
+                borderRadius: 8,
+              }}
+            />
+          </Box>
+        );
+      case "text":
+        return (
+          <Fragment key={index}>
+            {(node.marks ?? []).reduceRight<React.ReactNode>(
+              (inner, mark) => applyMark(mark, inner),
+              node.text,
+            )}
+          </Fragment>
+        );
+    }
+    return null;
+  };
+function applyMark(mark: Mark, inner: React.ReactNode) {
+  if (mark.type === "bold") return <strong>{inner}</strong>;
+  if (mark.type === "italic") return <em>{inner}</em>;
+  return (
+    <Link href={mark.attrs.href} underline="always">
+      {inner}
+    </Link>
   );
 }

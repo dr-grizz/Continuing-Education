@@ -43,34 +43,37 @@ async function scan(page: Page, name: string) {
   expect(summary, `${name} accessibility violations`).toEqual([]);
 }
 // Staff sections have their own addresses (/staff/offerings, ...).
-// Opens the sales page editor for a sample course and adds one block of each
-// type, without saving, so the scans cover every block's fields.
-const blockTypes = [
-  "Hero image",
-  "Text",
-  "Learning outcomes",
-  "Instructor",
-  "Testimonial",
-  "Questions and answers",
-];
-async function openEditorWithEveryBlock(page: Page) {
+// Opens the sales page editor for a sample course and fills the rich text
+// editor with a heading, a paragraph and a video, without saving, so the scans
+// cover the editor, its toolbar and the preview.
+async function openEditorWithRichContent(page: Page) {
   await page.request.post("/api/staff-session", {
     data: { email: "content@cuce.test" },
   });
   await page.goto(
     "/staff/offerings/10000000-0000-4000-8000-000000000001/sales-page",
   );
-  await expect(
-    page.getByRole("heading", { level: 3, name: "Sales page" }),
-  ).toBeVisible();
-  for (const type of blockTypes) {
-    await page.getByRole("combobox", { name: "Block type" }).click();
-    await page.getByRole("option", { name: type, exact: true }).click();
-    await page.getByRole("button", { name: "Add block" }).click();
-  }
-  await expect(
-    page.getByRole("group", { name: /^Block 6 of 6/ }),
-  ).toBeVisible();
+  const editor = page.getByRole("textbox", { name: "Page content" });
+  await expect(editor).toBeVisible();
+  await editor.click();
+  await page.keyboard.type("Why take this course");
+  await page.getByRole("combobox", { name: "Styles" }).click();
+  await page.getByRole("option", { name: "Heading 2" }).click();
+  await editor.press("End");
+  await editor.press("Enter");
+  await page.keyboard.type("Turn everyday spreadsheets into clear answers.");
+  await editor.press("Enter");
+  await page.getByRole("button", { name: "Add a video" }).click();
+  const dialog = page.getByRole("dialog", { name: "Add a video" });
+  await dialog
+    .getByRole("textbox", { name: "Video link or embed code" })
+    .fill("https://vimeo.com/76979871");
+  await dialog
+    .getByRole("textbox", { name: "Video title" })
+    .fill("Course introduction");
+  await dialog.getByRole("button", { name: "Add video" }).click();
+  await expect(dialog).toBeHidden();
+  await expect(editor.locator("[data-video-embed]")).toHaveCount(1);
 }
 const staffSlugs: Record<string, string> = {
   Dashboard: "",
@@ -245,14 +248,16 @@ test("settings page: color theme choice and memory", async ({ page }) => {
 });
 test("Stripe test cards dialog", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "Test cards" }).click();
+  await page.getByRole("button", { name: "Test Payment Info" }).click();
   const dialog = page.getByRole("dialog", {
     name: "Stripe sandbox test cards",
   });
   await expect(dialog).toBeVisible();
   await scan(page, "Stripe test cards dialog");
   await page.keyboard.press("Escape");
-  await expect(page.getByRole("button", { name: "Test cards" })).toBeFocused();
+  await expect(
+    page.getByRole("button", { name: "Test Payment Info" }),
+  ).toBeFocused();
 });
 test.describe("staff workspace", () => {
   test("staff sign-in", async ({ page }) => {
@@ -342,8 +347,26 @@ test("unsaved changes: the staff sidebar asks before leaving", async ({
   await expect(page).toHaveURL(/\/staff\/collections$/);
 });
 test("sales page editor and preview", async ({ page }) => {
-  await openEditorWithEveryBlock(page);
+  await openEditorWithRichContent(page);
   await scan(page, "Sales page editor");
+  // Choosing an image asks for its description first (cancelled: nothing is uploaded).
+  await page.locator('input[type="file"]').setInputFiles({
+    name: "chart.png",
+    mimeType: "image/png",
+    buffer: Buffer.from(
+      "89504e470d0a1a0a0000000d4948445200000001000000010806000000" +
+        "1f15c4890000000d49444154789c6360000002000154a24f5d0000000049454e44ae426082",
+      "hex",
+    ),
+  });
+  const describe = page.getByRole("dialog", { name: "Describe the image" });
+  await expect(describe).toBeVisible();
+  await expect(
+    describe.getByRole("textbox", { name: "Image description" }),
+  ).toBeFocused();
+  await scan(page, "Image description dialog");
+  await describe.getByRole("button", { name: "Cancel" }).click();
+  await expect(describe).toBeHidden();
   await page.getByRole("tab", { name: "Preview" }).click();
   await expect(page.getByRole("tabpanel")).toBeVisible();
   await scan(page, "Sales page preview");

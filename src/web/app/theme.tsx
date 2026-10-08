@@ -59,6 +59,9 @@ const theme = createTheme({
         // Text fields and selects show focus with their own thicker border
         // (MuiOutlinedInput below); an outline here would cover the label.
         ".MuiInputBase-input:focus-visible": { outline: "none !important" },
+        // The rich text editor's writing area: its field border shows focus,
+        // so a ring inside it would draw a second rectangle.
+        ".ProseMirror:focus-visible": { outline: "none !important" },
       },
     },
     MuiInputBase: {
@@ -78,9 +81,12 @@ const theme = createTheme({
           ...theme.applyStyles("dark", { borderColor: "#71808c" }),
         }),
         // Focus: the existing border turns the primary color and thickens
-        // from 1px to 3px, instead of a second rectangle.
+        // from 1px to 3px (2px for dropdowns), instead of a second rectangle.
         root: {
           "&.Mui-focused .MuiOutlinedInput-notchedOutline": { borderWidth: 3 },
+          // Dropdowns are compact, so their focused border is 2px.
+          "&.Mui-focused:has(.MuiSelect-select) .MuiOutlinedInput-notchedOutline":
+            { borderWidth: 2 },
         },
       },
     },

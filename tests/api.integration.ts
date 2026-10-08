@@ -18,6 +18,7 @@ const stripeEventIds: string[] = [];
 let explorePicks:
   { courses: string[]; collections: string[]; pathways: string[] } | undefined;
 let adminStaffId = "";
+const mediaIds: string[] = [];
 // Staff-token calls act as a demo staff member: the seeded administrator unless
 // `staffAs` names another member, or nobody when `staffAs` is null (sign-in only).
 async function http(
@@ -1990,8 +1991,176 @@ async function main() {
       6,
       "every sales page change is audited",
     );
+    // Rich text (Tiptap JSON): only allowlisted content; uploaded images; video players.
+    const png = Buffer.from(
+      "89504e470d0a1a0a0000000d4948445200000001000000010806000000" +
+        "1f15c4890000000d49444154789c6360000002000154a24f5d0000000049454e44ae426082",
+      "hex",
+    ).toString("base64");
+    assert.equal(
+      (
+        await http(
+          "staff/media",
+          STAFF,
+          { fileName: "x.png", contentType: "image/png", data: png },
+          catalogId,
+        )
+      ).status,
+      403,
+      "uploading images needs content:write",
+    );
+    assert.equal(
+      (
+        await http(
+          "staff/media",
+          STAFF,
+          {
+            fileName: "x.svg",
+            contentType: "image/svg+xml",
+            data: Buffer.from("<svg onload='alert(1)'/>").toString("base64"),
+          },
+          contentId,
+        )
+      ).status,
+      400,
+      "SVG is not accepted",
+    );
+    assert.equal(
+      (
+        await http(
+          "staff/media",
+          STAFF,
+          {
+            fileName: "fake.png",
+            contentType: "image/png",
+            data: Buffer.from("<html>not an image</html>").toString("base64"),
+          },
+          contentId,
+        )
+      ).status,
+      400,
+      "files are checked by their bytes, not their name",
+    );
+    const uploaded = await (
+      await http(
+        "staff/media",
+        STAFF,
+        { fileName: "dot.png", contentType: "image/png", data: png },
+        contentId,
+      )
+    ).json();
+    mediaIds.push(uploaded.id);
+    assert.equal(uploaded.url, `/media/${uploaded.id}`);
+    const served = await fetch(
+      `http://127.0.0.1:3001/api/v1/media/${uploaded.id}`,
+    );
+    assert.equal(served.headers.get("content-type"), "image/png");
+    assert.equal(served.headers.get("x-content-type-options"), "nosniff");
+    assert.equal(
+      Buffer.from(await served.arrayBuffer()).toString("base64"),
+      png,
+    );
+    const rich = (content: unknown[]) => ({
+      version: removed.version,
+      page: {
+        blocks: [{ type: "rich_text", doc: { type: "doc", content } }],
+        seo: { title: "" },
+      },
+    });
+    const para = (text: string, marks?: unknown[]) => ({
+      type: "paragraph",
+      content: [{ type: "text", text, ...(marks ? { marks } : {}) }],
+    });
+    for (const [content, label] of [
+      [
+        [
+          para("Click", [
+            { type: "link", attrs: { href: "javascript:alert(1)" } },
+          ]),
+        ],
+        "script links",
+      ],
+      [
+        [
+          {
+            type: "videoEmbed",
+            attrs: { src: "https://evil.example.com/embed/1", title: "x" },
+          },
+        ],
+        "videos from other sites",
+      ],
+      [
+        [
+          {
+            type: "image",
+            attrs: { src: "https://evil.example.com/a.png", alt: "x" },
+          },
+        ],
+        "images from other sites",
+      ],
+      [[{ type: "html", content: [] }], "unknown content types"],
+    ] as [unknown[], string][])
+      assert.equal(
+        (await http(pagePath, STAFF, rich(content), contentId)).status,
+        400,
+        `rich text refuses ${label}`,
+      );
+    const richDraft = await (
+      await http(
+        pagePath,
+        STAFF,
+        rich([
+          {
+            type: "heading",
+            attrs: { level: 1 },
+            content: [{ type: "text", text: "Why" }],
+          },
+          para("Sign up", [
+            { type: "bold" },
+            {
+              type: "link",
+              attrs: { href: "https://example.edu/apply", target: "_blank" },
+            },
+          ]),
+          { type: "image", attrs: { src: uploaded.url, alt: "", width: 50 } },
+          {
+            type: "videoEmbed",
+            attrs: {
+              src: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+              title: "",
+            },
+          },
+        ]),
+        contentId,
+      )
+    ).json();
+    assert.deepEqual(
+      (await (await http(pagePath, STAFF, undefined, contentId)).json())
+        .problems,
+      [
+        "Block 1 (Rich text): describe image 1 (alternative text).",
+        "Block 1 (Rich text): give video 1 a title.",
+      ],
+      "images need a description and videos a title before publishing",
+    );
+    const saved = (
+      await (await http(pagePath, STAFF, undefined, contentId)).json()
+    ).draft.blocks[0].doc.content;
+    assert.equal(saved[0].attrs.level, 2, "heading levels start at 2");
+    assert.deepEqual(saved[1].content[0].marks[1], {
+      type: "link",
+      attrs: { href: "https://example.edu/apply" },
+    });
+    assert.deepEqual(saved[2].attrs, { src: uploaded.url, alt: "" });
+    assert.deepEqual(saved[3].attrs, {
+      provider: "youtube",
+      src: "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ",
+      title: "",
+    });
+    assert.equal(richDraft.status, "draft");
+
     console.log(
-      "PASS: sales pages: content editors draft, publish as revisions, restore and remove; consent required and kept from learners; structured blocks only; offering page shows status, counts and activity",
+      "PASS: sales pages: content editors draft, publish as revisions; rich text allowlist, uploaded images checked by bytes, YouTube/Vimeo/Kaltura only, restore and remove; consent required and kept from learners; structured blocks only; offering page shows status, counts and activity",
     );
 
     // Stripe sandbox Checkout: signed fake webhook events, no network calls.
@@ -2465,6 +2634,9 @@ async function main() {
       console.log("PASS: checkout is refused while Stripe is not configured");
     }
   } finally {
+    await db.query("DELETE FROM media_assets WHERE id=ANY($1::uuid[])", [
+      mediaIds,
+    ]);
     await db.query("DELETE FROM stripe_events WHERE id=ANY($1::text[])", [
       stripeEventIds,
     ]);
