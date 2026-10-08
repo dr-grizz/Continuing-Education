@@ -167,6 +167,20 @@ A real screen-reader session, forced colors and cross-browser checks remain outs
 
 ## Latest implementation record
 
+October 8, 2026 (later still): sales page editor (decision F2), branch `sales-pages`, stacked on `refund-reregistration`.
+
+- **What it does:** content editors build a course's sales page from structured blocks in **Staff → Sales pages**, preview it, and publish it. A published page replaces the course's default description; price, dates, seats and registration still come from the offering.
+- **Blocks:** hero image (library images, alternative text or marked decorative), text, learning outcomes (from the offering), instructor, testimonial (consent required to publish; the consent note never reaches learners), questions and answers. Text is plain, with paragraphs and bulleted lists; there is no HTML.
+- **Workflow:** save draft (version-checked), a **Before publishing** checklist, publish as a numbered append-only revision, copy an earlier revision back to the draft, or remove the published page. Every change is audited.
+- **Database:** migration `014_sales_pages` adds `sales_pages` and `sales_page_revisions`, with checks and an append-only trigger.
+- **Assumptions to confirm (F2):** course pages only (not collections or pathways yet); no separate approval before publishing; no image uploads; no readable page addresses (slugs). The search description is stored but not yet used in page metadata, because course pages render in the browser.
+- **Also fixed:** `npm run dev:lan` blocked development files for `127.0.0.1`, so pages there never became interactive; `127.0.0.1` is now allowed too.
+- **Verification:**
+  - `npm test`: 24 groups passed, including the new sales page group (permissions, unknown block types refused, consent required, consent kept from learners, stale versions refused, restore, remove, append-only revisions, auditing). `npm run test:migrations`: 10 passed.
+  - Accessibility: 142 passed in light, dark, phone, WebKit, forced colors and reflow, including new scans of the Sales pages section and of the editor and preview with one block of each type. Firefox runs in CI.
+  - Browser walkthrough as Cory Content Editor: built, saved and published a page, checked the course page and that the learner API omits consent fields, then deleted the walkthrough data. From the keyboard: following a link focuses the new view's heading; moving a block keeps focus on its arrow; removing one moves focus to the next block; changes are announced.
+  - Not yet: a screen-reader pass of the editor (part of the deferred VoiceOver review).
+
 October 8, 2026 (evening): the portal's Finance role was removed, and the prototype bar has Stripe test cards.
 
 - **Finance role removed:** the university Finance department works in Stripe, not in the portal. Migration `013_remove_finance_role` rebuilds the `staff_role` enum without `finance` and deletes the demo member Fran Finance. It stops, with instructions, if anyone else holds only that role, and removes the role from anyone holding it with others. The staff administrator now holds `reports:sales`, `payments:read` and `refunds:request`; Support keeps `payments:read` and `refunds:request`. The dashboard says sales figures are shown to staff administrators.

@@ -88,7 +88,7 @@ Stop application processes with Ctrl+C. `docker compose stop db` stops PostgreSQ
    - Avery Approver can decide approvals but not edit offerings.
    - Casey Catalog Manager manages offerings, collections and pathways.
    - Sam Support and Ivy (IT/Canvas) recover exceptions.
-   - Cory Content Editor chooses the Explore tab picks (with catalog managers) and will edit sales pages once that editor exists.
+   - Cory Content Editor builds course **Sales pages** from blocks (hero image, text, outcomes, instructor, testimonials, questions and answers), previews them and publishes them; a published page replaces the course's default description. Cory also chooses the Explore tab picks, with catalog managers.
    - The Demo Staff Administrator holds every role and manages people in the **Staff** and **Roles** tabs. Staff administrators also see sales on the **Dashboard** tab (other staff see enrollment only) and **Transactions**, where they and Sam Support record refund requests for the university Finance department, which issues refunds in Stripe. The portal has no Finance role (removed October 8, 2026): Finance works in Stripe, not in the portal.
 
    - In **Learners**, any staff member can inspect a learner's registrations and activity. Sam Support can deactivate or reactivate a learner, with a reason; a deactivated learner cannot sign in or act.

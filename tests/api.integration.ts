@@ -1778,6 +1778,195 @@ async function main() {
       "PASS: Explore shows staff picks first and fills the rest; only published items, by catalog managers or content editors; unpublishing removes a pick",
     );
 
+    // Sales pages (F2): content editors draft, publish and remove structured pages.
+    const pageCourse = await seed(false);
+    const pagePath = `staff/sales-pages/${pageCourse}`;
+    const heroBlock = {
+      type: "hero",
+      image: "data-analysis",
+      decorative: false,
+      alt: "Two people reviewing a chart",
+      tagline: "Clear answers from your data",
+    };
+    const quote = {
+      type: "testimonial",
+      quote: "Useful from the first week.",
+      name: "Sample Learner",
+      role: "",
+      consent: false,
+      consentNote: "Release form on file (sample)",
+    };
+    const draftPage = {
+      blocks: [
+        heroBlock,
+        { type: "outcomes", heading: "What you learn" },
+        quote,
+      ],
+      seo: { title: "Data course", description: "" },
+    };
+    assert.equal(
+      (await http(pagePath, STAFF, { version: 0, page: draftPage }, catalogId))
+        .status,
+      403,
+      "editing sales pages needs content:write",
+    );
+    assert.equal(
+      (
+        await http(
+          pagePath,
+          STAFF,
+          {
+            version: 0,
+            page: { blocks: [{ type: "html", body: "<script>" }], seo: {} },
+          },
+          contentId,
+        )
+      ).status,
+      400,
+      "unknown block types are refused",
+    );
+    const pageCreated = await (
+      await http(pagePath, STAFF, { version: 0, page: draftPage }, contentId)
+    ).json();
+    assert.equal(pageCreated.status, "draft");
+    assert.equal(
+      (await http(pagePath, STAFF, { version: 0, page: draftPage }, contentId))
+        .status,
+      409,
+      "a second create is a conflict",
+    );
+    const pageDetail = await (
+      await http(pagePath, STAFF, undefined, approverId)
+    ).json();
+    assert.deepEqual(pageDetail.problems, [
+      "Block 3 (Testimonial): confirm the person agreed to be quoted.",
+    ]);
+    assert.equal(
+      (
+        await http(
+          `${pagePath}/publish`,
+          STAFF,
+          { version: pageCreated.version },
+          contentId,
+        )
+      ).status,
+      400,
+      "testimonials need recorded consent to publish",
+    );
+    const consented = await (
+      await http(
+        pagePath,
+        STAFF,
+        {
+          version: pageCreated.version,
+          page: {
+            ...draftPage,
+            blocks: [
+              heroBlock,
+              draftPage.blocks[1],
+              { ...quote, consent: true },
+            ],
+          },
+        },
+        contentId,
+      )
+    ).json();
+    const published = await (
+      await http(
+        `${pagePath}/publish`,
+        STAFF,
+        { version: consented.version },
+        contentId,
+      )
+    ).json();
+    assert.equal(published.status, "published");
+    assert.equal(published.published_revision, 1);
+    const learnerView = await (await http(`offerings/${pageCourse}`)).json();
+    assert.equal(learnerView.sales_page.blocks.length, 3);
+    assert.equal(learnerView.sales_page.seo.title, "Data course");
+    assert.ok(
+      !("consentNote" in learnerView.sales_page.blocks[2]) &&
+        !("consent" in learnerView.sales_page.blocks[2]),
+      "consent records never reach learners",
+    );
+    // Editing after publishing leaves the live page alone until the next publish.
+    const pageEdited = await (
+      await http(
+        pagePath,
+        STAFF,
+        {
+          version: published.version,
+          page: { ...draftPage, blocks: [heroBlock] },
+        },
+        contentId,
+      )
+    ).json();
+    assert.equal(pageEdited.status, "changes");
+    assert.equal(
+      (await (await http(`offerings/${pageCourse}`)).json()).sales_page.blocks
+        .length,
+      3,
+    );
+    assert.equal(
+      (
+        await http(
+          `${pagePath}/publish`,
+          STAFF,
+          { version: published.version },
+          contentId,
+        )
+      ).status,
+      409,
+      "publishing a stale version is a conflict",
+    );
+    const pageRestored = await (
+      await http(
+        `${pagePath}/restore`,
+        STAFF,
+        { version: pageEdited.version, revision: 1 },
+        contentId,
+      )
+    ).json();
+    assert.equal(
+      pageRestored.status,
+      "published",
+      "revision 1 pageRestored to the draft",
+    );
+    const removed = await (
+      await http(
+        `${pagePath}/unpublish`,
+        STAFF,
+        { version: pageRestored.version },
+        contentId,
+      )
+    ).json();
+    assert.equal(removed.status, "draft");
+    assert.equal(
+      (await (await http(`offerings/${pageCourse}`)).json()).sales_page,
+      null,
+      "removing the page restores the default course page",
+    );
+    await assert.rejects(
+      db.query(
+        "UPDATE sales_page_revisions SET page='{}'::jsonb WHERE offering_id=$1",
+        [pageCourse],
+      ),
+      /append-only/,
+    );
+    assert.equal(
+      (
+        await db.query(
+          "SELECT count(*)::int AS n FROM audit_events WHERE object_id=$1 AND action LIKE 'sales_page.%'",
+          [pageCourse],
+        )
+      ).rows[0].n,
+      6,
+      "every sales page change is audited",
+    );
+    console.log(
+      "PASS: sales pages: content editors draft, publish as revisions, restore and remove; consent required and kept from learners; structured blocks only",
+    );
+
     // Stripe sandbox Checkout: signed fake webhook events, no network calls.
     const paymentConfig = await (await http("payments/config")).json();
     assert.ok(["stripe", "simulated"].includes(paymentConfig.provider));

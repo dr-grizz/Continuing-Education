@@ -1,3 +1,4 @@
+import type { SalesPage } from "./sales-page-blocks";
 export type Offering = {
   id: string;
   title: string;
@@ -22,6 +23,8 @@ export type Offering = {
   enrollment_open: boolean;
   unpublished_at: string | null;
   collections?: CollectionRef[];
+  /** Published sales page (course detail only); null shows the default page. */
+  sales_page?: SalesPage | null;
 };
 // Staff-curated collections and pathways (decisions F3 and F4).
 export type CollectionKind = "collection" | "pathway";

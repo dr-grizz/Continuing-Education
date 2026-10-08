@@ -43,6 +43,12 @@ import {
   QueryDto,
 } from "./dto";
 import { Principal } from "./auth";
+import {
+  emptySalesPage,
+  parseSalesPage,
+  publicSalesPage,
+  publishProblems,
+} from "./sales-pages";
 import Stripe from "stripe";
 import {
   CHECKOUT_MINUTES,
@@ -52,6 +58,16 @@ import {
   webUrl,
 } from "./stripe";
 
+function salesPageStatus(
+  page: { draft: unknown; published: unknown } | null,
+): "none" | "draft" | "published" | "changes" {
+  if (!page) return "none";
+  if (!page.published) return "draft";
+  // Both come back from jsonb with the same key order, so text comparison is exact.
+  return JSON.stringify(page.draft) === JSON.stringify(page.published)
+    ? "published"
+    : "changes";
+}
 // Scheduled courses close enrollment a staff-set number of days after they start.
 const enrollmentWindow = `CASE WHEN o.course_type='cohort' THEN to_char(o.start_date+o.enrollment_close_days,'YYYY-MM-DD') END AS enrollment_closes_on,
   CASE WHEN o.course_type='cohort' THEN to_char(o.start_date+o.enrollment_close_days,'Mon FMDD, YYYY') END AS enrollment_closes_label,
@@ -229,7 +245,17 @@ export class PortalService {
       select: { slug: true, title: true, kind: true },
       orderBy: [{ kind: "asc" }, { title: "asc" }],
     });
-    return { ...offering, collections };
+    const page = await prisma.sales_pages.findUnique({
+      where: { offering_id: id },
+      select: { published: true },
+    });
+    return {
+      ...offering,
+      collections,
+      sales_page: page?.published
+        ? publicSalesPage(parseSalesPage(page.published))
+        : null,
+    };
   }
   async command(
     principal: Principal,
@@ -2481,6 +2507,266 @@ export class PortalService {
       pending_operations,
       open_exceptions,
       audit,
+    };
+  }
+
+  // Sales pages (decision F2): content editors edit a draft and publish it as a
+  // numbered, append-only revision. The course page shows the published page.
+  async staffSalesPages() {
+    const rows = await prisma.offerings.findMany({
+      orderBy: { title: "asc" },
+      select: {
+        id: true,
+        title: true,
+        category: true,
+        published: true,
+        unpublished_at: true,
+        sales_page: true,
+      },
+    });
+    return rows.map(({ sales_page: page, ...offering }) => ({
+      ...offering,
+      page_status: salesPageStatus(page),
+      page_updated_at: page?.updated_at ?? null,
+      page_published_at: page?.published_at ?? null,
+    }));
+  }
+  async staffSalesPage(id: string) {
+    const offering = await prisma.offerings.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        title: true,
+        category: true,
+        summary: true,
+        outcomes: true,
+        published: true,
+        sales_page: true,
+        sales_page_revisions: {
+          orderBy: { revision: "desc" },
+          select: { revision: true, published_by: true, published_at: true },
+        },
+      },
+    });
+    if (!offering) throw new NotFoundException("Offering not found.");
+    const {
+      sales_page: row,
+      sales_page_revisions: revisions,
+      ...rest
+    } = offering;
+    const draft = row ? parseSalesPage(row.draft) : emptySalesPage();
+    const staff = await prisma.staff_members.findMany({
+      where: {
+        id: {
+          in: revisions
+            .map((r) => r.published_by.replace(/^staff:/, ""))
+            .filter((v) => /^[0-9a-f-]{36}$/.test(v)),
+        },
+      },
+      select: { id: true, email: true },
+    });
+    const emails = new Map(staff.map((m) => [`staff:${m.id}`, m.email]));
+    return {
+      offering: rest,
+      // Version 0 means no page exists yet; the first save creates it.
+      version: row?.version ?? 0,
+      status: salesPageStatus(row),
+      draft,
+      published: row?.published ? parseSalesPage(row.published) : null,
+      published_revision: row?.published ? row.published_revision : null,
+      updated_at: row?.updated_at ?? null,
+      published_at: row?.published_at ?? null,
+      problems: publishProblems(draft),
+      revisions: revisions.map((r) => ({
+        revision: r.revision,
+        published_at: r.published_at,
+        published_by: emails.get(r.published_by) ?? r.published_by,
+      })),
+    };
+  }
+  async saveSalesPage(
+    principal: Principal,
+    key: string,
+    id: string,
+    version: number,
+    input: unknown,
+  ) {
+    const page = parseSalesPage(input);
+    return this.command(
+      principal,
+      key,
+      { action: "sales_page.save", id, version, page },
+      async (tx) => {
+        const draft = page as unknown as Prisma.InputJsonObject;
+        if (version === 0) {
+          if (!(await tx.offerings.findUnique({ where: { id } })))
+            throw new NotFoundException("Offering not found.");
+          const created = await tx.sales_pages.createMany({
+            data: [{ offering_id: id, draft }],
+            skipDuplicates: true,
+          });
+          if (!created.count)
+            throw new ConflictException(
+              "Someone else started this page. Refresh and retry.",
+            );
+        } else {
+          const updated = await tx.sales_pages.updateMany({
+            where: { offering_id: id, version },
+            data: {
+              draft,
+              version: { increment: 1 },
+              updated_at: new Date(),
+            },
+          });
+          if (!updated.count)
+            throw new ConflictException(
+              "This page changed since you opened it. Refresh and retry.",
+            );
+        }
+        await audit(tx, principal.actor, "sales_page.draft_saved", id, {
+          blocks: page.blocks.map((b) => b.type),
+        });
+        return this.salesPageVersion(tx, id);
+      },
+    );
+  }
+  async publishSalesPage(
+    principal: Principal,
+    key: string,
+    id: string,
+    version: number,
+  ) {
+    return this.command(
+      principal,
+      key,
+      { action: "sales_page.publish", id, version },
+      async (tx) => {
+        const row = await tx.sales_pages.findUnique({
+          where: { offering_id: id },
+        });
+        if (!row || row.version !== version)
+          throw new ConflictException(
+            "This page changed since you opened it. Refresh and retry.",
+          );
+        const draft = parseSalesPage(row.draft);
+        const problems = publishProblems(draft);
+        if (problems.length)
+          throw new BadRequestException(
+            `Fix these before publishing: ${problems.join(" ")}`,
+          );
+        const last = await tx.sales_page_revisions.aggregate({
+          where: { offering_id: id },
+          _max: { revision: true },
+        });
+        const revision = (last._max.revision ?? 0) + 1;
+        const page = draft as unknown as Prisma.InputJsonObject;
+        await tx.sales_page_revisions.create({
+          data: {
+            offering_id: id,
+            revision,
+            page,
+            published_by: principal.actor,
+          },
+        });
+        await tx.sales_pages.update({
+          where: { offering_id: id },
+          data: {
+            published: page,
+            published_revision: revision,
+            published_at: new Date(),
+            version: { increment: 1 },
+          },
+        });
+        await audit(tx, principal.actor, "sales_page.published", id, {
+          revision,
+        });
+        return this.salesPageVersion(tx, id);
+      },
+    );
+  }
+  async unpublishSalesPage(
+    principal: Principal,
+    key: string,
+    id: string,
+    version: number,
+  ) {
+    return this.command(
+      principal,
+      key,
+      { action: "sales_page.unpublish", id, version },
+      async (tx) => {
+        const updated = await tx.sales_pages.updateMany({
+          where: {
+            offering_id: id,
+            version,
+            published: { not: Prisma.DbNull },
+          },
+          data: {
+            published: Prisma.DbNull,
+            published_at: null,
+            version: { increment: 1 },
+          },
+        });
+        if (!updated.count)
+          throw new ConflictException(
+            "This page changed or is not published. Refresh and retry.",
+          );
+        // The draft and revisions stay; the course page shows its default layout.
+        await audit(tx, principal.actor, "sales_page.unpublished", id);
+        return this.salesPageVersion(tx, id);
+      },
+    );
+  }
+  async restoreSalesPageRevision(
+    principal: Principal,
+    key: string,
+    id: string,
+    version: number,
+    revision: number,
+  ) {
+    return this.command(
+      principal,
+      key,
+      { action: "sales_page.restore", id, version, revision },
+      async (tx) => {
+        const source = await tx.sales_page_revisions.findUnique({
+          where: { offering_id_revision: { offering_id: id, revision } },
+        });
+        if (!source) throw new NotFoundException("Revision not found.");
+        // Restoring copies the revision into the draft; publishing it is a separate step.
+        const updated = await tx.sales_pages.updateMany({
+          where: { offering_id: id, version },
+          data: {
+            draft: source.page as Prisma.InputJsonObject,
+            version: { increment: 1 },
+            updated_at: new Date(),
+          },
+        });
+        if (!updated.count)
+          throw new ConflictException(
+            "This page changed since you opened it. Refresh and retry.",
+          );
+        await audit(tx, principal.actor, "sales_page.revision_restored", id, {
+          revision,
+        });
+        return this.salesPageVersion(tx, id);
+      },
+    );
+  }
+  private async salesPageVersion(tx: Tx, id: string) {
+    const row = await tx.sales_pages.findUniqueOrThrow({
+      where: { offering_id: id },
+      select: {
+        version: true,
+        published_revision: true,
+        published: true,
+        draft: true,
+      },
+    });
+    return {
+      version: row.version,
+      status: salesPageStatus(row),
+      published_revision: row.published ? row.published_revision : null,
     };
   }
 }

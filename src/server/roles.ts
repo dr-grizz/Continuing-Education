@@ -21,7 +21,7 @@ export const roleScopes: Record<StaffRole, readonly string[]> = {
     "payments:read",
     "refunds:request",
   ],
-  // Reserved for the planned sales page editor; no endpoint uses it yet.
+  // Sales pages (built October 8, 2026) and, with catalog managers, the Explore tab picks.
   content_editor: ["content:write"],
 };
 // Every active staff member can view the staff workspace and its reports.
@@ -57,7 +57,7 @@ export const roleDescriptions: Record<StaffRole, string> = {
   staff_admin:
     "Adds staff members, assigns roles and deactivates access; sees sales figures and transactions and records refund requests for the Finance department.",
   content_editor:
-    "Chooses the learner Explore tab picks and will edit customizable sales pages once the sales page editor exists.",
+    "Edits, previews and publishes course sales pages, and chooses the learner Explore tab picks. Cannot change prices, dates or course publication.",
 };
 export const scopeDescriptions: Record<string, string> = {
   "staff:read":
@@ -75,5 +75,5 @@ export const scopeDescriptions: Record<string, string> = {
   "refunds:request":
     "Request a refund; Finance completes it in the Stripe Dashboard",
   "content:write":
-    "Choose the Explore tab picks; edit sales pages (planned, no editing screens yet)",
+    "Edit, publish and remove course sales pages; choose the Explore tab picks",
 };

@@ -16,6 +16,7 @@ const staffTabs = [
   "Offerings",
   "Collections",
   "Explore page",
+  "Sales pages",
   "Approvals",
   "Exceptions",
   "Activity",
@@ -24,11 +25,39 @@ const staffTabs = [
   "Staff",
   "Roles",
 ];
+// Opens the sales page editor for a sample course and adds one block of each
+// type, without saving, so the scans cover every block's fields.
+const blockTypes = [
+  "Hero image",
+  "Text",
+  "Learning outcomes",
+  "Instructor",
+  "Testimonial",
+  "Questions and answers",
+];
+async function openEditorWithEveryBlock(page: Page) {
+  await page.request.post("/api/staff-session", {
+    data: { email: "content@cuce.test" },
+  });
+  await page.goto("/staff/sales-pages/10000000-0000-4000-8000-000000000001");
+  await expect(
+    page.getByRole("heading", { name: "Sales page: Practical Data Analysis" }),
+  ).toBeVisible();
+  for (const type of blockTypes) {
+    await page.getByRole("combobox", { name: "Block type" }).click();
+    await page.getByRole("option", { name: type, exact: true }).click();
+    await page.getByRole("button", { name: "Add block" }).click();
+  }
+  await expect(
+    page.getByRole("group", { name: /^Block 6 of 6/ }),
+  ).toBeVisible();
+}
 const staffSlugs: Record<string, string> = {
   Dashboard: "",
   Offerings: "offerings",
   Collections: "collections",
   "Explore page": "explore",
+  "Sales pages": "sales-pages",
   Approvals: "approvals",
   Exceptions: "exceptions",
   Activity: "activity",
@@ -115,6 +144,18 @@ for (const [name, apply] of conditions)
         const found = await overflow(page);
         if (found) problems.push(`${tab}: ${found}`);
       }
+      expect(problems, `${name}: horizontal scrolling`).toEqual([]);
+    });
+    test("sales page editor and preview", async ({ page }) => {
+      await openEditorWithEveryBlock(page);
+      await apply(page);
+      const problems: string[] = [];
+      const editor = await overflow(page);
+      if (editor) problems.push(`editor: ${editor}`);
+      await page.getByRole("tab", { name: "Preview" }).click();
+      await settle(page);
+      const preview = await overflow(page);
+      if (preview) problems.push(`preview: ${preview}`);
       expect(problems, `${name}: horizontal scrolling`).toEqual([]);
     });
   });

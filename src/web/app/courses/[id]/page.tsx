@@ -29,6 +29,7 @@ import {
   Learning,
 } from "../../../components/api";
 import { LoadingCards } from "../../../components/loading";
+import { SalesPageBlocks } from "../../../components/sales-page-blocks";
 // Registration returns the learner's existing record unchanged when one exists.
 function registrationResult(status: string): {
   severity: "success" | "info" | "warning";
@@ -95,6 +96,11 @@ export default function Course({
       .then(setCourse)
       .catch((e) => setError(e.message));
   }, [id]);
+  // The page title names the course (a sales page may set its own).
+  useEffect(() => {
+    if (course)
+      document.title = `${course.sales_page?.seo.title || course.title} | Continuing Education`;
+  }, [course]);
   // Saved courses are private to the signed-in learner and register nothing.
   useEffect(() => {
     if (!auth.email) {
@@ -304,22 +310,32 @@ export default function Course({
           </Stack>
         </Paper>
         <Box sx={{ gridColumn: { md: 1 }, gridRow: { md: 1 } }}>
-          <Typography variant="h5" component="h2">
-            About this course
-          </Typography>
-          <Typography sx={{ mt: 2, lineHeight: 1.85 }}>
-            {course.description}
-          </Typography>
-          <Typography variant="h5" component="h2" sx={{ mt: 4 }}>
-            What you’ll learn
-          </Typography>
-          <List sx={{ listStyleType: "disc", pl: 3 }}>
-            {course.outcomes.map((outcome) => (
-              <ListItem key={outcome} sx={{ display: "list-item", pl: 0 }}>
-                <ListItemText primary={outcome} />
-              </ListItem>
-            ))}
-          </List>
+          {/* A published sales page replaces the default description. */}
+          {course.sales_page ? (
+            <SalesPageBlocks
+              page={course.sales_page}
+              outcomes={course.outcomes}
+            />
+          ) : (
+            <>
+              <Typography variant="h5" component="h2">
+                About this course
+              </Typography>
+              <Typography sx={{ mt: 2, lineHeight: 1.85 }}>
+                {course.description}
+              </Typography>
+              <Typography variant="h5" component="h2" sx={{ mt: 4 }}>
+                What you’ll learn
+              </Typography>
+              <List sx={{ listStyleType: "disc", pl: 3 }}>
+                {course.outcomes.map((outcome) => (
+                  <ListItem key={outcome} sx={{ display: "list-item", pl: 0 }}>
+                    <ListItemText primary={outcome} />
+                  </ListItem>
+                ))}
+              </List>
+            </>
+          )}
           {!!course.collections?.length && (
             <>
               <Typography variant="h6" component="h2" sx={{ mt: 3 }}>

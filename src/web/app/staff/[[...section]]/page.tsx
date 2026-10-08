@@ -53,6 +53,8 @@ import {
 import { StaffRoles, StaffUsers } from "../../../components/staff-admin";
 import { StaffCollections } from "../../../components/staff-collections";
 import { StaffExplore } from "../../../components/staff-explore";
+import { StaffSalesPages } from "../../../components/staff-sales-pages";
+import WebIcon from "@mui/icons-material/Web";
 import { StaffTransactions } from "../../../components/staff-transactions";
 import { StaffLearners } from "../../../components/staff-learners";
 import { StaffDashboard } from "../../../components/staff-dashboard";
@@ -133,6 +135,7 @@ export default function Staff({
       key={session.member.id}
       session={session}
       slug={section?.[0] ?? ""}
+      item={section?.[1]}
     />
   );
 }
@@ -142,6 +145,7 @@ type TabName =
   | "offerings"
   | "collections"
   | "explore"
+  | "sales-pages"
   | "transactions"
   | "approvals"
   | "exceptions"
@@ -186,6 +190,13 @@ const sections: {
     label: "Explore page",
     group: "Catalog",
     icon: <ExploreIcon />,
+  },
+  {
+    tab: "sales-pages",
+    slug: "sales-pages",
+    label: "Sales pages",
+    group: "Catalog",
+    icon: <WebIcon />,
   },
   {
     tab: "approvals",
@@ -240,7 +251,16 @@ const sections: {
   },
 ];
 const sectionHref = (slug: string) => (slug ? `/staff/${slug}` : "/staff");
-function StaffWorkspace({ session, slug }: { session: Session; slug: string }) {
+function StaffWorkspace({
+  session,
+  slug,
+  item,
+}: {
+  session: Session;
+  slug: string;
+  /** Second address segment, such as the offering in /staff/sales-pages/<id>. */
+  item?: string;
+}) {
   const member = session.member as StaffMember;
   const { can } = session;
   const router = useRouter();
@@ -1134,6 +1154,13 @@ function StaffWorkspace({ session, slug }: { session: Session; slug: string }) {
           <StaffExplore
             canManage={canCatalog || can("content:write")}
             offerings={courses}
+            onChanged={setMessage}
+          />
+        )}
+        {tab === "sales-pages" && (
+          <StaffSalesPages
+            canEdit={can("content:write")}
+            itemId={item}
             onChanged={setMessage}
           />
         )}
