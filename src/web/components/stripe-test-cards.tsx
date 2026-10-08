@@ -52,7 +52,7 @@ export function StripeTestCardsButton() {
         aria-haspopup="dialog"
         sx={{ textDecoration: "underline", py: 0, minWidth: 0 }}
       >
-        Test cards
+        Test Payment Info
       </Button>
       <Dialog
         open={open}

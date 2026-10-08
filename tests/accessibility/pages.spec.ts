@@ -37,6 +37,38 @@ async function scan(page: Page, name: string) {
   expect(summary, `${name} accessibility violations`).toEqual([]);
 }
 // Staff sections have their own addresses (/staff/offerings, ...).
+// Opens the sales page editor for a sample course and fills the rich text
+// editor with a heading, a paragraph and a video, without saving, so the scans
+// cover the editor, its toolbar and the preview.
+async function openEditorWithRichContent(page: Page) {
+  await page.request.post("/api/staff-session", {
+    data: { email: "content@cuce.test" },
+  });
+  await page.goto(
+    "/staff/offerings/10000000-0000-4000-8000-000000000001/sales-page",
+  );
+  const editor = page.getByRole("textbox", { name: "Page content" });
+  await expect(editor).toBeVisible();
+  await editor.click();
+  await page.keyboard.type("Why take this course");
+  await page.getByRole("combobox", { name: "Styles" }).click();
+  await page.getByRole("option", { name: "Heading 2" }).click();
+  await editor.press("End");
+  await editor.press("Enter");
+  await page.keyboard.type("Turn everyday spreadsheets into clear answers.");
+  await editor.press("Enter");
+  await page.getByRole("button", { name: "Add a video" }).click();
+  const dialog = page.getByRole("dialog", { name: "Add a video" });
+  await dialog
+    .getByRole("textbox", { name: "Video link or embed code" })
+    .fill("https://vimeo.com/76979871");
+  await dialog
+    .getByRole("textbox", { name: "Video title" })
+    .fill("Course introduction");
+  await dialog.getByRole("button", { name: "Add video" }).click();
+  await expect(dialog).toBeHidden();
+  await expect(editor.locator("[data-video-embed]")).toHaveCount(1);
+}
 const staffSlugs: Record<string, string> = {
   Dashboard: "",
   Offerings: "offerings",
@@ -157,16 +189,41 @@ test("placeholder Canvas link dialog", async ({ page }) => {
   await expect(page.getByRole("dialog")).toBeVisible();
   await scan(page, "Placeholder Canvas link dialog");
 });
+test("text fields show focus with a thicker border, not an outline over the label", async ({
+  page,
+}) => {
+  await page.goto("/sign-in");
+  const field = page.getByRole("textbox").first();
+  await field.focus();
+  await page.keyboard.press("Shift+Tab");
+  await page.keyboard.press("Tab");
+  await expect(field).toBeFocused();
+  expect(await field.evaluate((el) => getComputedStyle(el).outlineStyle)).toBe(
+    "none",
+  );
+  expect(
+    await field.evaluate(
+      (el) =>
+        getComputedStyle(
+          el
+            .closest(".MuiOutlinedInput-root")!
+            .querySelector(".MuiOutlinedInput-notchedOutline")!,
+        ).borderWidth,
+    ),
+  ).toBe("3px");
+});
 test("Stripe test cards dialog", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "Test cards" }).click();
+  await page.getByRole("button", { name: "Test Payment Info" }).click();
   const dialog = page.getByRole("dialog", {
     name: "Stripe sandbox test cards",
   });
   await expect(dialog).toBeVisible();
   await scan(page, "Stripe test cards dialog");
   await page.keyboard.press("Escape");
-  await expect(page.getByRole("button", { name: "Test cards" })).toBeFocused();
+  await expect(
+    page.getByRole("button", { name: "Test Payment Info" }),
+  ).toBeFocused();
 });
 test.describe("staff workspace", () => {
   test("staff sign-in", async ({ page }) => {
@@ -199,11 +256,55 @@ test.describe("staff workspace", () => {
       await scan(page, `Staff ${tab} tab`);
     });
 });
+// Each tab of an offering's page, as a catalog manager (editable forms) and as
+// an approver (read-only views).
+const offeringTabs = ["", "details", "settings", "sales-page", "activity"];
+for (const who of ["catalog@cuce.test", "approver@cuce.test"])
+  test(`offering page tabs as ${who.split("@")[0]}`, async ({ page }) => {
+    await page.request.post("/api/staff-session", { data: { email: who } });
+    for (const tab of offeringTabs) {
+      await page.goto(
+        `/staff/offerings/10000000-0000-4000-8000-000000000001${tab ? `/${tab}` : ""}`,
+      );
+      await expect(
+        page.getByRole("heading", {
+          level: 2,
+          name: "Practical Data Analysis",
+        }),
+      ).toBeVisible();
+      await expect(page.locator("#offering-panel-heading")).toBeVisible();
+      await scan(page, `Offering page ${tab || "overview"} as ${who}`);
+    }
+  });
+test("sales page editor and preview", async ({ page }) => {
+  await openEditorWithRichContent(page);
+  await scan(page, "Sales page editor");
+  // Choosing an image asks for its description first (cancelled: nothing is uploaded).
+  await page.locator('input[type="file"]').setInputFiles({
+    name: "chart.png",
+    mimeType: "image/png",
+    buffer: Buffer.from(
+      "89504e470d0a1a0a0000000d4948445200000001000000010806000000" +
+        "1f15c4890000000d49444154789c6360000002000154a24f5d0000000049454e44ae426082",
+      "hex",
+    ),
+  });
+  const describe = page.getByRole("dialog", { name: "Describe the image" });
+  await expect(describe).toBeVisible();
+  await expect(
+    describe.getByRole("textbox", { name: "Image description" }),
+  ).toBeFocused();
+  await scan(page, "Image description dialog");
+  await describe.getByRole("button", { name: "Cancel" }).click();
+  await expect(describe).toBeHidden();
+  await page.getByRole("tab", { name: "Preview" }).click();
+  await expect(page.getByRole("tabpanel")).toBeVisible();
+  await scan(page, "Sales page preview");
+});
 test.describe("staff dialogs", () => {
   // Opens each dialog and scans it; nothing is submitted.
   const dialogs: [string, string, RegExp][] = [
     ["New offering", "Offerings", /^New offering$/],
-    ["Edit offering", "Offerings", /^Edit /],
     ["Unpublish offering", "Offerings", /^Unpublish /],
     ["Learner details", "Learners", /^View learner /],
     ["New collection", "Collections", /^New collection$/],

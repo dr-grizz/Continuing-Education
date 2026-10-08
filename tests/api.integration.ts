@@ -18,6 +18,7 @@ const stripeEventIds: string[] = [];
 let explorePicks:
   { courses: string[]; collections: string[]; pathways: string[] } | undefined;
 let adminStaffId = "";
+const mediaIds: string[] = [];
 // Staff-token calls act as a demo staff member: the seeded administrator unless
 // `staffAs` names another member, or nobody when `staffAs` is null (sign-in only).
 async function http(
@@ -1778,6 +1779,415 @@ async function main() {
       "PASS: Explore shows staff picks first and fills the rest; only published items, by catalog managers or content editors; unpublishing removes a pick",
     );
 
+    // Sales pages (F2): content editors draft, publish and remove structured pages.
+    const pageCourse = await seed(false);
+    const pagePath = `staff/sales-pages/${pageCourse}`;
+    const heroBlock = {
+      type: "hero",
+      image: "data-analysis",
+      decorative: false,
+      alt: "Two people reviewing a chart",
+      tagline: "Clear answers from your data",
+    };
+    const quote = {
+      type: "testimonial",
+      quote: "Useful from the first week.",
+      name: "Sample Learner",
+      role: "",
+      consent: false,
+      consentNote: "Release form on file (sample)",
+    };
+    const draftPage = {
+      blocks: [
+        heroBlock,
+        { type: "outcomes", heading: "What you learn" },
+        quote,
+      ],
+      seo: { title: "Data course" },
+    };
+    assert.equal(
+      (await http(pagePath, STAFF, { version: 0, page: draftPage }, catalogId))
+        .status,
+      403,
+      "editing sales pages needs content:write",
+    );
+    assert.equal(
+      (
+        await http(
+          pagePath,
+          STAFF,
+          {
+            version: 0,
+            page: { blocks: [{ type: "html", body: "<script>" }], seo: {} },
+          },
+          contentId,
+        )
+      ).status,
+      400,
+      "unknown block types are refused",
+    );
+    const pageCreated = await (
+      await http(pagePath, STAFF, { version: 0, page: draftPage }, contentId)
+    ).json();
+    assert.equal(pageCreated.status, "draft");
+    assert.equal(
+      (await http(pagePath, STAFF, { version: 0, page: draftPage }, contentId))
+        .status,
+      409,
+      "a second create is a conflict",
+    );
+    const pageDetail = await (
+      await http(pagePath, STAFF, undefined, approverId)
+    ).json();
+    assert.deepEqual(pageDetail.problems, [
+      "Block 3 (Testimonial): confirm the person agreed to be quoted.",
+    ]);
+    assert.equal(
+      (
+        await http(
+          `${pagePath}/publish`,
+          STAFF,
+          { version: pageCreated.version },
+          contentId,
+        )
+      ).status,
+      400,
+      "testimonials need recorded consent to publish",
+    );
+    const consented = await (
+      await http(
+        pagePath,
+        STAFF,
+        {
+          version: pageCreated.version,
+          page: {
+            ...draftPage,
+            blocks: [
+              heroBlock,
+              draftPage.blocks[1],
+              { ...quote, consent: true },
+            ],
+          },
+        },
+        contentId,
+      )
+    ).json();
+    const published = await (
+      await http(
+        `${pagePath}/publish`,
+        STAFF,
+        { version: consented.version },
+        contentId,
+      )
+    ).json();
+    assert.equal(published.status, "published");
+    assert.equal(published.published_revision, 1);
+    const learnerView = await (await http(`offerings/${pageCourse}`)).json();
+    assert.equal(learnerView.sales_page.blocks.length, 3);
+    assert.equal(learnerView.sales_page.seo.title, "Data course");
+    assert.ok(
+      !("consentNote" in learnerView.sales_page.blocks[2]) &&
+        !("consent" in learnerView.sales_page.blocks[2]),
+      "consent records never reach learners",
+    );
+    // Editing after publishing leaves the live page alone until the next publish.
+    const pageEdited = await (
+      await http(
+        pagePath,
+        STAFF,
+        {
+          version: published.version,
+          page: { ...draftPage, blocks: [heroBlock] },
+        },
+        contentId,
+      )
+    ).json();
+    assert.equal(pageEdited.status, "changes");
+    assert.equal(
+      (await (await http(`offerings/${pageCourse}`)).json()).sales_page.blocks
+        .length,
+      3,
+    );
+    assert.equal(
+      (
+        await http(
+          `${pagePath}/publish`,
+          STAFF,
+          { version: published.version },
+          contentId,
+        )
+      ).status,
+      409,
+      "publishing a stale version is a conflict",
+    );
+    const pageRestored = await (
+      await http(
+        `${pagePath}/restore`,
+        STAFF,
+        { version: pageEdited.version, revision: 1 },
+        contentId,
+      )
+    ).json();
+    assert.equal(
+      pageRestored.status,
+      "published",
+      "revision 1 pageRestored to the draft",
+    );
+    const removed = await (
+      await http(
+        `${pagePath}/unpublish`,
+        STAFF,
+        { version: pageRestored.version },
+        contentId,
+      )
+    ).json();
+    assert.equal(removed.status, "draft");
+    assert.equal(
+      (await (await http(`offerings/${pageCourse}`)).json()).sales_page,
+      null,
+      "removing the page restores the default course page",
+    );
+    const offeringPage = await (
+      await http(`staff/offerings/${pageCourse}`, STAFF, undefined, approverId)
+    ).json();
+    assert.equal(offeringPage.offering.sales_page_status, "draft");
+    assert.deepEqual(offeringPage.registrations, {});
+    assert.equal(
+      offeringPage.activity.filter((e: any) =>
+        e.action.startsWith("sales_page."),
+      ).length,
+      6,
+      "the offering page lists its own activity",
+    );
+    assert.equal(
+      offeringPage.activity.find(
+        (e: any) => e.action === "sales_page.published",
+      ).actor_email,
+      "content@cuce.test",
+    );
+    assert.equal(
+      (
+        await (
+          await http("staff/offerings", STAFF, undefined, approverId)
+        ).json()
+      ).find((o: any) => o.id === pageCourse).sales_page_status,
+      "draft",
+      "the staff list shows each sales page's status",
+    );
+    await assert.rejects(
+      db.query(
+        "UPDATE sales_page_revisions SET page='{}'::jsonb WHERE offering_id=$1",
+        [pageCourse],
+      ),
+      /append-only/,
+    );
+    assert.equal(
+      (
+        await db.query(
+          "SELECT count(*)::int AS n FROM audit_events WHERE object_id=$1 AND action LIKE 'sales_page.%'",
+          [pageCourse],
+        )
+      ).rows[0].n,
+      6,
+      "every sales page change is audited",
+    );
+    // Rich text (Tiptap JSON): only allowlisted content; uploaded images; video players.
+    const png = Buffer.from(
+      "89504e470d0a1a0a0000000d4948445200000001000000010806000000" +
+        "1f15c4890000000d49444154789c6360000002000154a24f5d0000000049454e44ae426082",
+      "hex",
+    ).toString("base64");
+    assert.equal(
+      (
+        await http(
+          "staff/media",
+          STAFF,
+          { fileName: "x.png", contentType: "image/png", data: png },
+          catalogId,
+        )
+      ).status,
+      403,
+      "uploading images needs content:write",
+    );
+    assert.equal(
+      (
+        await http(
+          "staff/media",
+          STAFF,
+          {
+            fileName: "x.svg",
+            contentType: "image/svg+xml",
+            data: Buffer.from("<svg onload='alert(1)'/>").toString("base64"),
+          },
+          contentId,
+        )
+      ).status,
+      400,
+      "SVG is not accepted",
+    );
+    assert.equal(
+      (
+        await http(
+          "staff/media",
+          STAFF,
+          {
+            fileName: "fake.png",
+            contentType: "image/png",
+            data: Buffer.from("<html>not an image</html>").toString("base64"),
+          },
+          contentId,
+        )
+      ).status,
+      400,
+      "files are checked by their bytes, not their name",
+    );
+    const uploaded = await (
+      await http(
+        "staff/media",
+        STAFF,
+        { fileName: "dot.png", contentType: "image/png", data: png },
+        contentId,
+      )
+    ).json();
+    mediaIds.push(uploaded.id);
+    assert.equal(uploaded.url, `/media/${uploaded.id}`);
+    const served = await fetch(
+      `http://127.0.0.1:3001/api/v1/media/${uploaded.id}`,
+    );
+    assert.equal(served.headers.get("content-type"), "image/png");
+    assert.equal(served.headers.get("x-content-type-options"), "nosniff");
+    assert.equal(
+      Buffer.from(await served.arrayBuffer()).toString("base64"),
+      png,
+    );
+    const rich = (content: unknown[]) => ({
+      version: removed.version,
+      page: {
+        blocks: [{ type: "rich_text", doc: { type: "doc", content } }],
+        seo: { title: "" },
+      },
+    });
+    const para = (text: string, marks?: unknown[]) => ({
+      type: "paragraph",
+      content: [{ type: "text", text, ...(marks ? { marks } : {}) }],
+    });
+    for (const [content, label] of [
+      [
+        [
+          para("Click", [
+            { type: "link", attrs: { href: "javascript:alert(1)" } },
+          ]),
+        ],
+        "script links",
+      ],
+      [
+        [
+          {
+            type: "videoEmbed",
+            attrs: { src: "http://videos.example.com/embed/1", title: "x" },
+          },
+        ],
+        "insecure (http) video addresses",
+      ],
+      [
+        [
+          {
+            type: "videoEmbed",
+            attrs: { src: "javascript:alert(1)", title: "x" },
+          },
+        ],
+        "script video addresses",
+      ],
+      [
+        [
+          {
+            type: "image",
+            attrs: { src: "https://evil.example.com/a.png", alt: "x" },
+          },
+        ],
+        "images from other sites",
+      ],
+      [[{ type: "html", content: [] }], "unknown content types"],
+    ] as [unknown[], string][])
+      assert.equal(
+        (await http(pagePath, STAFF, rich(content), contentId)).status,
+        400,
+        `rich text refuses ${label}`,
+      );
+    const richDraft = await (
+      await http(
+        pagePath,
+        STAFF,
+        rich([
+          {
+            type: "heading",
+            attrs: { level: 1 },
+            content: [{ type: "text", text: "Why" }],
+          },
+          para("Sign up", [
+            { type: "bold" },
+            {
+              type: "link",
+              attrs: { href: "https://example.edu/apply", target: "_blank" },
+            },
+          ]),
+          { type: "image", attrs: { src: uploaded.url, alt: "", width: 50 } },
+          {
+            type: "videoEmbed",
+            attrs: {
+              src: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+              title: "",
+            },
+          },
+          {
+            type: "videoEmbed",
+            attrs: {
+              src: '<iframe src="https://videos.example.org/player/42?autoplay=0" title="x"></iframe>',
+              title: "Campus tour",
+            },
+          },
+        ]),
+        contentId,
+      )
+    ).json();
+    assert.deepEqual(
+      (await (await http(pagePath, STAFF, undefined, contentId)).json())
+        .problems,
+      [
+        "Block 1 (Rich text): describe image 1 (alternative text).",
+        "Block 1 (Rich text): give video 1 a title.",
+      ],
+      "images need a description and videos a title before publishing",
+    );
+    const saved = (
+      await (await http(pagePath, STAFF, undefined, contentId)).json()
+    ).draft.blocks[0].doc.content;
+    assert.equal(saved[0].attrs.level, 2, "heading levels start at 2");
+    assert.deepEqual(saved[1].content[0].marks[1], {
+      type: "link",
+      attrs: { href: "https://example.edu/apply" },
+    });
+    assert.deepEqual(saved[2].attrs, { src: uploaded.url, alt: "" });
+    assert.deepEqual(saved[3].attrs, {
+      provider: "youtube",
+      src: "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ",
+      title: "",
+    });
+    assert.deepEqual(
+      saved[4].attrs,
+      {
+        provider: "other",
+        src: "https://videos.example.org/player/42?autoplay=0",
+        title: "Campus tour",
+      },
+      "players from any https site are kept, marked as other",
+    );
+    assert.equal(richDraft.status, "draft");
+
+    console.log(
+      "PASS: sales pages: content editors draft, publish as revisions; rich text allowlist, uploaded images checked by bytes, https video players (YouTube/Vimeo/Kaltura normalized), restore and remove; consent required and kept from learners; structured blocks only; offering page shows status, counts and activity",
+    );
+
     // Stripe sandbox Checkout: signed fake webhook events, no network calls.
     const paymentConfig = await (await http("payments/config")).json();
     assert.ok(["stripe", "simulated"].includes(paymentConfig.provider));
@@ -2249,6 +2659,9 @@ async function main() {
       console.log("PASS: checkout is refused while Stripe is not configured");
     }
   } finally {
+    await db.query("DELETE FROM media_assets WHERE id=ANY($1::uuid[])", [
+      mediaIds,
+    ]);
     await db.query("DELETE FROM stripe_events WHERE id=ANY($1::text[])", [
       stripeEventIds,
     ]);

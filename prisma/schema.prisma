@@ -91,33 +91,33 @@ model offering_prices {
 /// Saleable offering. CHECK offerings_schedule_check: cohort requires start_date and end_date;
 /// self_paced requires both to be null. CHECK offerings_check: end_date >= start_date.
 model offerings {
-  id                    String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  id                    String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   title                 String
   category              String
   summary               String
   description           String
-  outcomes              Json               @default("[]")
+  outcomes              Json                   @default("[]")
   format                String
-  start_date            DateTime?          @db.Date
-  end_date              DateTime?          @db.Date
+  start_date            DateTime?              @db.Date
+  end_date              DateTime?              @db.Date
   /// Current price; history in offering_prices. CHECK offerings_price_cents_check: >= 0.
   price_cents           Int
   /// CHECK offerings_capacity_check: > 0.
   capacity              Int
-  approval_required     Boolean            @default(false)
-  published             Boolean            @default(false)
-  version               Int                @default(1)
-  created_at            DateTime           @default(now()) @db.Timestamptz(6)
+  approval_required     Boolean                @default(false)
+  published             Boolean                @default(false)
+  version               Int                    @default(1)
+  created_at            DateTime               @default(now()) @db.Timestamptz(6)
   /// cohort is shown as Scheduled; self_paced as Self-paced (enum course_type).
-  course_type           CourseType         @default(cohort)
+  course_type           CourseType             @default(cohort)
   /// CHECK offerings_approval_valid_days_check: 1-365.
-  approval_valid_days   Int                @default(7)
+  approval_valid_days   Int                    @default(7)
   /// Scheduled courses close enrollment this many days after start_date. CHECK offerings_enrollment_close_days_check: 0-365.
-  enrollment_close_days Int                @default(7)
+  enrollment_close_days Int                    @default(7)
   /// CHECK offerings_canvas_course_url_check: null or matches ^https://[^[:space:]]+$.
   canvas_course_url     String?
   /// Set when unpublished, cleared when published again; distinguishes Unpublished from Draft.
-  unpublished_at        DateTime?          @db.Timestamptz(6)
+  unpublished_at        DateTime?              @db.Timestamptz(6)
   /// Position (1-5) among featured courses on the learner Explore tab; null when not featured.
   /// CHECK offerings_featured_rank_check. Cleared on unpublish.
   featured_rank         Int?
@@ -127,6 +127,8 @@ model offerings {
   saved_courses         saved_courses[]
   stripe_product        stripe_products?
   stripe_prices         stripe_prices[]
+  sales_page            sales_pages?
+  sales_page_revisions  sales_page_revisions[]
 }
 
 /// Durable background provisioning job, claimed by the worker with FOR UPDATE SKIP LOCKED.
@@ -422,4 +424,48 @@ enum RefundRequestStatus {
   cancelled
 
   @@map("refund_request_status")
+}
+
+/// Sales page for an offering (decision F2): structured blocks, never HTML. Content editors
+/// edit the draft; publishing copies it to `published` and appends a revision. Prices and
+/// dates always come from the offering. Removing the published page restores the default
+/// course page. Pages: { blocks: [...], seo: { title, description } }, validated in the API.
+model sales_pages {
+  offering_id        String    @id @db.Uuid
+  draft              Json
+  /// Null when no page is published.
+  published          Json?
+  /// Latest published revision number; null before the first publish.
+  published_revision Int?
+  /// Version check for edits, publish and unpublish.
+  version            Int       @default(1)
+  updated_at         DateTime  @default(now()) @db.Timestamptz(6)
+  published_at       DateTime? @db.Timestamptz(6)
+  offering           offerings @relation(fields: [offering_id], references: [id], onDelete: Cascade)
+}
+
+/// Every published version of a sales page. Append-only (trigger sales_page_revisions_no_update).
+model sales_page_revisions {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  offering_id  String    @db.Uuid
+  revision     Int
+  page         Json
+  published_by String
+  published_at DateTime  @default(now()) @db.Timestamptz(6)
+  offering     offerings @relation(fields: [offering_id], references: [id], onDelete: Cascade)
+
+  @@unique([offering_id, revision])
+}
+
+/// Images uploaded for sales pages (October 8, 2026). Stored in the database for
+/// the prototype; hosting will move the bytes to object storage. Served at
+/// /media/{id}. CHECK media_assets_content_type_check and _size_check.
+model media_assets {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  content_type String
+  file_name    String
+  size         Int
+  bytes        Bytes
+  created_by   String
+  created_at   DateTime @default(now()) @db.Timestamptz(6)
 }

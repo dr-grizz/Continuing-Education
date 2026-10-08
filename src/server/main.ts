@@ -12,12 +12,15 @@ import {
   Query,
   RawBodyRequest,
   Req,
+  Res,
+  StreamableFile,
   ServiceUnavailableException,
   BadRequestException,
   UseGuards,
   ValidationPipe,
 } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
+import type { NestExpressApplication } from "@nestjs/platform-express";
 import {
   ApiBearerAuth,
   ApiHeader,
@@ -32,6 +35,9 @@ import {
   RefundReasonDto,
   CollectionDto,
   ExploreDto,
+  SalesPageDto,
+  SalesPageRestoreDto,
+  MediaUploadDto,
   CollectionEditDto,
   FollowDto,
   SavedCourseDto,
@@ -84,6 +90,19 @@ class CatalogController {
   })
   explore() {
     return this.portal.explore();
+  }
+  @Get("media/:id")
+  @ApiOperation({ summary: "An uploaded sales page image (public)" })
+  async media(
+    @Param("id", ParseUUIDPipe) id: string,
+    @Res({ passthrough: true }) res: any,
+  ) {
+    const file = await this.portal.media(id);
+    res.set({
+      "Cache-Control": "public, max-age=31536000, immutable",
+      "X-Content-Type-Options": "nosniff",
+    });
+    return new StreamableFile(file.bytes, { type: file.content_type });
   }
   @Get("collections")
   @ApiOperation({
@@ -227,6 +246,15 @@ class WorkflowController {
     requireScope(req, "staff:read");
     return this.portal.list(query, true);
   }
+  @Get("staff/offerings/:id")
+  @ApiOperation({
+    summary:
+      "One offering for staff: details, registration counts by status, sales page status and its activity",
+  })
+  staffOffering(@Req() req: any, @Param("id", ParseUUIDPipe) id: string) {
+    requireScope(req, "staff:read");
+    return this.portal.staffOffering(id);
+  }
   @Post("offerings") create(
     @Req() req: any,
     @Headers("idempotency-key") key: string,
@@ -321,6 +349,100 @@ class WorkflowController {
     // Decided Oct 7, 2026: catalog managers and content editors both curate Explore.
     requireAnyScope(req, "catalog:write", "content:write");
     return this.portal.setExplore(req.principal, key, dto);
+  }
+  @Get("staff/sales-pages/:id")
+  @ApiOperation({
+    summary:
+      "An offering's sales page: draft, published page, what blocks publishing, and revisions",
+  })
+  salesPage(@Req() req: any, @Param("id", ParseUUIDPipe) id: string) {
+    requireScope(req, "staff:read");
+    return this.portal.staffSalesPage(id);
+  }
+  @Post("staff/sales-pages/:id")
+  @HttpCode(200)
+  @ApiOperation({
+    summary:
+      "Save the sales page draft (version-checked, audited; content:write)",
+  })
+  saveSalesPage(
+    @Req() req: any,
+    @Headers("idempotency-key") key: string,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body() dto: SalesPageDto,
+  ) {
+    requireScope(req, "content:write");
+    return this.portal.saveSalesPage(
+      req.principal,
+      key,
+      id,
+      dto.version,
+      dto.page,
+    );
+  }
+  @Post("staff/media")
+  @HttpCode(201)
+  @ApiOperation({
+    summary:
+      "Upload a sales page image (PNG, JPEG, WebP or GIF, up to 5 MB; content:write)",
+  })
+  uploadMedia(
+    @Req() req: any,
+    @Headers("idempotency-key") key: string,
+    @Body() dto: MediaUploadDto,
+  ) {
+    requireScope(req, "content:write");
+    return this.portal.uploadMedia(req.principal, key, dto);
+  }
+  @Post("staff/sales-pages/:id/publish")
+  @HttpCode(200)
+  @ApiOperation({
+    summary:
+      "Publish the draft as a new revision; refused while anything blocks publishing (content:write)",
+  })
+  publishSalesPage(
+    @Req() req: any,
+    @Headers("idempotency-key") key: string,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body() dto: PublishDto,
+  ) {
+    requireScope(req, "content:write");
+    return this.portal.publishSalesPage(req.principal, key, id, dto.version);
+  }
+  @Post("staff/sales-pages/:id/unpublish")
+  @HttpCode(200)
+  @ApiOperation({
+    summary:
+      "Remove the published page; the course shows its default page (content:write)",
+  })
+  unpublishSalesPage(
+    @Req() req: any,
+    @Headers("idempotency-key") key: string,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body() dto: PublishDto,
+  ) {
+    requireScope(req, "content:write");
+    return this.portal.unpublishSalesPage(req.principal, key, id, dto.version);
+  }
+  @Post("staff/sales-pages/:id/restore")
+  @HttpCode(200)
+  @ApiOperation({
+    summary: "Copy a published revision into the draft (content:write)",
+  })
+  restoreSalesPage(
+    @Req() req: any,
+    @Headers("idempotency-key") key: string,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body() dto: SalesPageRestoreDto,
+  ) {
+    requireScope(req, "content:write");
+    return this.portal.restoreSalesPageRevision(
+      req.principal,
+      key,
+      id,
+      dto.version,
+      dto.revision,
+    );
   }
   @Get("staff/transactions")
   @ApiOperation({
@@ -661,7 +783,11 @@ async function main() {
   ])
     if (!process.env[name]) throw new Error("Run npm run setup first.");
   // rawBody keeps the exact bytes Stripe signed, for webhook verification.
-  const app = await NestFactory.create(AppModule, { rawBody: true });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    rawBody: true,
+  });
+  // Sales page images arrive as base64 JSON (up to 5 MB decoded).
+  app.useBodyParser("json", { limit: "8mb" });
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,

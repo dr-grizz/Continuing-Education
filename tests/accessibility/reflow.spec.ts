@@ -24,6 +24,38 @@ const staffTabs = [
   "Staff",
   "Roles",
 ];
+// Opens the sales page editor for a sample course and fills the rich text
+// editor with a heading, a paragraph and a video, without saving, so the scans
+// cover the editor, its toolbar and the preview.
+async function openEditorWithRichContent(page: Page) {
+  await page.request.post("/api/staff-session", {
+    data: { email: "content@cuce.test" },
+  });
+  await page.goto(
+    "/staff/offerings/10000000-0000-4000-8000-000000000001/sales-page",
+  );
+  const editor = page.getByRole("textbox", { name: "Page content" });
+  await expect(editor).toBeVisible();
+  await editor.click();
+  await page.keyboard.type("Why take this course");
+  await page.getByRole("combobox", { name: "Styles" }).click();
+  await page.getByRole("option", { name: "Heading 2" }).click();
+  await editor.press("End");
+  await editor.press("Enter");
+  await page.keyboard.type("Turn everyday spreadsheets into clear answers.");
+  await editor.press("Enter");
+  await page.getByRole("button", { name: "Add a video" }).click();
+  const dialog = page.getByRole("dialog", { name: "Add a video" });
+  await dialog
+    .getByRole("textbox", { name: "Video link or embed code" })
+    .fill("https://vimeo.com/76979871");
+  await dialog
+    .getByRole("textbox", { name: "Video title" })
+    .fill("Course introduction");
+  await dialog.getByRole("button", { name: "Add video" }).click();
+  await expect(dialog).toBeHidden();
+  await expect(editor.locator("[data-video-embed]")).toHaveCount(1);
+}
 const staffSlugs: Record<string, string> = {
   Dashboard: "",
   Offerings: "offerings",
@@ -115,6 +147,35 @@ for (const [name, apply] of conditions)
         const found = await overflow(page);
         if (found) problems.push(`${tab}: ${found}`);
       }
+      expect(problems, `${name}: horizontal scrolling`).toEqual([]);
+    });
+    test("offering page tabs", async ({ page }) => {
+      await page.request.post("/api/staff-session", {
+        data: { email: "catalog@cuce.test" },
+      });
+      const problems: string[] = [];
+      for (const tab of ["", "details", "settings", "activity"]) {
+        await page.goto(
+          `/staff/offerings/10000000-0000-4000-8000-000000000001${tab ? `/${tab}` : ""}`,
+        );
+        await expect(page.locator("#offering-panel-heading")).toBeVisible();
+        await settle(page);
+        await apply(page);
+        const found = await overflow(page);
+        if (found) problems.push(`${tab || "overview"}: ${found}`);
+      }
+      expect(problems, `${name}: horizontal scrolling`).toEqual([]);
+    });
+    test("sales page editor and preview", async ({ page }) => {
+      await openEditorWithRichContent(page);
+      await apply(page);
+      const problems: string[] = [];
+      const editor = await overflow(page);
+      if (editor) problems.push(`editor: ${editor}`);
+      await page.getByRole("tab", { name: "Preview" }).click();
+      await settle(page);
+      const preview = await overflow(page);
+      if (preview) problems.push(`preview: ${preview}`);
       expect(problems, `${name}: horizontal scrolling`).toEqual([]);
     });
   });

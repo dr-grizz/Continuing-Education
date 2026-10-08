@@ -167,10 +167,55 @@ A real screen-reader session, forced colors and cross-browser checks remain outs
 
 ## Latest implementation record
 
+October 8, 2026 (late, later): video sources are no longer limited. Any https player can be embedded, with a required title. YouTube, Vimeo and Kaltura links still become their standard players; other sites are shown in a sandboxed frame (no page redirects, form submissions or downloads). `http:`, script addresses and addresses with passwords are refused. Verified: `npm test` 24 groups passed (an https player from another site is kept as `other`; `http:` and `javascript:` refused); the editor accessibility checks passed; in the browser a Loom embed code was accepted and previewed in the sandboxed frame.
+
+October 8, 2026 (late): rich text sales pages (branch `sales-pages`), [ADR 0006](../adr/0006-rich-text-sales-pages.md).
+
+- **Editor:** Tiptap 3 with mui-tiptap. The sales page now has one rich text block, with the structured block list kept behind a switch.
+- **Allowed content:**
+  - Headings 2–4, paragraphs, lists, quotes, dividers, bold, italic and links.
+  - Images uploaded to the portal (new `media_assets` table, migration `015_media_assets`), each with a required description.
+  - YouTube, Vimeo and Kaltura videos, each with a required title.
+- **Safety:** the server rebuilds every document from an allowlist (`src/domain/rich-text.ts`), and learners see it through our own renderer, never HTML. Images are checked by their first bytes, and SVG is refused.
+- **Also:**
+  - The page title moved to the top of the editor, and the search description was dropped.
+  - Dropdown focus borders are 2px. The editor no longer draws a second focus rectangle.
+  - The prototype bar button now reads **Test Payment Info**.
+- **Verification:**
+  - `npm test`: 24 groups passed. The sales page group adds refused script links, foreign videos and foreign images, unknown content, upload permission, SVG and fake images refused, image serving headers, heading levels and video link normalization, and publish checks for missing image descriptions and video titles.
+  - `npm run test:migrations`: 10 passed.
+  - Accessibility: 153 passed, including the editor with a heading, paragraph and video, the image description dialog (focused field) and the preview.
+  - Browser: wrote a page with a heading, Vimeo video and two uploaded images, published it and checked the course page (player title, image descriptions). The walkthrough data was deleted.
+- **Not yet:** screen-reader review of the editor; object storage and a Content Security Policy for hosting.
+
+October 8, 2026 (evening, later): text field focus. The global 3px focus ring was drawn on the input itself and covered floating labels. Text fields and selects now show focus with their own border, thickened from 1px to 3px in the primary color (light blue in dark mode); everything else keeps the ring. Verified from the keyboard in light and dark mode; accessibility checks 149 passed, plus a new check that a focused text field has no ring and a 3px border.
+
+October 8, 2026 (evening): offering pages. Each offering now has its own staff page, and the sales page editor moved into it (branch `sales-pages`).
+
+- **Offering page** at `/staff/offerings/{id}`: tabs Overview (publish or unpublish, key facts, registration counts by status, links), Details and Settings (the offering form inline, each with only its fields), Sales page (the editor below) and Activity (the offering's audit events). Each tab has its own address; leaving a tab with unsaved changes asks first.
+- **Offerings list:** titles open the offering page; a Sales page column and filter replace the separate Sales pages section, whose old addresses redirect. The **Edit** dialog was removed; **New offering** still uses a dialog and then opens the new draft's page.
+- **API:** `GET /staff/offerings/{id}` returns the offering, registration counts, sales page status and activity; the staff offering list includes each sales page's status. The separate sales page list endpoint was removed.
+- **Verification:** `npm test` 24 groups passed (the sales page group also checks the new endpoint). Accessibility 149 passed in light, dark, phone, WebKit, forced colors and reflow, with new scans of every offering tab as a catalog manager and as an approver (read-only), and reflow checks of the tabs. From the keyboard: opening an offering focuses its title; tab links focus the new tab's heading; the unsaved-changes question appears before leaving; Settings shows only its own errors. Migrations unchanged since the last run (10 passed).
+- **Known gap:** the staff sidebar does not ask about unsaved changes yet.
+
+October 8, 2026 (later still): sales page editor (decision F2), branch `sales-pages`, stacked on `refund-reregistration`.
+
+- **What it does:** content editors build a course's sales page from structured blocks (first in a Sales pages section, now in each offering's Sales page tab), preview it, and publish it. A published page replaces the course's default description; price, dates, seats and registration still come from the offering.
+- **Blocks:** hero image (library images, alternative text or marked decorative), text, learning outcomes (from the offering), instructor, testimonial (consent required to publish; the consent note never reaches learners), questions and answers. Text is plain, with paragraphs and bulleted lists; there is no HTML.
+- **Workflow:** save draft (version-checked), a **Before publishing** checklist, publish as a numbered append-only revision, copy an earlier revision back to the draft, or remove the published page. Every change is audited.
+- **Database:** migration `014_sales_pages` adds `sales_pages` and `sales_page_revisions`, with checks and an append-only trigger.
+- **Assumptions to confirm (F2):** course pages only (not collections or pathways yet); no separate approval before publishing; no image uploads; no readable page addresses (slugs). A search description was dropped on October 8, 2026: the page title alone is enough for now.
+- **Also fixed:** `npm run dev:lan` blocked development files for `127.0.0.1`, so pages there never became interactive; `127.0.0.1` is now allowed too.
+- **Verification:**
+  - `npm test`: 24 groups passed, including the new sales page group (permissions, unknown block types refused, consent required, consent kept from learners, stale versions refused, restore, remove, append-only revisions, auditing). `npm run test:migrations`: 10 passed.
+  - Accessibility: 142 passed in light, dark, phone, WebKit, forced colors and reflow, including new scans of the Sales pages section and of the editor and preview with one block of each type. Firefox runs in CI.
+  - Browser walkthrough as Cory Content Editor: built, saved and published a page, checked the course page and that the learner API omits consent fields, then deleted the walkthrough data. From the keyboard: following a link focuses the new view's heading; moving a block keeps focus on its arrow; removing one moves focus to the next block; changes are announced.
+  - Not yet: a screen-reader pass of the editor (part of the deferred VoiceOver review).
+
 October 8, 2026 (evening): the portal's Finance role was removed, and the prototype bar has Stripe test cards.
 
 - **Finance role removed:** the university Finance department works in Stripe, not in the portal. Migration `013_remove_finance_role` rebuilds the `staff_role` enum without `finance` and deletes the demo member Fran Finance. It stops, with instructions, if anyone else holds only that role, and removes the role from anyone holding it with others. The staff administrator now holds `reports:sales`, `payments:read` and `refunds:request`; Support keeps `payments:read` and `refunds:request`. The dashboard says sales figures are shown to staff administrators.
-- **Stripe test cards:** a **Test cards** button in the local prototype bar opens a dialog listing Stripe's published sandbox cards (success, authentication, generic decline, insufficient funds), each with a Copy button and a status message.
+- **Stripe test cards:** a **Test cards** button (renamed **Test Payment Info** later that day) in the local prototype bar opens a dialog listing Stripe's published sandbox cards (success, authentication, generic decline, insufficient funds), each with a Copy button and a status message.
 - **Verification:**
   - `npm test`: 23 groups passed. `npm run test:migrations`: 10 passed.
   - Accessibility scans (light, dark, phone, WebKit, forced colors, reflow): 135 passed, including a new scan of the test cards dialog. One catalog scan failed while the integration tests were changing data at the same time, and passed on rerun. Firefox runs in CI.

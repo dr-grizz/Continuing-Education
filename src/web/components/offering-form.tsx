@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   Alert,
+  Box,
   Button,
   Dialog,
   DialogActions,
@@ -20,6 +21,7 @@ import { api, date, money, Offering } from "./api";
 export type StaffOffering = Offering & {
   active_registrations: number;
   seats_in_use: number;
+  sales_page_status: "none" | "draft" | "published" | "changes";
 };
 type Values = {
   title: string;
@@ -89,25 +91,58 @@ const fromOffering = (o: StaffOffering): Values => ({
   canvasCourseUrl: o.canvas_course_url ?? "",
   reason: "",
 });
+// Fields shown in each offering page tab; the dialog (creating) shows them all.
+export type OfferingFormSection = "details" | "settings";
+const sectionFields: Record<OfferingFormSection, Field[]> = {
+  details: [
+    "title",
+    "category",
+    "summary",
+    "description",
+    "format",
+    "courseType",
+    "startDate",
+    "endDate",
+    "price",
+    "capacity",
+    "reason",
+  ],
+  settings: [
+    "approvalValidDays",
+    "enrollmentCloseDays",
+    "canvasCourseUrl",
+    "reason",
+  ],
+};
 const whole = (value: string, min: number, max: number) =>
   /^\d+$/.test(value) && Number(value) >= min && Number(value) <= max;
 const length = (value: string, min: number, max: number) =>
   value.trim().length >= min && value.trim().length <= max;
 
-// Create and edit form for staff offerings. Published offerings keep protected
-// terms and need an audited reason for any change.
+// Create and edit form for staff offerings. Creating uses a dialog with every
+// field; an offering page's Details and Settings tabs show the form inline with
+// their own fields, and saving sends the rest unchanged. Published offerings
+// keep protected terms and need an audited reason for any change.
 export function OfferingForm({
   open,
   offering,
+  section,
   onClose,
   onSaved,
+  onDirtyChange,
 }: {
   open: boolean;
   offering?: StaffOffering;
+  /** Shows the form inline with only this tab's fields. */
+  section?: OfferingFormSection;
   onClose: () => void;
-  onSaved: (message: string) => Promise<void>;
+  onSaved: (message: string, saved?: { id: string }) => Promise<void>;
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const editing = Boolean(offering);
+  const inline = Boolean(section);
+  const show = (name: Field) =>
+    !section || sectionFields[section].includes(name);
   // Offerings that are or were published keep protected terms.
   const published = Boolean(offering?.published || offering?.unpublished_at);
   const datesLocked = (offering?.active_registrations ?? 0) > 0;
@@ -132,6 +167,13 @@ export function OfferingForm({
         .catch(() => setPrices([]));
   }, [open, offering]);
 
+  const dirty =
+    inline &&
+    !!offering &&
+    JSON.stringify(values) !== JSON.stringify(fromOffering(offering));
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
   // Move focus to the summary once a server failure has rendered it.
   useEffect(() => {
     if (failure) summary.current?.focus();
@@ -168,7 +210,10 @@ export function OfferingForm({
         "Enter a full https:// address, or leave it empty.";
     if (published && !length(values.reason, 10, 500))
       found.reason = "Explain the change in 10 to 500 characters.";
-    return found;
+    // Fields outside this tab come unchanged from the saved offering.
+    return Object.fromEntries(
+      Object.entries(found).filter(([name]) => show(name as Field)),
+    ) as typeof found;
   }
   async function save() {
     if (busy) return;
@@ -202,8 +247,9 @@ export function OfferingForm({
     };
     setBusy(true);
     try {
+      let saved: { id: string } | undefined;
       if (offering)
-        await api(`offerings/${offering.id}/edit`, {
+        saved = await api<{ id: string }>(`offerings/${offering.id}/edit`, {
           role: "staff",
           body: {
             ...body,
@@ -211,9 +257,11 @@ export function OfferingForm({
             ...(values.reason.trim() ? { reason: values.reason.trim() } : {}),
           },
         });
-      else await api("offerings", { role: "staff", body });
+      else
+        saved = await api<{ id: string }>("offerings", { role: "staff", body });
       await onSaved(
         offering ? `Changes saved for ${body.title}.` : "Draft offering saved.",
+        saved,
       );
     } catch (e) {
       setFailure((e as Error).message);
@@ -238,65 +286,59 @@ export function OfferingForm({
     string,
   ][];
 
-  return (
-    <Dialog
-      open={open}
-      onClose={() => !busy && onClose()}
-      fullWidth
-      maxWidth="sm"
-    >
-      <DialogTitle>
-        {editing ? "Edit offering" : "Create sample offering"}
-      </DialogTitle>
-      <DialogContent>
-        <Stack spacing={2.5} sx={{ pt: 1 }}>
-          {published && (
-            <Alert severity="info" role="note">
-              This offering {offering?.published ? "is" : "was"} published.
-              Changes need a reason and are recorded in the audit log. Course
-              type and the approval requirement are locked
-              {datesLocked
-                ? `, and dates are locked while ${offering?.active_registrations} learners are registered`
-                : ""}
-              .
-            </Alert>
+  const fields = (
+    <Stack spacing={2.5} sx={{ pt: inline ? 0 : 1 }}>
+      {published && (
+        <Alert severity="info" role="note">
+          This offering {offering?.published ? "is" : "was"} published. Changes
+          need a reason and are recorded in the audit log.{" "}
+          {section === "settings"
+            ? "The approval requirement is locked."
+            : `Course type${section ? "" : " and the approval requirement"} ${section ? "is" : "are"} locked${
+                datesLocked
+                  ? `, and dates are locked while ${offering?.active_registrations} learners are registered`
+                  : ""
+              }.`}
+        </Alert>
+      )}
+      {(errorList.length > 0 || failure) && (
+        <Alert
+          severity="error"
+          ref={summary}
+          tabIndex={-1}
+          aria-labelledby="offering-error-heading"
+        >
+          <Typography
+            id="offering-error-heading"
+            variant="subtitle2"
+            component={inline ? "h4" : "h3"}
+          >
+            {failure ? "The offering was not saved" : "Fix these fields"}
+          </Typography>
+          {failure ? (
+            failure
+          ) : (
+            <ul style={{ margin: "4px 0 0", paddingLeft: 20 }}>
+              {errorList.map(([name, text]) => (
+                <li key={name}>
+                  <Link
+                    href={`#offering-${name}`}
+                    color="inherit"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      document.getElementById(`offering-${name}`)?.focus();
+                    }}
+                  >
+                    {labels[name]}: {text}
+                  </Link>
+                </li>
+              ))}
+            </ul>
           )}
-          {(errorList.length > 0 || failure) && (
-            <Alert
-              severity="error"
-              ref={summary}
-              tabIndex={-1}
-              aria-labelledby="offering-error-heading"
-            >
-              <Typography
-                id="offering-error-heading"
-                variant="subtitle2"
-                component="h3"
-              >
-                {failure ? "The offering was not saved" : "Fix these fields"}
-              </Typography>
-              {failure ? (
-                failure
-              ) : (
-                <ul style={{ margin: "4px 0 0", paddingLeft: 20 }}>
-                  {errorList.map(([name, text]) => (
-                    <li key={name}>
-                      <Link
-                        href={`#offering-${name}`}
-                        color="inherit"
-                        onClick={(event) => {
-                          event.preventDefault();
-                          document.getElementById(`offering-${name}`)?.focus();
-                        }}
-                      >
-                        {labels[name]}: {text}
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </Alert>
-          )}
+        </Alert>
+      )}
+      {show("title") && (
+        <>
           <TextField {...field("title")} required />
           <TextField {...field("category")} select required>
             {["Technology", "Leadership", "Healthcare", "Ministry"].map(
@@ -322,122 +364,174 @@ export function OfferingForm({
             <MenuItem value="cohort">Scheduled — fixed dates</MenuItem>
           </TextField>
           <TextField {...field("format")} required />
-          {values.courseType === "cohort" ? (
-            <>
-              <Stack direction={{ xs: "column", sm: "row" }} sx={{ gap: 2 }}>
-                <TextField
-                  {...field(
-                    "startDate",
-                    datesLocked
-                      ? "Locked while learners are registered."
-                      : undefined,
-                  )}
-                  type="date"
-                  required
-                  disabled={datesLocked}
-                  slotProps={{ inputLabel: { shrink: true } }}
-                />
-                <TextField
-                  {...field("endDate")}
-                  type="date"
-                  required
-                  disabled={datesLocked}
-                  slotProps={{ inputLabel: { shrink: true } }}
-                />
-              </Stack>
+        </>
+      )}
+      {values.courseType === "cohort" ? (
+        <>
+          {show("startDate") && (
+            <Stack direction={{ xs: "column", sm: "row" }} sx={{ gap: 2 }}>
               <TextField
                 {...field(
-                  "enrollmentCloseDays",
-                  "Learners cannot register after this many days past the start date. Default 7.",
+                  "startDate",
+                  datesLocked
+                    ? "Locked while learners are registered."
+                    : undefined,
                 )}
+                type="date"
                 required
-                inputMode="numeric"
+                disabled={datesLocked}
+                slotProps={{ inputLabel: { shrink: true } }}
               />
-            </>
-          ) : (
-            <Typography variant="body2" color="text.secondary">
-              Learners can start anytime. No cohort dates are required, and
-              enrollment never closes.
-            </Typography>
-          )}
-          <Stack direction={{ xs: "column", sm: "row" }} sx={{ gap: 2 }}>
-            <TextField
-              {...field(
-                "price",
-                published
-                  ? "Applies to new reservations; earlier reservations keep their quoted price."
-                  : undefined,
-              )}
-              required
-              inputMode="decimal"
-            />
-            <TextField
-              {...field(
-                "capacity",
-                offering?.seats_in_use
-                  ? `${offering.seats_in_use} seats in use.`
-                  : undefined,
-              )}
-              required
-              inputMode="numeric"
-            />
-          </Stack>
-          {prices.length > 0 && (
-            <div>
-              <Typography variant="subtitle2" component="h3">
-                Price history
-              </Typography>
-              <ol style={{ margin: "4px 0 0", paddingLeft: 20 }}>
-                {prices.map((price, index) => (
-                  <Typography component="li" variant="body2" key={index}>
-                    {money(price.price_cents)} from{" "}
-                    {date(price.effective_at.slice(0, 10))}
-                    {price.reason ? ` — ${price.reason}` : ""}
-                  </Typography>
-                ))}
-              </ol>
-            </div>
-          )}
-          <FormControlLabel
-            control={
-              <Switch
-                checked={values.approvalRequired}
-                disabled={published}
-                onChange={(e) =>
-                  setValues({ ...values, approvalRequired: e.target.checked })
-                }
+              <TextField
+                {...field("endDate")}
+                type="date"
+                required
+                disabled={datesLocked}
+                slotProps={{ inputLabel: { shrink: true } }}
               />
-            }
-            label={`Approval required before payment${published ? " (locked after publishing)" : ""}`}
-          />
-          {values.approvalRequired && (
+            </Stack>
+          )}
+          {show("enrollmentCloseDays") && (
             <TextField
               {...field(
-                "approvalValidDays",
-                "The learner must reserve a seat within this period after approval. Default 7.",
+                "enrollmentCloseDays",
+                "Learners cannot register after this many days past the start date. Default 7.",
               )}
               required
               inputMode="numeric"
             />
           )}
+        </>
+      ) : (
+        <Typography variant="body2" color="text.secondary">
+          {section === "settings"
+            ? "Self-paced: learners can start anytime, and enrollment never closes."
+            : "Learners can start anytime. No cohort dates are required, and enrollment never closes."}
+        </Typography>
+      )}
+      {show("price") && (
+        <Stack direction={{ xs: "column", sm: "row" }} sx={{ gap: 2 }}>
           <TextField
             {...field(
-              "canvasCourseUrl",
-              "Optional. Learners see an “Open course in Canvas” link once enrollment completes.",
+              "price",
+              published
+                ? "Applies to new reservations; earlier reservations keep their quoted price."
+                : undefined,
             )}
-            type="url"
-            placeholder="https://canvas.example.edu/courses/123"
+            required
+            inputMode="decimal"
           />
-          {published && (
-            <TextField
-              {...field("reason", "Recorded in the audit log.")}
-              required
-              multiline
-              minRows={2}
-            />
-          )}
+          <TextField
+            {...field(
+              "capacity",
+              offering?.seats_in_use
+                ? `${offering.seats_in_use} seats in use.`
+                : undefined,
+            )}
+            required
+            inputMode="numeric"
+          />
         </Stack>
-      </DialogContent>
+      )}
+      {show("price") && prices.length > 0 && (
+        <div>
+          <Typography variant="subtitle2" component={inline ? "h4" : "h3"}>
+            Price history
+          </Typography>
+          <ol style={{ margin: "4px 0 0", paddingLeft: 20 }}>
+            {prices.map((price, index) => (
+              <Typography component="li" variant="body2" key={index}>
+                {money(price.price_cents)} from{" "}
+                {date(price.effective_at.slice(0, 10))}
+                {price.reason ? ` — ${price.reason}` : ""}
+              </Typography>
+            ))}
+          </ol>
+        </div>
+      )}
+      {show("approvalValidDays") && (
+        <FormControlLabel
+          control={
+            <Switch
+              checked={values.approvalRequired}
+              disabled={published}
+              onChange={(e) =>
+                setValues({ ...values, approvalRequired: e.target.checked })
+              }
+            />
+          }
+          label={`Approval required before payment${published ? " (locked after publishing)" : ""}`}
+        />
+      )}
+      {show("approvalValidDays") && values.approvalRequired && (
+        <TextField
+          {...field(
+            "approvalValidDays",
+            "The learner must reserve a seat within this period after approval. Default 7.",
+          )}
+          required
+          inputMode="numeric"
+        />
+      )}
+      {show("canvasCourseUrl") && (
+        <TextField
+          {...field(
+            "canvasCourseUrl",
+            "Optional. Learners see an “Open course in Canvas” link once enrollment completes.",
+          )}
+          type="url"
+          placeholder="https://canvas.example.edu/courses/123"
+        />
+      )}
+      {published && (
+        <TextField
+          {...field("reason", "Recorded in the audit log.")}
+          required
+          multiline
+          minRows={2}
+        />
+      )}
+    </Stack>
+  );
+  if (inline)
+    return (
+      <Box>
+        {fields}
+        <Stack
+          direction="row"
+          sx={{ mt: 3, gap: 2, alignItems: "center", flexWrap: "wrap" }}
+        >
+          <Button variant="contained" onClick={save} aria-disabled={busy}>
+            {busy ? "Saving…" : "Save changes"}
+          </Button>
+          <Button
+            onClick={() => {
+              if (!offering) return;
+              setValues(fromOffering(offering));
+              setErrors({});
+              setFailure("");
+            }}
+            disabled={busy || !dirty}
+          >
+            Discard changes
+          </Button>
+          <Typography variant="body2" color="text.secondary" aria-live="polite">
+            {dirty ? "You have unsaved changes." : ""}
+          </Typography>
+        </Stack>
+      </Box>
+    );
+  return (
+    <Dialog
+      open={open}
+      onClose={() => !busy && onClose()}
+      fullWidth
+      maxWidth="sm"
+    >
+      <DialogTitle>
+        {editing ? "Edit offering" : "Create sample offering"}
+      </DialogTitle>
+      <DialogContent>{fields}</DialogContent>
       <DialogActions sx={{ px: 3, pb: 2 }}>
         <Button onClick={onClose} disabled={busy}>
           Cancel
