@@ -188,6 +188,20 @@ October 8, 2026 (late): rich text sales pages (branch `sales-pages`), [ADR 0006]
   - Browser: wrote a page with a heading, Vimeo video and two uploaded images, published it and checked the course page (player title, image descriptions). The walkthrough data was deleted.
 - **Not yet:** screen-reader review of the editor; object storage and a Content Security Policy for hosting.
 
+October 8, 2026 (late night): tidy-up (branch `theme-switch`).
+
+- **Unsaved changes, everywhere in the staff area:** the "Leave without saving?" question moved into a shared provider, so the staff sidebar (and its phone drawer) asks too, not just the offering page's own links.
+- **Test data:** removed three leftover learners on reserved test addresses (`verify-a-…@example.test` and the two Stripe sandbox learners) with `npm run db:remove-test-learner`. Remaining: the legacy sample learner and one personal demo account. No test offerings, staff, sales pages or refund requests were left.
+- **Pull request:** #13 (Settings page), stacked on #12.
+- **Verification:** accessibility 161 passed, including a new check that the sidebar asks, Stay keeps the edit and Discard leaves, on desktop, phone and WebKit. Keyboard walkthrough: Enter on a sidebar link opens the question; Escape stays and returns focus to the link.
+
+October 8, 2026 (night): Settings page with a color theme choice (branch `theme-switch`, from `sales-pages`).
+
+- **Settings** (`/settings`, a gear icon at the right of the header at every width): Appearance with a Color theme radio group (Match device, the default; Light; Dark), applied immediately and remembered in the browser; Account shows the demo session.
+- The theme now comes from a class on `<html>` instead of only the media query. `InitColorSchemeScript` applies the saved choice before the page paints.
+- **Accessibility scans** now skip endlessly repeating animations (the keyboard focus pulse on radio buttons) when waiting for animations to finish.
+- **Verification:** accessibility 157 passed in light, dark, phone, WebKit, forced colors and reflow, including the Settings page in both themes, choosing the opposite theme from the keyboard, and the choice surviving a reload. In the browser: the saved theme is applied before the page appears, with no flash.
+
 October 8, 2026 (evening, later): text field focus. The global 3px focus ring was drawn on the input itself and covered floating labels. Text fields and selects now show focus with their own border, thickened from 1px to 3px in the primary color (light blue in dark mode); everything else keeps the ring. Verified from the keyboard in light and dark mode; accessibility checks 149 passed, plus a new check that a focused text field has no ring and a 3px border.
 
 October 8, 2026 (evening): offering pages. Each offering now has its own staff page, and the sales page editor moved into it (branch `sales-pages`).
@@ -196,7 +210,7 @@ October 8, 2026 (evening): offering pages. Each offering now has its own staff p
 - **Offerings list:** titles open the offering page; a Sales page column and filter replace the separate Sales pages section, whose old addresses redirect. The **Edit** dialog was removed; **New offering** still uses a dialog and then opens the new draft's page.
 - **API:** `GET /staff/offerings/{id}` returns the offering, registration counts, sales page status and activity; the staff offering list includes each sales page's status. The separate sales page list endpoint was removed.
 - **Verification:** `npm test` 24 groups passed (the sales page group also checks the new endpoint). Accessibility 149 passed in light, dark, phone, WebKit, forced colors and reflow, with new scans of every offering tab as a catalog manager and as an approver (read-only), and reflow checks of the tabs. From the keyboard: opening an offering focuses its title; tab links focus the new tab's heading; the unsaved-changes question appears before leaving; Settings shows only its own errors. Migrations unchanged since the last run (10 passed).
-- **Known gap:** the staff sidebar does not ask about unsaved changes yet.
+- **Known gap (fixed later the same night):** the staff sidebar did not ask about unsaved changes.
 
 October 8, 2026 (later still): sales page editor (decision F2), branch `sales-pages`, stacked on `refund-reregistration`.
 

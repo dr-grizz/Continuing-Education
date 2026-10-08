@@ -62,6 +62,10 @@ import {
   type PageStatus,
 } from "../../../components/staff-offering";
 import { arrive, focusOnArrival } from "../../../components/arrival-focus";
+import {
+  UnsavedChangesProvider,
+  useUnsavedChanges,
+} from "../../../components/unsaved-changes";
 import { StaffTransactions } from "../../../components/staff-transactions";
 import { StaffLearners } from "../../../components/staff-learners";
 import { StaffDashboard } from "../../../components/staff-dashboard";
@@ -138,13 +142,15 @@ export default function Staff({
   if (!session.member) return <StaffSignIn onSignIn={session.signIn} />;
   // Remount per staff member so switching people never keeps their data or tab.
   return (
-    <StaffWorkspace
-      key={session.member.id}
-      session={session}
-      slug={section?.[0] ?? ""}
-      item={section?.[1]}
-      view={section?.[2]}
-    />
+    <UnsavedChangesProvider>
+      <StaffWorkspace
+        key={session.member.id}
+        session={session}
+        slug={section?.[0] ?? ""}
+        item={section?.[1]}
+        view={section?.[2]}
+      />
+    </UnsavedChangesProvider>
   );
 }
 type Session = ReturnType<typeof useStaffSession>;
@@ -291,6 +297,7 @@ function StaffWorkspace({
     [collapsed, setCollapsed] = useState(false);
   const heading = useRef<HTMLHeadingElement>(null);
   const offeringsHeading = useRef<HTMLHeadingElement>(null);
+  const { guard } = useUnsavedChanges();
   // Returning from an offering's page focuses the list heading.
   useEffect(() => {
     if (tab === "offerings" && !item)
@@ -521,6 +528,7 @@ function StaffWorkspace({
           current={currentSection.slug}
           collapsed={collapsed}
           onToggle={toggleCollapsed}
+          onLinkClick={(event, href) => guard(href, event)}
         />
       </Box>
       <Drawer
@@ -533,6 +541,7 @@ function StaffWorkspace({
           items={navItems}
           current={currentSection.slug}
           onNavigate={() => setMenuOpen(false)}
+          onLinkClick={(event, href) => guard(href, event)}
         />
       </Drawer>
       <Box

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Figtree } from "next/font/google";
 import { AppRouterCacheProvider } from "@mui/material-nextjs/v16-appRouter";
+import InitColorSchemeScript from "@mui/material/InitColorSchemeScript";
 import Theme from "./theme";
 import Shell from "../components/shell";
 import { DemoAuthProvider } from "../components/demo-auth";
@@ -12,8 +13,10 @@ export const metadata: Metadata = {
 };
 export default function Layout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={sans.variable}>
+    // The color scheme script sets a class on <html> before React loads.
+    <html lang="en" className={sans.variable} suppressHydrationWarning>
       <body>
+        <InitColorSchemeScript attribute="class" />
         <AppRouterCacheProvider>
           <Theme>
             <DemoAuthProvider>

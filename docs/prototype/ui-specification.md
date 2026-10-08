@@ -16,7 +16,7 @@ Defined in `src/web/app/theme.tsx`. Components use theme tokens (`primary.main`,
 
 ### Color schemes
 
-The site follows the operating system light/dark preference (`cssVariables.colorSchemeSelector: "media"`). There is no manual toggle.
+Light or dark is set by a class on `<html>` (`cssVariables.colorSchemeSelector: "class"`). People choose **Match device** (the default, following the operating system), **Light** or **Dark** on the Settings page. MUI keeps the choice in the browser's local storage, and `InitColorSchemeScript` in `app/layout.tsx` applies it before the page paints, so there is no flash of the other theme.
 
 | Token | Light | Dark |
 | --- | --- | --- |
@@ -63,6 +63,7 @@ MUI defaults: `xs` <600, `sm` ≥600, `md` ≥900, `lg` ≥1200. Content is cent
 - **Header:** navy app bar.
   - Logo links home: 196px wide on phones, 260px on tablets, 300px on desktop. Its alt text is "Cedarville University Continuing Education".
   - `md` and up: inline navigation (Courses, My learning, Staff, Sign in/out). The current page has `aria-current="page"` and a gold underline. The demo session email appears below.
+  - **Settings:** a 48px gear icon button (`aria-label="Settings"`) at the right of the bar at every width, before the phone menu button. On the Settings page it has `aria-current="page"` and the gold underline.
   - Below `md`: a 48px menu button (`aria-label="Open navigation menu"`, `aria-expanded`, `aria-controls`) opens a `Menu`. The menu lists the session email as a subheader, then the links (48px rows, current page selected) and sign in/out. Escape closes it and returns focus to the button.
 - **Prototype banner:** one line on phones ("Local prototype · Sample data only"). The full text, which adds "No real payments or Canvas enrollments", appears from `sm`.
 - **Main:** `<main id="main" tabIndex={-1}>`.
@@ -198,6 +199,12 @@ Outlined `Paper`. Catalog cards add a hover and focus-within state: primary bord
 - An `h2` ("Recommended order" or "Courses") over a list of course cards: an ordered list with numbered circles (decorative; the link text starts with a visually hidden "Step N:") for pathways, an unordered list for collections. Each card has an `h3` course link, summary, topic and type chips, schedule and price.
 - Only published courses are listed. An unknown or unpublished collection shows an error with a link back to the catalog.
 
+### Settings (`/settings`)
+
+- Open to everyone; nothing on it needs sign-in. `h1` "Settings", then outlined sections with `h2` headings.
+- **Appearance:** a **Color theme** radio group (Match device, Light, Dark), each with a one-line description. A choice applies immediately and is remembered in this browser; a note under the group says so.
+- **Account:** the demo session's email, or a Sign in button when signed out. Demo sign-in has no password or profile to change.
+
 ### Sign in (`/sign-in`)
 
 Mock sign-in. The Email field (`autoComplete="username"`) and Password field (`current-password`) carry helper text saying any password works and is not saved. Submitting returns the user to `returnTo` when it is a course page, a collection or pathway page, or My learning; otherwise the learner lands on **My learning**.
@@ -240,7 +247,7 @@ Mock sign-in. The Email field (`autoComplete="username"`) and Password field (`c
 - **Offering page** (`/staff/offerings/{id}` and `/{tab}`, built October 8, 2026): opened from an offering's title in the Offerings list. An **All offerings** link, the course title (`h2`), a status chip and the sales page status, then an **Offering sections** `nav` of links (Overview, Details, Settings, Sales page, Activity; the current one has `aria-current="page"`). Each tab has its own address and an `h3`. Following a link moves focus to the new tab's heading (or to the title when arriving from the list, and back to the list heading on return). The former `/staff/sales-pages` addresses redirect to the matching tab.
   - **Overview:** Publish, or Unpublish (with the existing dialog), for catalog managers; price, schedule, format, seats in use and approval as a description list; a **Registrations** table of counts by status with a total (counts only; learner details stay in Learners); links to the course page, the Canvas course and the Sales page tab.
   - **Details** and **Settings:** the offering form inline, each with only its own fields (Details: title, topic, summary, description, course type, format, dates, price with history, capacity; Settings: approval, approval validity, enrollment window, Canvas link). Saving sends the other fields unchanged, the error summary lists only this tab's fields, and **Discard changes** resets the form. Staff without `catalog:write` see a view-only note and a description list.
-  - **Unsaved changes:** a tab with unsaved changes asks "Leave without saving?" (Stay, Discard changes) before following a link on the page, and the browser warns before closing. The staff sidebar does not ask yet.
+  - **Unsaved changes:** a tab with unsaved changes asks "Leave without saving?" (Stay, Discard changes) before following a link on the page or in the staff sidebar (`components/unsaved-changes.tsx`), and the browser warns before closing or reloading. On phones, Stay returns to the open sidebar drawer.
   - **Activity:** the offering's own audit events, newest first, with time, who and any reason.
 - **Sales page tab** (decision F2): staff without `content:write` see a view-only note and the preview.
   - **Editor:** **Edit** and **Preview** tabs. The Edit tab starts with **Page title** (70 characters, shown on the browser tab; blank uses the course title), then one **rich text** editor ([ADR 0006](../adr/0006-rich-text-sales-pages.md)):

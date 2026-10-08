@@ -7,11 +7,6 @@ import {
   Box,
   Button,
   Chip,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogContentText,
-  DialogTitle,
   Link,
   Paper,
   Stack,
@@ -29,6 +24,7 @@ import { LoadingCards } from "./loading";
 import { OfferingForm, StaffOffering, UnpublishDialog } from "./offering-form";
 import { SalesPageEditor } from "./staff-sales-pages";
 import { registrationStatusLabels } from "./staff-learners";
+import { useUnsavedChanges } from "./unsaved-changes";
 
 // One offering's staff page at /staff/offerings/{id}/{tab}. Catalog managers
 // edit Details and Settings and publish; content editors edit the Sales page;
@@ -101,8 +97,6 @@ export function StaffOfferingPage({
   const [detail, setDetail] = useState<Detail>(),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
-    [dirty, setDirty] = useState(false),
-    [leaving, setLeaving] = useState<{ href: string; target: string }>(),
     [unpublishing, setUnpublishing] = useState(false);
   const title = useRef<HTMLHeadingElement>(null);
   const panel = useRef<HTMLHeadingElement>(null);
@@ -129,25 +123,11 @@ export function StaffOfferingPage({
     focusOnArrival(title.current, "offering");
     focusOnArrival(panel.current, "offering-tab");
   }, [detail]);
-  // Warn before closing the browser tab with unsaved changes.
-  useEffect(() => {
-    if (!dirty) return;
-    const warn = (event: BeforeUnloadEvent) => event.preventDefault();
-    window.addEventListener("beforeunload", warn);
-    return () => window.removeEventListener("beforeunload", warn);
-  }, [dirty]);
-  const reportDirty = useCallback((value: boolean) => setDirty(value), []);
-  // Links inside the page ask first when a tab has unsaved changes.
+  // Links ask first when a tab has unsaved changes (UnsavedChangesProvider).
+  const { setDirty: reportDirty, guard } = useUnsavedChanges();
   const go =
-    (href: string, target: string) =>
-    (event: React.MouseEvent<HTMLElement>) => {
-      if (dirty) {
-        event.preventDefault();
-        setLeaving({ href, target });
-        return;
-      }
-      arrive(target);
-    };
+    (href: string, target: string) => (event: React.MouseEvent<HTMLElement>) =>
+      guard(href, event, () => arrive(target));
   async function saved(message: string) {
     await load();
     onChanged(message);
@@ -340,36 +320,6 @@ export function StaffOfferingPage({
           await saved(message);
         }}
       />
-      <Dialog
-        open={!!leaving}
-        onClose={() => setLeaving(undefined)}
-        aria-labelledby="offering-leave-title"
-        maxWidth="xs"
-      >
-        <DialogTitle id="offering-leave-title">
-          Leave without saving?
-        </DialogTitle>
-        <DialogContent>
-          <DialogContentText>
-            This tab has unsaved changes. They will be lost if you leave.
-          </DialogContentText>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setLeaving(undefined)}>Stay</Button>
-          <Button
-            color="error"
-            onClick={() => {
-              if (!leaving) return;
-              setDirty(false);
-              arrive(leaving.target);
-              router.push(leaving.href);
-              setLeaving(undefined);
-            }}
-          >
-            Discard changes
-          </Button>
-        </DialogActions>
-      </Dialog>
     </>
   );
 }

@@ -19,10 +19,16 @@ async function scan(page: Page, name: string) {
   });
   // Let dialog fades and other transitions finish: mid-fade text is partly
   // transparent, which axe reports as low contrast (seen in WebKit on CI).
+  // Endless animations, such as the keyboard focus pulse on radio buttons,
+  // never finish and are skipped.
   await page.waitForFunction(() =>
     document
       .getAnimations()
-      .every((animation) => animation.playState !== "running"),
+      .every(
+        (animation) =>
+          animation.playState !== "running" ||
+          animation.effect?.getComputedTiming().iterations === Infinity,
+      ),
   );
   const { violations } = await new AxeBuilder({ page })
     .withTags(tags)
@@ -212,6 +218,34 @@ test("text fields show focus with a thicker border, not an outline over the labe
     ),
   ).toBe("3px");
 });
+test("settings page: color theme choice and memory", async ({ page }) => {
+  await page.goto("/settings");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Settings");
+  const group = page.getByRole("radiogroup", { name: "Color theme" });
+  await expect(
+    group.getByRole("radio", { name: /^Match device/ }),
+  ).toBeChecked();
+  await scan(page, "Settings");
+  // Choosing the opposite of the device's setting overrides it, from the keyboard.
+  const device = await page.evaluate(() =>
+    matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light",
+  );
+  const other = device === "dark" ? "light" : "dark";
+  await group.getByRole("radio", { name: /^Match device/ }).focus();
+  // Light is next, Dark after it (Safari does not wrap arrow keys).
+  await page.keyboard.press("ArrowDown");
+  if (other === "dark") await page.keyboard.press("ArrowDown");
+  await expect(
+    group.getByRole("radio", { name: new RegExp(`^${other}`, "i") }),
+  ).toBeChecked();
+  await expect(page.locator("html")).toHaveClass(new RegExp(other));
+  await scan(page, `Settings in the ${other} theme`);
+  await page.reload();
+  await expect(page.locator("html")).toHaveClass(new RegExp(other));
+  await expect(
+    group.getByRole("radio", { name: new RegExp(`^${other}`, "i") }),
+  ).toBeChecked();
+});
 test("Stripe test cards dialog", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Test Payment Info" }).click();
@@ -276,6 +310,42 @@ for (const who of ["catalog@cuce.test", "approver@cuce.test"])
       await scan(page, `Offering page ${tab || "overview"} as ${who}`);
     }
   });
+test("unsaved changes: the staff sidebar asks before leaving", async ({
+  page,
+}) => {
+  await page.request.post("/api/staff-session", {
+    data: { email: "catalog@cuce.test" },
+  });
+  await page.goto(
+    "/staff/offerings/10000000-0000-4000-8000-000000000001/settings",
+  );
+  const field = page.getByRole("textbox", { name: "Canvas course URL" });
+  await field.fill("https://canvas.example.edu/courses/changed");
+  // On phones the sidebar is in a drawer behind the "Staff sections" button.
+  const sections = page.getByRole("button", { name: "Staff sections" });
+  const clickCollections = async () => {
+    if (await sections.isVisible()) await sections.click();
+    await page
+      .getByRole("navigation", { name: "Staff sections" })
+      .getByRole("link", { name: "Collections" })
+      .filter({ visible: true })
+      .click();
+  };
+  await clickCollections();
+  const dialog = page.getByRole("dialog", { name: "Leave without saving?" });
+  await expect(dialog).toBeVisible();
+  await scan(page, "Leave without saving dialog");
+  await dialog.getByRole("button", { name: "Stay" }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page).toHaveURL(/\/settings$/);
+  // Stay returns to the open drawer on phones; Escape closes it.
+  if (await page.locator(".MuiDrawer-paper").isVisible())
+    await page.keyboard.press("Escape");
+  await expect(field).toHaveValue("https://canvas.example.edu/courses/changed");
+  await clickCollections();
+  await dialog.getByRole("button", { name: "Discard changes" }).click();
+  await expect(page).toHaveURL(/\/staff\/collections$/);
+});
 test("sales page editor and preview", async ({ page }) => {
   await openEditorWithRichContent(page);
   await scan(page, "Sales page editor");
