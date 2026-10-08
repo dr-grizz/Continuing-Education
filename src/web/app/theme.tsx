@@ -11,8 +11,10 @@ export const brand = {
   goldOnNavy: "#e7d99b",
 };
 const theme = createTheme({
-  // Follows the operating system light/dark preference via CSS media query.
-  cssVariables: { colorSchemeSelector: "media" },
+  // Light or dark comes from a class on <html>, set by the header's theme
+  // switch (components/theme-switch.tsx); "Match device" follows the
+  // operating system preference and is the default.
+  cssVariables: { colorSchemeSelector: "class" },
   colorSchemes: {
     light: {
       palette: {

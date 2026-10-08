@@ -167,6 +167,13 @@ A real screen-reader session, forced colors and cross-browser checks remain outs
 
 ## Latest implementation record
 
+October 8, 2026 (night): Settings page with a color theme choice (branch `theme-switch`, from `sales-pages`).
+
+- **Settings** (`/settings`, linked in the header): Appearance with a Color theme radio group (Match device, the default; Light; Dark), applied immediately and remembered in the browser; Account shows the demo session.
+- The theme now comes from a class on `<html>` instead of only the media query. `InitColorSchemeScript` applies the saved choice before the page paints.
+- **Accessibility scans** now skip endlessly repeating animations (the keyboard focus pulse on radio buttons) when waiting for animations to finish.
+- **Verification:** accessibility 157 passed in light, dark, phone, WebKit, forced colors and reflow, including the Settings page in both themes, choosing the opposite theme from the keyboard, and the choice surviving a reload. In the browser: the saved theme is applied before the page appears, with no flash.
+
 October 8, 2026 (evening, later): text field focus. The global 3px focus ring was drawn on the input itself and covered floating labels. Text fields and selects now show focus with their own border, thickened from 1px to 3px in the primary color (light blue in dark mode); everything else keeps the ring. Verified from the keyboard in light and dark mode; accessibility checks 149 passed, plus a new check that a focused text field has no ring and a 3px border.
 
 October 8, 2026 (evening): offering pages. Each offering now has its own staff page, and the sales page editor moved into it (branch `sales-pages`).

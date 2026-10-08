@@ -16,7 +16,7 @@ Defined in `src/web/app/theme.tsx`. Components use theme tokens (`primary.main`,
 
 ### Color schemes
 
-The site follows the operating system light/dark preference (`cssVariables.colorSchemeSelector: "media"`). There is no manual toggle.
+Light or dark is set by a class on `<html>` (`cssVariables.colorSchemeSelector: "class"`). People choose **Match device** (the default, following the operating system), **Light** or **Dark** on the Settings page. MUI keeps the choice in the browser's local storage, and `InitColorSchemeScript` in `app/layout.tsx` applies it before the page paints, so there is no flash of the other theme.
 
 | Token | Light | Dark |
 | --- | --- | --- |
@@ -62,7 +62,7 @@ MUI defaults: `xs` <600, `sm` ≥600, `md` ≥900, `lg` ≥1200. Content is cent
 - **Skip link:** first focusable element. Hidden until focused, then targets `#main`.
 - **Header:** navy app bar.
   - Logo links home: 196px wide on phones, 260px on tablets, 300px on desktop. Its alt text is "Cedarville University Continuing Education".
-  - `md` and up: inline navigation (Courses, My learning, Staff, Sign in/out). The current page has `aria-current="page"` and a gold underline. The demo session email appears below.
+  - `md` and up: inline navigation (Courses, My learning, Staff, Settings, Sign in/out). The current page has `aria-current="page"` and a gold underline. The demo session email appears below.
   - Below `md`: a 48px menu button (`aria-label="Open navigation menu"`, `aria-expanded`, `aria-controls`) opens a `Menu`. The menu lists the session email as a subheader, then the links (48px rows, current page selected) and sign in/out. Escape closes it and returns focus to the button.
 - **Prototype banner:** one line on phones ("Local prototype · Sample data only"). The full text, which adds "No real payments or Canvas enrollments", appears from `sm`.
 - **Main:** `<main id="main" tabIndex={-1}>`.
@@ -197,6 +197,12 @@ Outlined `Paper`. Catalog cards add a hover and focus-within state: primary bord
 - Pathways add an info note (`role="note"`): the order is a recommendation, following is free and registers nothing, and each course is registered separately. Below it, **Follow pathway** / **Stop following** (toggle pattern), or "Sign in to follow this pathway".
 - An `h2` ("Recommended order" or "Courses") over a list of course cards: an ordered list with numbered circles (decorative; the link text starts with a visually hidden "Step N:") for pathways, an unordered list for collections. Each card has an `h3` course link, summary, topic and type chips, schedule and price.
 - Only published courses are listed. An unknown or unpublished collection shows an error with a link back to the catalog.
+
+### Settings (`/settings`)
+
+- Open to everyone; nothing on it needs sign-in. `h1` "Settings", then outlined sections with `h2` headings.
+- **Appearance:** a **Color theme** radio group (Match device, Light, Dark), each with a one-line description. A choice applies immediately and is remembered in this browser; a note under the group says so.
+- **Account:** the demo session's email, or a Sign in button when signed out. Demo sign-in has no password or profile to change.
 
 ### Sign in (`/sign-in`)
 

@@ -19,10 +19,16 @@ async function scan(page: Page, name: string) {
   });
   // Let dialog fades and other transitions finish: mid-fade text is partly
   // transparent, which axe reports as low contrast (seen in WebKit on CI).
+  // Endless animations, such as the keyboard focus pulse on radio buttons,
+  // never finish and are skipped.
   await page.waitForFunction(() =>
     document
       .getAnimations()
-      .every((animation) => animation.playState !== "running"),
+      .every(
+        (animation) =>
+          animation.playState !== "running" ||
+          animation.effect?.getComputedTiming().iterations === Infinity,
+      ),
   );
   const { violations } = await new AxeBuilder({ page })
     .withTags(tags)
@@ -208,6 +214,34 @@ test("text fields show focus with a thicker border, not an outline over the labe
         ).borderWidth,
     ),
   ).toBe("3px");
+});
+test("settings page: color theme choice and memory", async ({ page }) => {
+  await page.goto("/settings");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Settings");
+  const group = page.getByRole("radiogroup", { name: "Color theme" });
+  await expect(
+    group.getByRole("radio", { name: /^Match device/ }),
+  ).toBeChecked();
+  await scan(page, "Settings");
+  // Choosing the opposite of the device's setting overrides it, from the keyboard.
+  const device = await page.evaluate(() =>
+    matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light",
+  );
+  const other = device === "dark" ? "light" : "dark";
+  await group.getByRole("radio", { name: /^Match device/ }).focus();
+  // Light is next, Dark after it (Safari does not wrap arrow keys).
+  await page.keyboard.press("ArrowDown");
+  if (other === "dark") await page.keyboard.press("ArrowDown");
+  await expect(
+    group.getByRole("radio", { name: new RegExp(`^${other}`, "i") }),
+  ).toBeChecked();
+  await expect(page.locator("html")).toHaveClass(new RegExp(other));
+  await scan(page, `Settings in the ${other} theme`);
+  await page.reload();
+  await expect(page.locator("html")).toHaveClass(new RegExp(other));
+  await expect(
+    group.getByRole("radio", { name: new RegExp(`^${other}`, "i") }),
+  ).toBeChecked();
 });
 test("Stripe test cards dialog", async ({ page }) => {
   await page.goto("/");

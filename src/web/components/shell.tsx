@@ -29,6 +29,7 @@ const navLinks = [
   ["/", "Courses"],
   ["/learning", "My learning"],
   ["/staff", "Staff"],
+  ["/settings", "Settings"],
 ];
 export default function Shell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
