@@ -346,6 +346,38 @@ test("unsaved changes: the staff sidebar asks before leaving", async ({
   await dialog.getByRole("button", { name: "Discard changes" }).click();
   await expect(page).toHaveURL(/\/staff\/collections$/);
 });
+test("collection sales page, opened from the list", async ({ page }) => {
+  await page.request.post("/api/staff-session", {
+    data: { email: "content@cuce.test" },
+  });
+  await page.goto("/staff/collections");
+  const link = page
+    .getByRole("link", { name: /^Sales page for / })
+    .filter({ visible: true })
+    .first();
+  await link.click();
+  await expect(page).toHaveURL(/\/staff\/collections\/[0-9a-f-]+\/sales-page$/);
+  await expect(
+    page.getByRole("heading", { level: 3, name: "Sales page" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("textbox", { name: "Page content" }),
+  ).toBeVisible();
+  // Following the link moves focus to the collection's title.
+  await expect(
+    page
+      .getByRole("heading", { level: 2 })
+      .filter({ hasNotText: "Collections and pathways" })
+      .first(),
+  ).toBeFocused();
+  await scan(page, "Collection sales page");
+  await page
+    .getByRole("link", { name: "All collections and pathways" })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Collections and pathways" }),
+  ).toBeFocused();
+});
 test("sales page editor and preview", async ({ page }) => {
   await openEditorWithRichContent(page);
   await scan(page, "Sales page editor");

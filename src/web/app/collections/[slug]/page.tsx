@@ -23,6 +23,7 @@ import {
 import { useDemoAuth } from "../../../components/demo-auth";
 import { LoadingCards } from "../../../components/loading";
 import { visuallyHidden } from "../../../components/visually-hidden";
+import { SalesPageBlocks } from "../../../components/sales-page-blocks";
 // A staff-curated collection, or a pathway whose courses are in a recommended
 // order. Following a pathway is free and registers nothing (decision F4, proposed).
 export default function Collection({
@@ -44,6 +45,11 @@ export default function Collection({
       .catch((e) => setError(e.message));
   }, [slug]);
   const pathway = collection?.kind === "pathway";
+  // The page title names the collection (a sales page may set its own).
+  useEffect(() => {
+    if (collection)
+      document.title = `${collection.sales_page?.seo.title || collection.title} | Continuing Education`;
+  }, [collection]);
   useEffect(() => {
     if (!auth.email || !pathway || !collection) {
       setFollowing(false);
@@ -143,6 +149,12 @@ export default function Collection({
             </Typography>
           </Box>
         </Stack>
+      )}
+      {/* A published sales page appears between the introduction and the courses. */}
+      {collection.sales_page && (
+        <Box sx={{ mt: 4, maxWidth: 720 }}>
+          <SalesPageBlocks page={collection.sales_page} outcomes={[]} />
+        </Box>
       )}
       <Typography variant="h5" component="h2" sx={{ mt: 4, mb: 2 }}>
         {pathway ? "Recommended order" : "Courses"}

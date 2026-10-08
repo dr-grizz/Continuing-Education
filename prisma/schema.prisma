@@ -276,21 +276,23 @@ model staff_members {
 /// CHECK collections_slug_check: lowercase words joined by hyphens, at most 80 characters.
 /// CHECK collections_title_check: 3-120 characters. CHECK collections_summary_check: 10-500 characters.
 model collections {
-  id               String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  kind             CollectionKind
+  id                   String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  kind                 CollectionKind
   /// Public URL segment, fixed at creation.
-  slug             String             @unique
-  title            String
-  summary          String
-  published        Boolean            @default(false)
-  version          Int                @default(1)
-  created_at       DateTime           @default(now()) @db.Timestamptz(6)
-  updated_at       DateTime           @default(now()) @db.Timestamptz(6)
+  slug                 String                 @unique
+  title                String
+  summary              String
+  published            Boolean                @default(false)
+  version              Int                    @default(1)
+  created_at           DateTime               @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime               @default(now()) @db.Timestamptz(6)
   /// Position (1-3) among featured collections or pathways (per kind) on the Explore tab;
   /// null when not featured. CHECK collections_featured_rank_check. Cleared on unpublish.
-  featured_rank    Int?
-  collection_items collection_items[]
-  pathway_follows  pathway_follows[]
+  featured_rank        Int?
+  collection_items     collection_items[]
+  pathway_follows      pathway_follows[]
+  sales_page           sales_pages?
+  sales_page_revisions sales_page_revisions[]
 }
 
 /// Ordered membership of an offering in a collection. CHECK collection_items_position_check: position > 0.
@@ -426,35 +428,43 @@ enum RefundRequestStatus {
   @@map("refund_request_status")
 }
 
-/// Sales page for an offering (decision F2): structured blocks, never HTML. Content editors
-/// edit the draft; publishing copies it to `published` and appends a revision. Prices and
-/// dates always come from the offering. Removing the published page restores the default
-/// course page. Pages: { blocks: [...], seo: { title, description } }, validated in the API.
+/// Sales page for an offering or a collection/pathway (decision F2): exactly one of
+/// offering_id and collection_id is set (CHECK sales_pages_subject_check). Content
+/// editors edit the draft; publishing copies it to `published` and appends a revision.
+/// Prices and dates always come from the offering. Removing the published page
+/// restores the default page. Pages: { blocks: [...], seo: { title } }, validated in the API.
 model sales_pages {
-  offering_id        String    @id @db.Uuid
+  id                 String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  offering_id        String?      @unique @db.Uuid
+  collection_id      String?      @unique @db.Uuid
   draft              Json
   /// Null when no page is published.
   published          Json?
   /// Latest published revision number; null before the first publish.
   published_revision Int?
   /// Version check for edits, publish and unpublish.
-  version            Int       @default(1)
-  updated_at         DateTime  @default(now()) @db.Timestamptz(6)
-  published_at       DateTime? @db.Timestamptz(6)
-  offering           offerings @relation(fields: [offering_id], references: [id], onDelete: Cascade)
+  version            Int          @default(1)
+  updated_at         DateTime     @default(now()) @db.Timestamptz(6)
+  published_at       DateTime?    @db.Timestamptz(6)
+  offering           offerings?   @relation(fields: [offering_id], references: [id], onDelete: Cascade)
+  collection         collections? @relation(fields: [collection_id], references: [id], onDelete: Cascade)
 }
 
-/// Every published version of a sales page. Append-only (trigger sales_page_revisions_no_update).
+/// Every published version of a sales page, numbered per offering or collection.
+/// Append-only (trigger sales_page_revisions_no_update); CHECK sales_page_revisions_subject_check.
 model sales_page_revisions {
-  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  offering_id  String    @db.Uuid
-  revision     Int
-  page         Json
-  published_by String
-  published_at DateTime  @default(now()) @db.Timestamptz(6)
-  offering     offerings @relation(fields: [offering_id], references: [id], onDelete: Cascade)
+  id            String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  offering_id   String?      @db.Uuid
+  collection_id String?      @db.Uuid
+  revision      Int
+  page          Json
+  published_by  String
+  published_at  DateTime     @default(now()) @db.Timestamptz(6)
+  offering      offerings?   @relation(fields: [offering_id], references: [id], onDelete: Cascade)
+  collection    collections? @relation(fields: [collection_id], references: [id], onDelete: Cascade)
 
   @@unique([offering_id, revision])
+  @@unique([collection_id, revision])
 }
 
 /// Images uploaded for sales pages (October 8, 2026). Stored in the database for

@@ -167,6 +167,18 @@ A real screen-reader session, forced colors and cross-browser checks remain outs
 
 ## Latest implementation record
 
+October 8, 2026 (night): sales pages for collections and pathways (branch `collection-sales-pages`, from `theme-switch`).
+
+- **Database:** migration `016_collection_sales_pages` lets a sales page and its revisions belong to an offering or a collection (exactly one, checked). Existing pages keep their data.
+- **API:** sales page routes are now `staff/sales-pages/{offering|collection}/{id}` (plus `/publish`, `/unpublish`, `/restore`). Public collection data includes the published page, and the staff collection list includes each page's status.
+- **Staff:** a **Sales page** link and status on each row of Staff → Collections opens `/staff/collections/{id}/sales-page`, with the same rich text editor; messages name the course, collection or pathway page.
+- **Learners:** a published page shows on the collection or pathway page, between the introduction and the courses.
+- **Verification:**
+  - `npm test`: 24 groups passed. The sales page group adds a collection's draft and publish, revisions numbered per owner, the public collection page, list status, an unknown owner refused, and one owner per page enforced by the database.
+  - `npm run test:migrations`: 10 passed.
+  - Accessibility: 165 passed in light, dark, phone, WebKit, forced colors and reflow, including the new collection sales page check (opened from the list, focus on the title, focus back to the list heading).
+  - Browser: published a page for the Data-Informed Leader pathway from the keyboard and checked the public pathway page. The walkthrough data was deleted.
+
 October 8, 2026 (late, later): video sources are no longer limited. Any https player can be embedded, with a required title. YouTube, Vimeo and Kaltura links still become their standard players; other sites are shown in a sandboxed frame (no page redirects, form submissions or downloads). `http:`, script addresses and addresses with passwords are refused. Verified: `npm test` 24 groups passed (an https player from another site is kept as `other`; `http:` and `javascript:` refused); the editor accessibility checks passed; in the browser a Loom embed code was accepted and previewed in the sandboxed frame.
 
 October 8, 2026 (late): rich text sales pages (branch `sales-pages`), [ADR 0006](../adr/0006-rich-text-sales-pages.md).

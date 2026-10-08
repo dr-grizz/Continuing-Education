@@ -51,6 +51,8 @@ export type CollectionDetail = CollectionRef & {
   id: string;
   summary: string;
   offerings: Offering[];
+  /** Published sales page; null shows only the summary and courses. */
+  sales_page?: SalesPage | null;
 };
 export type FollowedPathway = {
   id: string;

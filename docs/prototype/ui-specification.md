@@ -198,6 +198,7 @@ Outlined `Paper`. Catalog cards add a hover and focus-within state: primary bord
 - Pathways add an info note (`role="note"`): the order is a recommendation, following is free and registers nothing, and each course is registered separately. Below it, **Follow pathway** / **Stop following** (toggle pattern), or "Sign in to follow this pathway".
 - An `h2` ("Recommended order" or "Courses") over a list of course cards: an ordered list with numbered circles (decorative; the link text starts with a visually hidden "Step N:") for pathways, an unordered list for collections. Each card has an `h3` course link, summary, topic and type chips, schedule and price.
 - Only published courses are listed. An unknown or unpublished collection shows an error with a link back to the catalog.
+- A published **sales page** (rich text) appears between the introduction and the course list, at most 720px wide, with headings from `h2`. The page title is the sales page's title when set, otherwise the collection title.
 
 ### Settings (`/settings`)
 
@@ -249,6 +250,7 @@ Mock sign-in. The Email field (`autoComplete="username"`) and Password field (`c
   - **Details** and **Settings:** the offering form inline, each with only its own fields (Details: title, topic, summary, description, course type, format, dates, price with history, capacity; Settings: approval, approval validity, enrollment window, Canvas link). Saving sends the other fields unchanged, the error summary lists only this tab's fields, and **Discard changes** resets the form. Staff without `catalog:write` see a view-only note and a description list.
   - **Unsaved changes:** a tab with unsaved changes asks "Leave without saving?" (Stay, Discard changes) before following a link on the page or in the staff sidebar (`components/unsaved-changes.tsx`), and the browser warns before closing or reloading. On phones, Stay returns to the open sidebar drawer.
   - **Activity:** the offering's own audit events, newest first, with time, who and any reason.
+- **Collection sales pages** (`/staff/collections/{id}/sales-page`): each row in Staff → Collections has a **Sales page** link (named "Sales page for {title}") with the page's status. The page shows an **All collections and pathways** link, the title (`h2`, focused on arrival), an `h3` "Sales page" and the same editor as an offering's Sales page tab. Returning to the list focuses its heading. Unsaved changes ask before leaving.
 - **Sales page tab** (decision F2): staff without `content:write` see a view-only note and the preview.
   - **Editor:** **Edit** and **Preview** tabs. The Edit tab starts with **Page title** (70 characters, shown on the browser tab; blank uses the course title), then one **rich text** editor ([ADR 0006](../adr/0006-rich-text-sales-pages.md)):
     - The writing area is labelled "Page content" (`role="textbox"`, `aria-multiline`), at least 240px tall. When focused, its field border thickens to 2px; it has no inner focus ring.

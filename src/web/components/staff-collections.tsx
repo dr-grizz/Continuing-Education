@@ -23,6 +23,9 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
+import NextLink from "next/link";
+import { arrive, focusOnArrival } from "./arrival-focus";
+import { salesPageShortText, type PageStatus } from "./staff-offering";
 import { api, CollectionKind } from "./api";
 import type { StaffOffering } from "./offering-form";
 import { OrderedListEditor } from "./ordered-list-editor";
@@ -39,7 +42,25 @@ type StaffCollection = {
   version: number;
   followers: number;
   courses: { id: string; title: string; published: boolean }[];
+  sales_page_status: PageStatus;
 };
+// Opens the collection's sales page editor; its heading takes focus.
+const salesPageLink = (row: StaffCollection) => (
+  <>
+    <Link
+      component={NextLink}
+      href={`/staff/collections/${row.id}/sales-page`}
+      onClick={() => arrive("collection-page")}
+      underline="always"
+      aria-label={`Sales page for ${row.title}`}
+    >
+      Sales page
+    </Link>
+    <Typography variant="body2" color="text.secondary">
+      {salesPageShortText[row.sales_page_status]}
+    </Typography>
+  </>
+);
 const kindLabel = (kind: CollectionKind) =>
   kind === "pathway" ? "Pathway" : "Collection";
 const minimumCourses = (kind: CollectionKind) => (kind === "pathway" ? 2 : 1);
@@ -53,6 +74,9 @@ export function StaffCollections({
   offerings: StaffOffering[];
   onChanged: (message: string) => void;
 }) {
+  // Returning from a sales page focuses this heading.
+  const listHeading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => focusOnArrival(listHeading.current, "collections"));
   const [rows, setRows] = useState<StaffCollection[]>([]),
     [loaded, setLoaded] = useState(false),
     [error, setError] = useState(""),
@@ -164,7 +188,13 @@ export function StaffCollections({
         }}
       >
         <Box>
-          <Typography variant="h5" component="h2">
+          <Typography
+            variant="h5"
+            component="h2"
+            ref={listHeading}
+            tabIndex={-1}
+            sx={{ outline: "none" }}
+          >
             Collections and pathways
           </Typography>
           <Typography variant="body2" color="text.secondary">
@@ -209,6 +239,7 @@ export function StaffCollections({
                   <TableCell>Courses</TableCell>
                   <TableCell>Followers</TableCell>
                   <TableCell>Status</TableCell>
+                  <TableCell>Sales page</TableCell>
                   {canManage && <TableCell>Actions</TableCell>}
                 </TableRow>
               </TableHead>
@@ -239,6 +270,7 @@ export function StaffCollections({
                       {row.kind === "pathway" ? row.followers : "—"}
                     </TableCell>
                     <TableCell>{status(row)}</TableCell>
+                    <TableCell>{salesPageLink(row)}</TableCell>
                     {canManage && <TableCell>{actions(row)}</TableCell>}
                   </TableRow>
                 ))}
@@ -273,6 +305,7 @@ export function StaffCollections({
                     {row.followers === 1 ? "follower" : "followers"}
                   </Typography>
                 )}
+                <Box sx={{ mt: 1 }}>{salesPageLink(row)}</Box>
                 {canManage && <Box sx={{ mt: 1.5 }}>{actions(row)}</Box>}
               </Paper>
             ))}

@@ -11,6 +11,7 @@ import {
   type CollectionKind,
   type entitlements,
   type offerings,
+  type sales_pages,
   type SimulatedOutcome,
   type StaffRole,
 } from "../generated/prisma/client";
@@ -58,6 +59,12 @@ import {
   webUrl,
 } from "./stripe";
 
+// A sales page belongs to one offering or one collection (or pathway).
+export type PageOwner = { kind: "offering" | "collection"; id: string };
+const ownerWhere = (owner: PageOwner) =>
+  owner.kind === "offering"
+    ? { offering_id: owner.id }
+    : { collection_id: owner.id };
 function salesPageStatus(
   page: { draft: unknown; published: unknown } | null,
 ): "none" | "draft" | "published" | "changes" {
@@ -1996,9 +2003,16 @@ export class PortalService {
       select: { id: true, kind: true, slug: true, title: true, summary: true },
     });
     if (!collection) throw new NotFoundException("Collection not found.");
+    const page = await prisma.sales_pages.findUnique({
+      where: { collection_id: collection.id },
+      select: { published: true },
+    });
     return {
       ...collection,
       offerings: await this.collectionOfferings(collection.id),
+      sales_page: page?.published
+        ? publicSalesPage(parseSalesPage(page.published))
+        : null,
     };
   }
   private collectionOfferings(collectionId: string) {
@@ -2021,11 +2035,13 @@ export class PortalService {
           },
         },
         _count: { select: { pathway_follows: true } },
+        sales_page: { select: { draft: true, published: true } },
       },
     });
-    return rows.map(({ collection_items, _count, ...c }) => ({
+    return rows.map(({ collection_items, _count, sales_page, ...c }) => ({
       ...c,
       followers: _count.pathway_follows,
+      sales_page_status: salesPageStatus(sales_page),
       courses: collection_items.map((item) => ({
         id: item.offering_id,
         title: item.offerings.title,
@@ -2616,29 +2632,72 @@ export class PortalService {
       activity,
     };
   }
-  async staffSalesPage(id: string) {
-    const offering = await prisma.offerings.findUnique({
-      where: { id },
-      select: {
-        id: true,
-        title: true,
-        category: true,
-        summary: true,
-        outcomes: true,
-        published: true,
-        sales_page: true,
-        sales_page_revisions: {
-          orderBy: { revision: "desc" },
-          select: { revision: true, published_by: true, published_at: true },
-        },
+  async staffSalesPage(owner: PageOwner) {
+    const pageSelect = {
+      sales_page: true,
+      sales_page_revisions: {
+        orderBy: { revision: "desc" },
+        select: { revision: true, published_by: true, published_at: true },
       },
-    });
-    if (!offering) throw new NotFoundException("Offering not found.");
-    const {
-      sales_page: row,
-      sales_page_revisions: revisions,
-      ...rest
-    } = offering;
+    } as const;
+    let subject: {
+      kind: "offering" | CollectionKind;
+      id: string;
+      title: string;
+      published: boolean;
+      outcomes: Prisma.JsonValue;
+      path: string;
+    };
+    let row: sales_pages | null;
+    let revisions: {
+      revision: number;
+      published_by: string;
+      published_at: Date;
+    }[];
+    if (owner.kind === "offering") {
+      const offering = await prisma.offerings.findUnique({
+        where: { id: owner.id },
+        select: {
+          id: true,
+          title: true,
+          outcomes: true,
+          published: true,
+          ...pageSelect,
+        },
+      });
+      if (!offering) throw new NotFoundException("Offering not found.");
+      ({ sales_page: row, sales_page_revisions: revisions } = offering);
+      subject = {
+        kind: "offering",
+        id: offering.id,
+        title: offering.title,
+        published: offering.published,
+        outcomes: offering.outcomes,
+        path: `/courses/${offering.id}`,
+      };
+    } else {
+      const collection = await prisma.collections.findUnique({
+        where: { id: owner.id },
+        select: {
+          id: true,
+          kind: true,
+          slug: true,
+          title: true,
+          published: true,
+          ...pageSelect,
+        },
+      });
+      if (!collection) throw new NotFoundException("Collection not found.");
+      ({ sales_page: row, sales_page_revisions: revisions } = collection);
+      subject = {
+        kind: collection.kind,
+        id: collection.id,
+        title: collection.title,
+        published: collection.published,
+        outcomes: [],
+        path: `/collections/${collection.slug}`,
+      };
+    }
     const draft = row ? parseSalesPage(row.draft) : emptySalesPage();
     const staff = await prisma.staff_members.findMany({
       where: {
@@ -2652,7 +2711,7 @@ export class PortalService {
     });
     const emails = new Map(staff.map((m) => [`staff:${m.id}`, m.email]));
     return {
-      offering: rest,
+      subject,
       // Version 0 means no page exists yet; the first save creates it.
       version: row?.version ?? 0,
       status: salesPageStatus(row),
@@ -2672,7 +2731,7 @@ export class PortalService {
   async saveSalesPage(
     principal: Principal,
     key: string,
-    id: string,
+    owner: PageOwner,
     version: number,
     input: unknown,
   ) {
@@ -2680,14 +2739,22 @@ export class PortalService {
     return this.command(
       principal,
       key,
-      { action: "sales_page.save", id, version, page },
+      { action: "sales_page.save", owner, version, page },
       async (tx) => {
         const draft = page as unknown as Prisma.InputJsonObject;
         if (version === 0) {
-          if (!(await tx.offerings.findUnique({ where: { id } })))
-            throw new NotFoundException("Offering not found.");
+          const exists =
+            owner.kind === "offering"
+              ? await tx.offerings.count({ where: { id: owner.id } })
+              : await tx.collections.count({ where: { id: owner.id } });
+          if (!exists)
+            throw new NotFoundException(
+              owner.kind === "offering"
+                ? "Offering not found."
+                : "Collection not found.",
+            );
           const created = await tx.sales_pages.createMany({
-            data: [{ offering_id: id, draft }],
+            data: [{ ...ownerWhere(owner), draft }],
             skipDuplicates: true,
           });
           if (!created.count)
@@ -2696,7 +2763,7 @@ export class PortalService {
             );
         } else {
           const updated = await tx.sales_pages.updateMany({
-            where: { offering_id: id, version },
+            where: { ...ownerWhere(owner), version },
             data: {
               draft,
               version: { increment: 1 },
@@ -2708,26 +2775,26 @@ export class PortalService {
               "This page changed since you opened it. Refresh and retry.",
             );
         }
-        await audit(tx, principal.actor, "sales_page.draft_saved", id, {
+        await audit(tx, principal.actor, "sales_page.draft_saved", owner.id, {
           blocks: page.blocks.map((b) => b.type),
         });
-        return this.salesPageVersion(tx, id);
+        return this.salesPageVersion(tx, owner);
       },
     );
   }
   async publishSalesPage(
     principal: Principal,
     key: string,
-    id: string,
+    owner: PageOwner,
     version: number,
   ) {
     return this.command(
       principal,
       key,
-      { action: "sales_page.publish", id, version },
+      { action: "sales_page.publish", owner, version },
       async (tx) => {
-        const row = await tx.sales_pages.findUnique({
-          where: { offering_id: id },
+        const row = await tx.sales_pages.findFirst({
+          where: ownerWhere(owner),
         });
         if (!row || row.version !== version)
           throw new ConflictException(
@@ -2740,21 +2807,21 @@ export class PortalService {
             `Fix these before publishing: ${problems.join(" ")}`,
           );
         const last = await tx.sales_page_revisions.aggregate({
-          where: { offering_id: id },
+          where: ownerWhere(owner),
           _max: { revision: true },
         });
         const revision = (last._max.revision ?? 0) + 1;
         const page = draft as unknown as Prisma.InputJsonObject;
         await tx.sales_page_revisions.create({
           data: {
-            offering_id: id,
+            ...ownerWhere(owner),
             revision,
             page,
             published_by: principal.actor,
           },
         });
         await tx.sales_pages.update({
-          where: { offering_id: id },
+          where: { id: row.id },
           data: {
             published: page,
             published_revision: revision,
@@ -2762,27 +2829,27 @@ export class PortalService {
             version: { increment: 1 },
           },
         });
-        await audit(tx, principal.actor, "sales_page.published", id, {
+        await audit(tx, principal.actor, "sales_page.published", owner.id, {
           revision,
         });
-        return this.salesPageVersion(tx, id);
+        return this.salesPageVersion(tx, owner);
       },
     );
   }
   async unpublishSalesPage(
     principal: Principal,
     key: string,
-    id: string,
+    owner: PageOwner,
     version: number,
   ) {
     return this.command(
       principal,
       key,
-      { action: "sales_page.unpublish", id, version },
+      { action: "sales_page.unpublish", owner, version },
       async (tx) => {
         const updated = await tx.sales_pages.updateMany({
           where: {
-            offering_id: id,
+            ...ownerWhere(owner),
             version,
             published: { not: Prisma.DbNull },
           },
@@ -2796,31 +2863,31 @@ export class PortalService {
           throw new ConflictException(
             "This page changed or is not published. Refresh and retry.",
           );
-        // The draft and revisions stay; the course page shows its default layout.
-        await audit(tx, principal.actor, "sales_page.unpublished", id);
-        return this.salesPageVersion(tx, id);
+        // The draft and revisions stay; the page shows its default layout.
+        await audit(tx, principal.actor, "sales_page.unpublished", owner.id);
+        return this.salesPageVersion(tx, owner);
       },
     );
   }
   async restoreSalesPageRevision(
     principal: Principal,
     key: string,
-    id: string,
+    owner: PageOwner,
     version: number,
     revision: number,
   ) {
     return this.command(
       principal,
       key,
-      { action: "sales_page.restore", id, version, revision },
+      { action: "sales_page.restore", owner, version, revision },
       async (tx) => {
-        const source = await tx.sales_page_revisions.findUnique({
-          where: { offering_id_revision: { offering_id: id, revision } },
+        const source = await tx.sales_page_revisions.findFirst({
+          where: { ...ownerWhere(owner), revision },
         });
         if (!source) throw new NotFoundException("Revision not found.");
         // Restoring copies the revision into the draft; publishing it is a separate step.
         const updated = await tx.sales_pages.updateMany({
-          where: { offering_id: id, version },
+          where: { ...ownerWhere(owner), version },
           data: {
             draft: source.page as Prisma.InputJsonObject,
             version: { increment: 1 },
@@ -2831,16 +2898,22 @@ export class PortalService {
           throw new ConflictException(
             "This page changed since you opened it. Refresh and retry.",
           );
-        await audit(tx, principal.actor, "sales_page.revision_restored", id, {
-          revision,
-        });
-        return this.salesPageVersion(tx, id);
+        await audit(
+          tx,
+          principal.actor,
+          "sales_page.revision_restored",
+          owner.id,
+          {
+            revision,
+          },
+        );
+        return this.salesPageVersion(tx, owner);
       },
     );
   }
-  private async salesPageVersion(tx: Tx, id: string) {
-    const row = await tx.sales_pages.findUniqueOrThrow({
-      where: { offering_id: id },
+  private async salesPageVersion(tx: Tx, owner: PageOwner) {
+    const row = await tx.sales_pages.findFirstOrThrow({
+      where: ownerWhere(owner),
       select: {
         version: true,
         published_revision: true,

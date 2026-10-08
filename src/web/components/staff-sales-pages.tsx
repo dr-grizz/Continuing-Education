@@ -51,13 +51,15 @@ import {
 
 type PageStatus = "none" | "draft" | "published" | "changes";
 type Detail = {
-  offering: {
+  /** The offering or collection (pathway) the page belongs to. */
+  subject: {
+    kind: "offering" | "collection" | "pathway";
     id: string;
     title: string;
-    category: string;
-    summary: string;
     outcomes: string[];
     published: boolean;
+    /** Public address of the course, collection or pathway page. */
+    path: string;
   };
   version: number;
   status: PageStatus;
@@ -141,16 +143,22 @@ function canonical(page: SalesPage): string {
 
 // Shown in the offering page's Sales page tab, which supplies the heading.
 export function SalesPageEditor({
+  owner,
   id,
   canEdit,
   onChanged,
   onDirtyChange,
+  onSubject,
 }: {
+  /** What the page belongs to; pathways are collections. */
+  owner: "offering" | "collection";
   id: string;
   canEdit: boolean;
   onChanged: (message: string) => void;
   /** Lets the offering page warn before leaving with unsaved changes. */
   onDirtyChange?: (dirty: boolean) => void;
+  /** Reports what the page belongs to once loaded (for headings). */
+  onSubject?: (subject: Detail["subject"]) => void;
 }) {
   const [detail, setDetail] = useState<Detail>(),
     [items, setItems] = useState<Item[]>([]),
@@ -198,9 +206,10 @@ export function SalesPageEditor({
     setSeo(data.draft.seo);
   }
   const load = (keepEditor = false) =>
-    api<Detail>(`staff/sales-pages/${id}`, { role: "staff" })
+    api<Detail>(`staff/sales-pages/${owner}/${id}`, { role: "staff" })
       .then((data) => {
         apply(data, keepEditor);
+        onSubject?.(data.subject);
         setError("");
         return data;
       })
@@ -234,6 +243,8 @@ export function SalesPageEditor({
   if (!detail) return <LoadingCards label="Loading sales page" count={1} />;
 
   const page: SalesPage = { blocks: items.map((i) => i.block), seo };
+  const noun =
+    detail.subject.kind === "offering" ? "course" : detail.subject.kind;
   // One rich text block, unless block editing is on or the draft holds other
   // block types (then the block list shows them all).
   const richItem = items.find((i) => i.block.type === "rich_text");
@@ -299,7 +310,7 @@ export function SalesPageEditor({
   const save = () =>
     run(
       () =>
-        api(`staff/sales-pages/${id}`, {
+        api(`staff/sales-pages/${owner}/${id}`, {
           role: "staff",
           body: { version: detail.version, page },
         }),
@@ -316,11 +327,11 @@ export function SalesPageEditor({
     }
     run(
       () =>
-        api(`staff/sales-pages/${id}/publish`, {
+        api(`staff/sales-pages/${owner}/${id}/publish`, {
           role: "staff",
           body: { version: detail.version },
         }),
-      "Sales page published. Learners see it on the course page now.",
+      `Sales page published. Learners see it on the ${noun} page now.`,
     );
   };
   async function confirmAction() {
@@ -330,7 +341,7 @@ export function SalesPageEditor({
     if (current.kind === "remove")
       await run(
         () =>
-          api(`staff/sales-pages/${id}/unpublish`, {
+          api(`staff/sales-pages/${owner}/${id}/unpublish`, {
             role: "staff",
             body: { version: detail!.version },
           }),
@@ -339,7 +350,7 @@ export function SalesPageEditor({
     else
       await run(
         () =>
-          api(`staff/sales-pages/${id}/restore`, {
+          api(`staff/sales-pages/${owner}/${id}/restore`, {
             role: "staff",
             body: { version: detail!.version, revision: current.revision },
           }),
@@ -362,13 +373,13 @@ export function SalesPageEditor({
         <Typography variant="body2" color="text.secondary">
           {detail.published_at
             ? `Revision ${detail.published_revision} published ${when(detail.published_at)}.`
-            : "Learners see the default course page."}{" "}
-          {detail.offering.published ? (
-            <Link href={`/courses/${id}`} underline="always">
-              View the course page
+            : `Learners see the default ${noun} page.`}{" "}
+          {detail.subject.published ? (
+            <Link href={detail.subject.path} underline="always">
+              View the {noun} page
             </Link>
           ) : (
-            "The course itself is not published."
+            `The ${noun} itself is not published.`
           )}
         </Typography>
       </Stack>
@@ -449,7 +460,7 @@ export function SalesPageEditor({
               {items.length === 0 && (
                 <Typography color="text.secondary" sx={{ mb: 2 }}>
                   No blocks yet. Add one below; until a page is published,
-                  learners see the default course page.
+                  learners see the default page.
                 </Typography>
               )}
               <Stack spacing={2}>
@@ -505,7 +516,7 @@ export function SalesPageEditor({
                       <BlockFields
                         id={item.key}
                         block={item.block}
-                        outcomes={detail.offering.outcomes}
+                        outcomes={detail.subject.outcomes}
                         onChange={(block) => update(item.key, block)}
                       />
                     </Box>
@@ -608,14 +619,14 @@ export function SalesPageEditor({
         >
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             {canEdit
-              ? "Your edits as learners would see them, including unsaved changes. On the course page, price and registration appear beside the page."
-              : "The current draft. On the course page, price and registration appear beside it."}
+              ? `Your edits as learners would see them, including unsaved changes.${owner === "offering" ? " On the course page, price and registration appear beside the page." : ""}`
+              : `The current draft.${owner === "offering" ? " On the course page, price and registration appear beside it." : ""}`}
           </Typography>
           <Paper variant="outlined" sx={{ p: { xs: 2, sm: 3 } }}>
             {page.blocks.length ? (
               <SalesPageBlocks
                 page={page}
-                outcomes={detail.offering.outcomes}
+                outcomes={detail.subject.outcomes}
                 level={4}
               />
             ) : (
@@ -687,7 +698,7 @@ export function SalesPageEditor({
         <DialogContent>
           <DialogContentText>
             {confirm?.kind === "remove"
-              ? "Learners will see the default course page. The draft and earlier revisions are kept, so you can publish again later."
+              ? `Learners will see the default ${noun} page. The draft and earlier revisions are kept, so you can publish again later.`
               : `This replaces the current draft${dirty ? ", including your unsaved changes" : ""}. The live page does not change until you publish.`}
           </DialogContentText>
         </DialogContent>

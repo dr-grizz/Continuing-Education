@@ -7,6 +7,7 @@ import {
   HttpCode,
   Module,
   Param,
+  ParseEnumPipe,
   ParseUUIDPipe,
   Post,
   Query,
@@ -119,6 +120,8 @@ class CatalogController {
     return this.portal.publicCollection(slug);
   }
 }
+// Sales pages belong to an offering or a collection (including pathways).
+const ownerPipe = new ParseEnumPipe(["offering", "collection"]);
 @ApiTags("Prototype workflow")
 @ApiBearerAuth()
 @ApiHeader({
@@ -350,16 +353,20 @@ class WorkflowController {
     requireAnyScope(req, "catalog:write", "content:write");
     return this.portal.setExplore(req.principal, key, dto);
   }
-  @Get("staff/sales-pages/:id")
+  @Get("staff/sales-pages/:owner/:id")
   @ApiOperation({
     summary:
-      "An offering's sales page: draft, published page, what blocks publishing, and revisions",
+      "A sales page for an offering or collection (owner: offering | collection): draft, published page, what blocks publishing, and revisions",
   })
-  salesPage(@Req() req: any, @Param("id", ParseUUIDPipe) id: string) {
+  salesPage(
+    @Req() req: any,
+    @Param("owner", ownerPipe) owner: "offering" | "collection",
+    @Param("id", ParseUUIDPipe) id: string,
+  ) {
     requireScope(req, "staff:read");
-    return this.portal.staffSalesPage(id);
+    return this.portal.staffSalesPage({ kind: owner, id });
   }
-  @Post("staff/sales-pages/:id")
+  @Post("staff/sales-pages/:owner/:id")
   @HttpCode(200)
   @ApiOperation({
     summary:
@@ -368,6 +375,7 @@ class WorkflowController {
   saveSalesPage(
     @Req() req: any,
     @Headers("idempotency-key") key: string,
+    @Param("owner", ownerPipe) owner: "offering" | "collection",
     @Param("id", ParseUUIDPipe) id: string,
     @Body() dto: SalesPageDto,
   ) {
@@ -375,7 +383,7 @@ class WorkflowController {
     return this.portal.saveSalesPage(
       req.principal,
       key,
-      id,
+      { kind: owner, id },
       dto.version,
       dto.page,
     );
@@ -394,7 +402,7 @@ class WorkflowController {
     requireScope(req, "content:write");
     return this.portal.uploadMedia(req.principal, key, dto);
   }
-  @Post("staff/sales-pages/:id/publish")
+  @Post("staff/sales-pages/:owner/:id/publish")
   @HttpCode(200)
   @ApiOperation({
     summary:
@@ -403,28 +411,40 @@ class WorkflowController {
   publishSalesPage(
     @Req() req: any,
     @Headers("idempotency-key") key: string,
+    @Param("owner", ownerPipe) owner: "offering" | "collection",
     @Param("id", ParseUUIDPipe) id: string,
     @Body() dto: PublishDto,
   ) {
     requireScope(req, "content:write");
-    return this.portal.publishSalesPage(req.principal, key, id, dto.version);
+    return this.portal.publishSalesPage(
+      req.principal,
+      key,
+      { kind: owner, id },
+      dto.version,
+    );
   }
-  @Post("staff/sales-pages/:id/unpublish")
+  @Post("staff/sales-pages/:owner/:id/unpublish")
   @HttpCode(200)
   @ApiOperation({
     summary:
-      "Remove the published page; the course shows its default page (content:write)",
+      "Remove the published page; the course or collection shows its default page (content:write)",
   })
   unpublishSalesPage(
     @Req() req: any,
     @Headers("idempotency-key") key: string,
+    @Param("owner", ownerPipe) owner: "offering" | "collection",
     @Param("id", ParseUUIDPipe) id: string,
     @Body() dto: PublishDto,
   ) {
     requireScope(req, "content:write");
-    return this.portal.unpublishSalesPage(req.principal, key, id, dto.version);
+    return this.portal.unpublishSalesPage(
+      req.principal,
+      key,
+      { kind: owner, id },
+      dto.version,
+    );
   }
-  @Post("staff/sales-pages/:id/restore")
+  @Post("staff/sales-pages/:owner/:id/restore")
   @HttpCode(200)
   @ApiOperation({
     summary: "Copy a published revision into the draft (content:write)",
@@ -432,6 +452,7 @@ class WorkflowController {
   restoreSalesPage(
     @Req() req: any,
     @Headers("idempotency-key") key: string,
+    @Param("owner", ownerPipe) owner: "offering" | "collection",
     @Param("id", ParseUUIDPipe) id: string,
     @Body() dto: SalesPageRestoreDto,
   ) {
@@ -439,7 +460,7 @@ class WorkflowController {
     return this.portal.restoreSalesPageRevision(
       req.principal,
       key,
-      id,
+      { kind: owner, id },
       dto.version,
       dto.revision,
     );

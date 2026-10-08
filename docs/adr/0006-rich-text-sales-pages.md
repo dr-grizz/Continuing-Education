@@ -31,6 +31,7 @@ Sales pages started as a list of structured blocks (hero image, text, outcomes, 
   - Changed the same day: the first version allowed only YouTube, Vimeo and Kaltura. Program staff chose not to limit sources; only content editors can embed, and every change is audited.
   - The editor shows a labelled placeholder; the preview and course page show the player.
 - **Page title** (browser tab) sits at the top of the editor. The search description was dropped.
+- **Collections and pathways** have sales pages too (migration `016_collection_sales_pages`). A page and its revisions belong to exactly one offering or collection (checked in the database), and the API addresses them as `staff/sales-pages/{offering|collection}/{id}`. The page appears on the public collection or pathway page above its course list.
 
 ## Consequences
 

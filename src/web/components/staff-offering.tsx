@@ -301,6 +301,7 @@ export function StaffOfferingPage({
           ))}
         {current.slug === "sales-page" && (
           <SalesPageEditor
+            owner="offering"
             id={id}
             canEdit={can("content:write")}
             onChanged={(message) => {

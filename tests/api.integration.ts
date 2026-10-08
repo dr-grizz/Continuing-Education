@@ -1781,7 +1781,7 @@ async function main() {
 
     // Sales pages (F2): content editors draft, publish and remove structured pages.
     const pageCourse = await seed(false);
-    const pagePath = `staff/sales-pages/${pageCourse}`;
+    const pagePath = `staff/sales-pages/offering/${pageCourse}`;
     const heroBlock = {
       type: "hero",
       image: "data-analysis",
@@ -2184,8 +2184,111 @@ async function main() {
     );
     assert.equal(richDraft.status, "draft");
 
+    // Collections and pathways have their own sales pages, with the same rules.
+    const pageCollection = await (
+      await http(
+        "collections",
+        STAFF,
+        {
+          kind: "collection",
+          title: `Sales page collection ${randomUUID().slice(0, 8)}`,
+          summary: "Synthetic collection for sales page tests.",
+          offeringIds: [pageCourse],
+        },
+        catalogId,
+      )
+    ).json();
+    collectionIds.push(pageCollection.id);
+    const collectionPath = `staff/sales-pages/collection/${pageCollection.id}`;
+    assert.equal(
+      (
+        await http(
+          `staff/sales-pages/program/${pageCollection.id}`,
+          STAFF,
+          undefined,
+          contentId,
+        )
+      ).status,
+      400,
+      "sales pages belong to an offering or a collection",
+    );
+    const collectionDetail = await (
+      await http(collectionPath, STAFF, undefined, approverId)
+    ).json();
+    assert.equal(collectionDetail.subject.kind, "collection");
+    assert.equal(
+      collectionDetail.subject.path,
+      `/collections/${pageCollection.slug}`,
+    );
+    assert.equal(collectionDetail.version, 0);
+    const collectionDraft = await (
+      await http(
+        collectionPath,
+        STAFF,
+        {
+          version: 0,
+          page: {
+            blocks: [
+              {
+                type: "rich_text",
+                doc: { type: "doc", content: [para("Start here.")] },
+              },
+            ],
+            seo: { title: "Collection page" },
+          },
+        },
+        contentId,
+      )
+    ).json();
+    const collectionPublished = await (
+      await http(
+        `${collectionPath}/publish`,
+        STAFF,
+        { version: collectionDraft.version },
+        contentId,
+      )
+    ).json();
+    assert.equal(
+      collectionPublished.published_revision,
+      1,
+      "revisions are numbered per collection",
+    );
+    await http(
+      `collections/${pageCollection.id}/publish`,
+      STAFF,
+      { version: pageCollection.version },
+      catalogId,
+    );
+    const publicCollection = await (
+      await http(`collections/${pageCollection.slug}`)
+    ).json();
+    assert.equal(publicCollection.sales_page.seo.title, "Collection page");
+    assert.equal(publicCollection.sales_page.blocks[0].type, "rich_text");
+    assert.equal(
+      (
+        await (
+          await http("staff/collections", STAFF, undefined, approverId)
+        ).json()
+      ).find((c: any) => c.id === pageCollection.id).sales_page_status,
+      "published",
+    );
+    assert.equal(
+      (await (await http(pagePath, STAFF, undefined, contentId)).json())
+        .revisions.length,
+      1,
+      "the offering's revisions are separate from the collection's",
+    );
+    await assert.rejects(
+      db.query(
+        "INSERT INTO sales_pages(offering_id,collection_id,draft) VALUES($1,$2,'{}'::jsonb)",
+        [pageCourse, pageCollection.id],
+      ),
+      /sales_pages_subject_check|unique/,
+      "a page belongs to exactly one offering or collection",
+    );
+
     console.log(
-      "PASS: sales pages: content editors draft, publish as revisions; rich text allowlist, uploaded images checked by bytes, https video players (YouTube/Vimeo/Kaltura normalized), restore and remove; consent required and kept from learners; structured blocks only; offering page shows status, counts and activity",
+      "PASS: sales pages: content editors draft, publish as revisions; rich text allowlist, uploaded images checked by bytes, https video players (YouTube/Vimeo/Kaltura normalized), restore and remove; consent required and kept from learners; structured blocks only; offering page shows status, counts and activity; collections and pathways have their own pages",
     );
 
     // Stripe sandbox Checkout: signed fake webhook events, no network calls.
