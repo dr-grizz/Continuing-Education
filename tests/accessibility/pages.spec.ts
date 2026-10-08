@@ -51,9 +51,11 @@ async function openEditorWithEveryBlock(page: Page) {
   await page.request.post("/api/staff-session", {
     data: { email: "content@cuce.test" },
   });
-  await page.goto("/staff/sales-pages/10000000-0000-4000-8000-000000000001");
+  await page.goto(
+    "/staff/offerings/10000000-0000-4000-8000-000000000001/sales-page",
+  );
   await expect(
-    page.getByRole("heading", { name: "Sales page: Practical Data Analysis" }),
+    page.getByRole("heading", { level: 3, name: "Sales page" }),
   ).toBeVisible();
   for (const type of blockTypes) {
     await page.getByRole("combobox", { name: "Block type" }).click();
@@ -69,7 +71,6 @@ const staffSlugs: Record<string, string> = {
   Offerings: "offerings",
   Collections: "collections",
   "Explore page": "explore",
-  "Sales pages": "sales-pages",
   Approvals: "approvals",
   Exceptions: "exceptions",
   Activity: "activity",
@@ -227,6 +228,26 @@ test.describe("staff workspace", () => {
       await scan(page, `Staff ${tab} tab`);
     });
 });
+// Each tab of an offering's page, as a catalog manager (editable forms) and as
+// an approver (read-only views).
+const offeringTabs = ["", "details", "settings", "sales-page", "activity"];
+for (const who of ["catalog@cuce.test", "approver@cuce.test"])
+  test(`offering page tabs as ${who.split("@")[0]}`, async ({ page }) => {
+    await page.request.post("/api/staff-session", { data: { email: who } });
+    for (const tab of offeringTabs) {
+      await page.goto(
+        `/staff/offerings/10000000-0000-4000-8000-000000000001${tab ? `/${tab}` : ""}`,
+      );
+      await expect(
+        page.getByRole("heading", {
+          level: 2,
+          name: "Practical Data Analysis",
+        }),
+      ).toBeVisible();
+      await expect(page.locator("#offering-panel-heading")).toBeVisible();
+      await scan(page, `Offering page ${tab || "overview"} as ${who}`);
+    }
+  });
 test("sales page editor and preview", async ({ page }) => {
   await openEditorWithEveryBlock(page);
   await scan(page, "Sales page editor");
@@ -238,7 +259,6 @@ test.describe("staff dialogs", () => {
   // Opens each dialog and scans it; nothing is submitted.
   const dialogs: [string, string, RegExp][] = [
     ["New offering", "Offerings", /^New offering$/],
-    ["Edit offering", "Offerings", /^Edit /],
     ["Unpublish offering", "Offerings", /^Unpublish /],
     ["Learner details", "Learners", /^View learner /],
     ["New collection", "Collections", /^New collection$/],

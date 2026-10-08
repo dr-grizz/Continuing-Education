@@ -1946,6 +1946,33 @@ async function main() {
       null,
       "removing the page restores the default course page",
     );
+    const offeringPage = await (
+      await http(`staff/offerings/${pageCourse}`, STAFF, undefined, approverId)
+    ).json();
+    assert.equal(offeringPage.offering.sales_page_status, "draft");
+    assert.deepEqual(offeringPage.registrations, {});
+    assert.equal(
+      offeringPage.activity.filter((e: any) =>
+        e.action.startsWith("sales_page."),
+      ).length,
+      6,
+      "the offering page lists its own activity",
+    );
+    assert.equal(
+      offeringPage.activity.find(
+        (e: any) => e.action === "sales_page.published",
+      ).actor_email,
+      "content@cuce.test",
+    );
+    assert.equal(
+      (
+        await (
+          await http("staff/offerings", STAFF, undefined, approverId)
+        ).json()
+      ).find((o: any) => o.id === pageCourse).sales_page_status,
+      "draft",
+      "the staff list shows each sales page's status",
+    );
     await assert.rejects(
       db.query(
         "UPDATE sales_page_revisions SET page='{}'::jsonb WHERE offering_id=$1",
@@ -1964,7 +1991,7 @@ async function main() {
       "every sales page change is audited",
     );
     console.log(
-      "PASS: sales pages: content editors draft, publish as revisions, restore and remove; consent required and kept from learners; structured blocks only",
+      "PASS: sales pages: content editors draft, publish as revisions, restore and remove; consent required and kept from learners; structured blocks only; offering page shows status, counts and activity",
     );
 
     // Stripe sandbox Checkout: signed fake webhook events, no network calls.

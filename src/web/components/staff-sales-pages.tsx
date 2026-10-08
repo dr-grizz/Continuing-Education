@@ -1,5 +1,4 @@
 "use client";
-import NextLink from "next/link";
 import { useEffect, useRef, useState } from "react";
 import {
   Alert,
@@ -38,20 +37,12 @@ import {
 import { LoadingCards } from "./loading";
 import { visuallyHidden } from "./visually-hidden";
 
-// Sales page editor (decision F2). Content editors build a course's page from
-// structured blocks, preview it, and publish it as a numbered revision. Prices,
-// dates and registration always come from the offering. Other staff can view.
+// Sales page editor (decision F2), in each offering's Sales page tab. Content
+// editors build the course's page from structured blocks, preview it, and
+// publish it as a numbered revision. Prices, dates and registration always come
+// from the offering. Other staff can view.
 
 type PageStatus = "none" | "draft" | "published" | "changes";
-type Row = {
-  id: string;
-  title: string;
-  category: string;
-  published: boolean;
-  unpublished_at: string | null;
-  page_status: PageStatus;
-  page_updated_at: string | null;
-};
 type Detail = {
   offering: {
     id: string;
@@ -84,8 +75,6 @@ const when = (value: string) =>
     dateStyle: "medium",
     timeStyle: "short",
   });
-const courseState = (row: Row) =>
-  row.published ? "Published" : row.unpublished_at ? "Unpublished" : "Draft";
 
 const newBlock = (type: Block["type"]): Block => {
   switch (type) {
@@ -128,131 +117,18 @@ function canonical(page: SalesPage): string {
   });
 }
 
-// Each staff address remounts the workspace, so links between the list and an
-// editor leave a note here; the new view then moves focus to its heading.
-let focusHeadingOnArrival = false;
-const arrive = () => {
-  focusHeadingOnArrival = true;
-};
-// Called once the heading exists; development mode runs effects twice.
-function focusOnArrival(heading: HTMLElement | null) {
-  if (!focusHeadingOnArrival || !heading) return;
-  focusHeadingOnArrival = false;
-  heading.focus();
-}
-
-export function StaffSalesPages({
-  canEdit,
-  itemId,
-  onChanged,
-}: {
-  canEdit: boolean;
-  itemId?: string;
-  onChanged: (message: string) => void;
-}) {
-  return itemId ? (
-    <SalesPageEditor
-      key={itemId}
-      id={itemId}
-      canEdit={canEdit}
-      onChanged={onChanged}
-    />
-  ) : (
-    <SalesPageList canEdit={canEdit} />
-  );
-}
-
-function SalesPageList({ canEdit }: { canEdit: boolean }) {
-  const [rows, setRows] = useState<Row[]>(),
-    [error, setError] = useState("");
-  const heading = useRef<HTMLHeadingElement>(null);
-  useEffect(() => {
-    focusOnArrival(heading.current);
-    api<Row[]>("staff/sales-pages", { role: "staff" })
-      .then(setRows)
-      .catch((e) => setError((e as Error).message));
-  }, []);
-  return (
-    <>
-      <Box sx={{ mb: 2 }}>
-        <Typography
-          variant="h5"
-          component="h2"
-          ref={heading}
-          tabIndex={-1}
-          sx={{ outline: "none" }}
-        >
-          Course sales pages
-        </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-          A published sales page replaces a course&apos;s default description.
-          Price, dates, seats and registration always come from the offering.
-        </Typography>
-      </Box>
-      {!canEdit && (
-        <Alert severity="info" role="note" sx={{ mb: 2 }}>
-          Your role can view sales pages. Content editors edit and publish them.
-        </Alert>
-      )}
-      {error && <Alert severity="error">{error}</Alert>}
-      {!rows && !error && (
-        <LoadingCards label="Loading sales pages" count={2} />
-      )}
-      {rows && (
-        <Box
-          component="ul"
-          sx={{ listStyle: "none", p: 0, m: 0, display: "grid", gap: 1 }}
-        >
-          {rows.map((row) => (
-            <li key={row.id}>
-              <Paper
-                variant="outlined"
-                sx={{
-                  p: 2,
-                  display: "flex",
-                  flexWrap: "wrap",
-                  gap: 1.5,
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                }}
-              >
-                <Box sx={{ minWidth: 0 }}>
-                  <Link
-                    component={NextLink}
-                    href={`/staff/sales-pages/${row.id}`}
-                    onClick={arrive}
-                    underline="always"
-                    sx={{ fontWeight: 600, overflowWrap: "anywhere" }}
-                  >
-                    {row.title}
-                  </Link>
-                  <Typography variant="body2" color="text.secondary">
-                    {row.category} · {courseState(row)} course
-                  </Typography>
-                </Box>
-                <Chip
-                  label={statusText[row.page_status]}
-                  variant="outlined"
-                  size="small"
-                  sx={{ maxWidth: "100%" }}
-                />
-              </Paper>
-            </li>
-          ))}
-        </Box>
-      )}
-    </>
-  );
-}
-
-function SalesPageEditor({
+// Shown in the offering page's Sales page tab, which supplies the heading.
+export function SalesPageEditor({
   id,
   canEdit,
   onChanged,
+  onDirtyChange,
 }: {
   id: string;
   canEdit: boolean;
   onChanged: (message: string) => void;
+  /** Lets the offering page warn before leaving with unsaved changes. */
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const [detail, setDetail] = useState<Detail>(),
     [items, setItems] = useState<Item[]>([]),
@@ -269,7 +145,6 @@ function SalesPageEditor({
     [confirm, setConfirm] = useState<
       { kind: "remove" } | { kind: "restore"; revision: number }
     >();
-  const heading = useRef<HTMLHeadingElement>(null);
   const failureRef = useRef<HTMLDivElement>(null);
   const focusables = useRef<Map<string, HTMLElement>>(new Map());
   const register = (name: string) => (element: HTMLElement | null) => {
@@ -296,16 +171,19 @@ function SalesPageEditor({
         setError((e as Error).message);
         return undefined;
       });
-  // Focus the heading once it exists, when arriving from the list.
   useEffect(() => {
     load();
   }, []);
   useEffect(() => {
-    if (detail) focusOnArrival(heading.current);
-  }, [detail]);
-  useEffect(() => {
     if (failure) failureRef.current?.focus();
   }, [failure]);
+  const unsaved =
+    !!detail &&
+    canonical({ blocks: items.map((i) => i.block), seo }) !==
+      canonical(detail.draft);
+  useEffect(() => {
+    onDirtyChange?.(unsaved);
+  }, [unsaved, onDirtyChange]);
   useEffect(() => {
     if (!pendingFocus) return;
     // The select's id is on its visible combobox, not the hidden input.
@@ -315,19 +193,12 @@ function SalesPageEditor({
     setPendingFocus(undefined);
   }, [items, pendingFocus]);
 
-  if (error && !detail)
-    return (
-      <>
-        <BackLink />
-        <Alert severity="error">{error}</Alert>
-      </>
-    );
+  if (error && !detail) return <Alert severity="error">{error}</Alert>;
   if (!detail) return <LoadingCards label="Loading sales page" count={1} />;
 
   const page: SalesPage = { blocks: items.map((i) => i.block), seo };
   const dirty = canonical(page) !== canonical(detail.draft);
   const ready = !dirty && detail.problems.length === 0;
-  const title = detail.offering.title;
   const label = (index: number) =>
     `block ${index + 1} (${blockLabels[items[index].block.type]})`;
 
@@ -432,16 +303,6 @@ function SalesPageEditor({
 
   return (
     <>
-      <BackLink />
-      <Typography
-        variant="h5"
-        component="h2"
-        ref={heading}
-        tabIndex={-1}
-        sx={{ outline: "none", overflowWrap: "anywhere" }}
-      >
-        Sales page: {title}
-      </Typography>
       <Stack
         direction="row"
         sx={{ mt: 1, mb: 2, gap: 1, flexWrap: "wrap", alignItems: "center" }}
@@ -628,7 +489,7 @@ function SalesPageEditor({
           </Paper>
           {detail.problems.length > 0 && (
             <Alert severity="warning" sx={{ mt: 3 }}>
-              <AlertTitle component="h3">Before publishing</AlertTitle>
+              <AlertTitle component="h4">Before publishing</AlertTitle>
               {dirty && (
                 <Typography variant="body2" sx={{ mb: 1 }}>
                   These are from the saved draft. Save to check your changes.
@@ -701,7 +562,7 @@ function SalesPageEditor({
               <SalesPageBlocks
                 page={page}
                 outcomes={detail.offering.outcomes}
-                level={3}
+                level={4}
               />
             ) : (
               <Typography color="text.secondary">
@@ -711,7 +572,7 @@ function SalesPageEditor({
           </Paper>
         </Box>
       )}
-      <Typography variant="h6" component="h3" sx={{ mt: 4 }}>
+      <Typography variant="h6" component="h4" sx={{ mt: 4 }}>
         Published revisions
       </Typography>
       {detail.revisions.length === 0 ? (
@@ -787,20 +648,6 @@ function SalesPageEditor({
         </DialogActions>
       </Dialog>
     </>
-  );
-}
-
-function BackLink() {
-  return (
-    <Link
-      component={NextLink}
-      href="/staff/sales-pages"
-      onClick={arrive}
-      underline="always"
-      sx={{ display: "inline-block", mb: 2 }}
-    >
-      All sales pages
-    </Link>
   );
 }
 

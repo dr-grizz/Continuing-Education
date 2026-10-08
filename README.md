@@ -86,9 +86,9 @@ Stop application processes with Ctrl+C. `docker compose stop db` stops PostgreSQ
 6. In **Staff → Exceptions**, set *Outcome for new payments* to a failure, then simulate a payment in My learning. Watch the automatic retries, then review the exception in Staff and retry provisioning or record a manual enrollment with a reason. Set the outcome back to *Normal* afterwards; it applies to every demo learner.
 7. **Try the roles.** Use **Switch staff member** to act as each demo staff member:
    - Avery Approver can decide approvals but not edit offerings.
-   - Casey Catalog Manager manages offerings, collections and pathways.
+   - Casey Catalog Manager manages offerings, collections and pathways. Each offering has its own page (Overview, Details, Settings, Sales page, Activity).
    - Sam Support and Ivy (IT/Canvas) recover exceptions.
-   - Cory Content Editor builds course **Sales pages** from blocks (hero image, text, outcomes, instructor, testimonials, questions and answers), previews them and publishes them; a published page replaces the course's default description. Cory also chooses the Explore tab picks, with catalog managers.
+   - Cory Content Editor opens an offering in **Staff → Offerings** and, on its **Sales page** tab, builds the course's sales page from blocks (hero image, text, outcomes, instructor, testimonials, questions and answers), previews them and publishes them; a published page replaces the course's default description. Cory also chooses the Explore tab picks, with catalog managers.
    - The Demo Staff Administrator holds every role and manages people in the **Staff** and **Roles** tabs. Staff administrators also see sales on the **Dashboard** tab (other staff see enrollment only) and **Transactions**, where they and Sam Support record refund requests for the university Finance department, which issues refunds in Stripe. The portal has no Finance role (removed October 8, 2026): Finance works in Stripe, not in the portal.
 
    - In **Learners**, any staff member can inspect a learner's registrations and activity. Sam Support can deactivate or reactivate a learner, with a reason; a deactivated learner cannot sign in or act.

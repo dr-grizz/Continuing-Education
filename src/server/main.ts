@@ -229,6 +229,15 @@ class WorkflowController {
     requireScope(req, "staff:read");
     return this.portal.list(query, true);
   }
+  @Get("staff/offerings/:id")
+  @ApiOperation({
+    summary:
+      "One offering for staff: details, registration counts by status, sales page status and its activity",
+  })
+  staffOffering(@Req() req: any, @Param("id", ParseUUIDPipe) id: string) {
+    requireScope(req, "staff:read");
+    return this.portal.staffOffering(id);
+  }
   @Post("offerings") create(
     @Req() req: any,
     @Headers("idempotency-key") key: string,
@@ -323,15 +332,6 @@ class WorkflowController {
     // Decided Oct 7, 2026: catalog managers and content editors both curate Explore.
     requireAnyScope(req, "catalog:write", "content:write");
     return this.portal.setExplore(req.principal, key, dto);
-  }
-  @Get("staff/sales-pages")
-  @ApiOperation({
-    summary:
-      "Every offering with its sales page status (none, draft, published, changes)",
-  })
-  salesPages(@Req() req: any) {
-    requireScope(req, "staff:read");
-    return this.portal.staffSalesPages();
   }
   @Get("staff/sales-pages/:id")
   @ApiOperation({

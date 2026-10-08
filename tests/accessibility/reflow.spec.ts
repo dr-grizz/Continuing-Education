@@ -16,7 +16,6 @@ const staffTabs = [
   "Offerings",
   "Collections",
   "Explore page",
-  "Sales pages",
   "Approvals",
   "Exceptions",
   "Activity",
@@ -39,9 +38,11 @@ async function openEditorWithEveryBlock(page: Page) {
   await page.request.post("/api/staff-session", {
     data: { email: "content@cuce.test" },
   });
-  await page.goto("/staff/sales-pages/10000000-0000-4000-8000-000000000001");
+  await page.goto(
+    "/staff/offerings/10000000-0000-4000-8000-000000000001/sales-page",
+  );
   await expect(
-    page.getByRole("heading", { name: "Sales page: Practical Data Analysis" }),
+    page.getByRole("heading", { level: 3, name: "Sales page" }),
   ).toBeVisible();
   for (const type of blockTypes) {
     await page.getByRole("combobox", { name: "Block type" }).click();
@@ -57,7 +58,6 @@ const staffSlugs: Record<string, string> = {
   Offerings: "offerings",
   Collections: "collections",
   "Explore page": "explore",
-  "Sales pages": "sales-pages",
   Approvals: "approvals",
   Exceptions: "exceptions",
   Activity: "activity",
@@ -143,6 +143,23 @@ for (const [name, apply] of conditions)
         await settle(page);
         const found = await overflow(page);
         if (found) problems.push(`${tab}: ${found}`);
+      }
+      expect(problems, `${name}: horizontal scrolling`).toEqual([]);
+    });
+    test("offering page tabs", async ({ page }) => {
+      await page.request.post("/api/staff-session", {
+        data: { email: "catalog@cuce.test" },
+      });
+      const problems: string[] = [];
+      for (const tab of ["", "details", "settings", "activity"]) {
+        await page.goto(
+          `/staff/offerings/10000000-0000-4000-8000-000000000001${tab ? `/${tab}` : ""}`,
+        );
+        await expect(page.locator("#offering-panel-heading")).toBeVisible();
+        await settle(page);
+        await apply(page);
+        const found = await overflow(page);
+        if (found) problems.push(`${tab || "overview"}: ${found}`);
       }
       expect(problems, `${name}: horizontal scrolling`).toEqual([]);
     });

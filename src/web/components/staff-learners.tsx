@@ -68,7 +68,7 @@ type LearnerDetail = {
   }[];
 };
 // Same wording learners see in My learning.
-const statusLabels: Record<string, string> = {
+export const registrationStatusLabels: Record<string, string> = {
   awaiting_approval: "Awaiting approval",
   approved: "Approved",
   approval_expired: "Approval expired",
@@ -375,7 +375,7 @@ function LearnerDialog({
                   {learner.registrations.map((r) => (
                     <Typography component="li" variant="body2" key={r.id}>
                       <strong>{r.title}</strong>:{" "}
-                      {statusLabels[r.status] ?? r.status}
+                      {registrationStatusLabels[r.status] ?? r.status}
                       {r.paid_cents != null
                         ? ` · paid ${money(r.paid_cents)}`
                         : r.quoted_price_cents != null

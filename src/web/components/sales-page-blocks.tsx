@@ -59,7 +59,7 @@ export const blockLabels: Record<Block["type"], string> = {
   faq: "Questions and answers",
 };
 
-type Level = 2 | 3;
+type Level = 2 | 3 | 4;
 const tag = (level: number) => `h${Math.min(level, 6)}` as "h2";
 
 /** Paragraphs are separated by blank lines; lines starting with "- " form a bulleted list. */

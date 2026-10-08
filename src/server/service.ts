@@ -83,6 +83,10 @@ const activeRegistrations = `(SELECT count(*) FROM entitlements a WHERE a.offeri
 const seatsInUse = `(SELECT count(*) FROM entitlements s WHERE s.offering_id=o.id AND
   (s.status IN ('provisioning','enrolled','exception') OR (s.status='reserved' AND s.reserved_until>now())))::integer`;
 
+// Sales page status for staff lists; matches salesPageStatus().
+const salesPageStatusSql = `coalesce((SELECT CASE WHEN sp.published IS NULL THEN 'draft'
+  WHEN sp.draft=sp.published THEN 'published' ELSE 'changes' END
+  FROM sales_pages sp WHERE sp.offering_id=o.id),'none')`;
 // Row shapes for raw queries, derived from the Prisma models.
 type ScheduleText = { start_date: string | null; end_date: string | null };
 type EnrollmentWindow = {
@@ -215,7 +219,7 @@ export class PortalService {
     const select = staff
       ? listing.replace(
           "FROM offerings o",
-          `,${activeRegistrations} AS active_registrations,${seatsInUse} AS seats_in_use FROM offerings o`,
+          `,${activeRegistrations} AS active_registrations,${seatsInUse} AS seats_in_use,${salesPageStatusSql} AS sales_page_status FROM offerings o`,
         )
       : listing;
     return sql<OfferingListing>(
@@ -2512,24 +2516,47 @@ export class PortalService {
 
   // Sales pages (decision F2): content editors edit a draft and publish it as a
   // numbered, append-only revision. The course page shows the published page.
-  async staffSalesPages() {
-    const rows = await prisma.offerings.findMany({
-      orderBy: { title: "asc" },
-      select: {
-        id: true,
-        title: true,
-        category: true,
-        published: true,
-        unpublished_at: true,
-        sales_page: true,
-      },
-    });
-    return rows.map(({ sales_page: page, ...offering }) => ({
-      ...offering,
-      page_status: salesPageStatus(page),
-      page_updated_at: page?.updated_at ?? null,
-      page_published_at: page?.published_at ?? null,
-    }));
+  // One offering's staff page: the offering, registration counts by status,
+  // its sales page status and offering-level activity (not learner records).
+  async staffOffering(id: string) {
+    const [offering] = await sql<
+      OfferingListing & { sales_page_status: string }
+    >(
+      prisma,
+      `${listing.replace(
+        "FROM offerings o",
+        `,${activeRegistrations} AS active_registrations,${seatsInUse} AS seats_in_use,${salesPageStatusSql} AS sales_page_status FROM offerings o`,
+      )} WHERE o.id=$1::uuid`,
+      id,
+    );
+    if (!offering) throw new NotFoundException("Offering not found.");
+    const [registrations, activity] = await Promise.all([
+      prisma.entitlements.groupBy({
+        by: ["status"],
+        where: { offering_id: id },
+        _count: { _all: true },
+      }),
+      sql<{
+        action: string;
+        actor: string;
+        actor_email: string | null;
+        details: Prisma.JsonValue;
+        created_at: Date;
+      }>(
+        prisma,
+        `SELECT a.action,a.actor,s.email AS actor_email,a.details,a.created_at
+        FROM audit_events a LEFT JOIN staff_members s ON a.actor='staff:'||s.id::text
+        WHERE a.object_id=$1::uuid ORDER BY a.id DESC LIMIT 100`,
+        id,
+      ),
+    ]);
+    return {
+      offering,
+      registrations: Object.fromEntries(
+        registrations.map((r) => [r.status, r._count._all]),
+      ),
+      activity,
+    };
   }
   async staffSalesPage(id: string) {
     const offering = await prisma.offerings.findUnique({

@@ -167,9 +167,17 @@ A real screen-reader session, forced colors and cross-browser checks remain outs
 
 ## Latest implementation record
 
+October 8, 2026 (evening): offering pages. Each offering now has its own staff page, and the sales page editor moved into it (branch `sales-pages`).
+
+- **Offering page** at `/staff/offerings/{id}`: tabs Overview (publish or unpublish, key facts, registration counts by status, links), Details and Settings (the offering form inline, each with only its fields), Sales page (the editor below) and Activity (the offering's audit events). Each tab has its own address; leaving a tab with unsaved changes asks first.
+- **Offerings list:** titles open the offering page; a Sales page column and filter replace the separate Sales pages section, whose old addresses redirect. The **Edit** dialog was removed; **New offering** still uses a dialog and then opens the new draft's page.
+- **API:** `GET /staff/offerings/{id}` returns the offering, registration counts, sales page status and activity; the staff offering list includes each sales page's status. The separate sales page list endpoint was removed.
+- **Verification:** `npm test` 24 groups passed (the sales page group also checks the new endpoint). Accessibility 149 passed in light, dark, phone, WebKit, forced colors and reflow, with new scans of every offering tab as a catalog manager and as an approver (read-only), and reflow checks of the tabs. From the keyboard: opening an offering focuses its title; tab links focus the new tab's heading; the unsaved-changes question appears before leaving; Settings shows only its own errors. Migrations unchanged since the last run (10 passed).
+- **Known gap:** the staff sidebar does not ask about unsaved changes yet.
+
 October 8, 2026 (later still): sales page editor (decision F2), branch `sales-pages`, stacked on `refund-reregistration`.
 
-- **What it does:** content editors build a course's sales page from structured blocks in **Staff → Sales pages**, preview it, and publish it. A published page replaces the course's default description; price, dates, seats and registration still come from the offering.
+- **What it does:** content editors build a course's sales page from structured blocks (first in a Sales pages section, now in each offering's Sales page tab), preview it, and publish it. A published page replaces the course's default description; price, dates, seats and registration still come from the offering.
 - **Blocks:** hero image (library images, alternative text or marked decorative), text, learning outcomes (from the offering), instructor, testimonial (consent required to publish; the consent note never reaches learners), questions and answers. Text is plain, with paragraphs and bulleted lists; there is no HTML.
 - **Workflow:** save draft (version-checked), a **Before publishing** checklist, publish as a numbered append-only revision, copy an earlier revision back to the draft, or remove the published page. Every change is audited.
 - **Database:** migration `014_sales_pages` adds `sales_pages` and `sales_page_revisions`, with checks and an append-only trigger.

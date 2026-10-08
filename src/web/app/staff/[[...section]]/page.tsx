@@ -19,7 +19,9 @@ import {
   TableRow,
   TextField,
   Typography,
+  Link,
 } from "@mui/material";
+import NextLink from "next/link";
 import AddIcon from "@mui/icons-material/Add";
 import MenuIcon from "@mui/icons-material/Menu";
 import SpaceDashboardIcon from "@mui/icons-material/SpaceDashboard";
@@ -53,8 +55,13 @@ import {
 import { StaffRoles, StaffUsers } from "../../../components/staff-admin";
 import { StaffCollections } from "../../../components/staff-collections";
 import { StaffExplore } from "../../../components/staff-explore";
-import { StaffSalesPages } from "../../../components/staff-sales-pages";
-import WebIcon from "@mui/icons-material/Web";
+import {
+  salesPageShortText,
+  salesPageStatusText,
+  StaffOfferingPage,
+  type PageStatus,
+} from "../../../components/staff-offering";
+import { arrive, focusOnArrival } from "../../../components/arrival-focus";
 import { StaffTransactions } from "../../../components/staff-transactions";
 import { StaffLearners } from "../../../components/staff-learners";
 import { StaffDashboard } from "../../../components/staff-dashboard";
@@ -136,6 +143,7 @@ export default function Staff({
       session={session}
       slug={section?.[0] ?? ""}
       item={section?.[1]}
+      view={section?.[2]}
     />
   );
 }
@@ -145,7 +153,6 @@ type TabName =
   | "offerings"
   | "collections"
   | "explore"
-  | "sales-pages"
   | "transactions"
   | "approvals"
   | "exceptions"
@@ -190,13 +197,6 @@ const sections: {
     label: "Explore page",
     group: "Catalog",
     icon: <ExploreIcon />,
-  },
-  {
-    tab: "sales-pages",
-    slug: "sales-pages",
-    label: "Sales pages",
-    group: "Catalog",
-    icon: <WebIcon />,
   },
   {
     tab: "approvals",
@@ -251,15 +251,32 @@ const sections: {
   },
 ];
 const sectionHref = (slug: string) => (slug ? `/staff/${slug}` : "/staff");
+// Opens an offering's page; its title takes focus when it loads.
+function OfferingLink({ offering }: { offering: StaffOffering }) {
+  return (
+    <Link
+      component={NextLink}
+      href={`/staff/offerings/${offering.id}`}
+      onClick={() => arrive("offering")}
+      underline="always"
+      color="inherit"
+      sx={{ overflowWrap: "break-word" }}
+    >
+      {offering.title}
+    </Link>
+  );
+}
 function StaffWorkspace({
   session,
   slug,
   item,
+  view,
 }: {
   session: Session;
   slug: string;
-  /** Second address segment, such as the offering in /staff/sales-pages/<id>. */
+  /** Offering pages: /staff/offerings/{item}/{view}. */
   item?: string;
+  view?: string;
 }) {
   const member = session.member as StaffMember;
   const { can } = session;
@@ -273,6 +290,12 @@ function StaffWorkspace({
   const [menuOpen, setMenuOpen] = useState(false),
     [collapsed, setCollapsed] = useState(false);
   const heading = useRef<HTMLHeadingElement>(null);
+  const offeringsHeading = useRef<HTMLHeadingElement>(null);
+  // Returning from an offering's page focuses the list heading.
+  useEffect(() => {
+    if (tab === "offerings" && !item)
+      focusOnArrival(offeringsHeading.current, "offerings");
+  });
   // The Staff section's role filter lives in the address (?role=finance), so
   // Roles → "Manage people" links survive navigation and can be shared.
   useEffect(() => {
@@ -305,10 +328,15 @@ function StaffWorkspace({
       return !value;
     });
   }
-  // Unknown or not-permitted addresses are replaced by the Dashboard's.
+  // Unknown or not-permitted addresses are replaced by the Dashboard's. The
+  // former Sales pages section now lives in each offering's Sales page tab.
   useEffect(() => {
-    if (slug && currentSection.slug !== slug) router.replace("/staff");
-  }, [slug, currentSection.slug, router]);
+    if (slug === "sales-pages")
+      router.replace(
+        item ? `/staff/offerings/${item}/sales-page` : "/staff/offerings",
+      );
+    else if (slug && currentSection.slug !== slug) router.replace("/staff");
+  }, [slug, item, currentSection.slug, router]);
   // Moving between sections moves focus to the new heading and updates the title.
   useEffect(() => {
     document.title = `${currentSection.label} · Staff | Continuing Education`;
@@ -332,12 +360,12 @@ function StaffWorkspace({
     }>(),
     [loaded, setLoaded] = useState(false),
     [formOpen, setFormOpen] = useState(false),
-    [editing, setEditing] = useState<StaffOffering>(),
     [unpublishing, setUnpublishing] = useState<StaffOffering>(),
     [exceptions, setExceptions] = useState<ExceptionRow[]>([]),
     [outcome, setOutcome] = useState("normal"),
     [query, setQuery] = useState(""),
     [status, setStatus] = useState<"all" | OfferingStatus>("all"),
+    [pageFilter, setPageFilter] = useState<"all" | PageStatus>("all"),
     [approvalQuery, setApprovalQuery] = useState(""),
     [activityQuery, setActivityQuery] = useState(""),
     [error, setError] = useState(""),
@@ -377,7 +405,8 @@ function StaffWorkspace({
     initial: { key: "start", direction: "asc" },
     matches: (c) =>
       c.title.toLowerCase().includes(query.toLowerCase()) &&
-      (status === "all" || offeringStatus(c) === status),
+      (status === "all" || offeringStatus(c) === status) &&
+      (pageFilter === "all" || c.sales_page_status === pageFilter),
   });
   const approvalsView = useTableView(requests, {
     compare: {
@@ -437,15 +466,6 @@ function StaffWorkspace({
   const rowActions = (c: StaffOffering) =>
     !canCatalog ? null : (
       <>
-        <Button
-          onClick={() => {
-            setEditing(c);
-            setFormOpen(true);
-          }}
-          aria-label={`Edit ${c.title}`}
-        >
-          Edit
-        </Button>
         {c.published ? (
           <Button
             color="error"
@@ -631,7 +651,16 @@ function StaffWorkspace({
           </Alert>
         </Snackbar>
         {!loaded && !error && <LoadingCards label="Loading staff workspace" />}
-        {loaded && tab === "offerings" && (
+        {tab === "offerings" && item && (
+          <StaffOfferingPage
+            key={item}
+            id={item}
+            tab={view}
+            can={can}
+            onChanged={setMessage}
+          />
+        )}
+        {loaded && tab === "offerings" && !item && (
           <>
             <Stack
               direction="row"
@@ -641,7 +670,13 @@ function StaffWorkspace({
                 alignItems: "center",
               }}
             >
-              <Typography variant="h6" component="h2">
+              <Typography
+                variant="h6"
+                component="h2"
+                ref={offeringsHeading}
+                tabIndex={-1}
+                sx={{ outline: "none" }}
+              >
                 Course offerings
               </Typography>
               {canCatalog && (
@@ -650,7 +685,6 @@ function StaffWorkspace({
                   startIcon={<AddIcon />}
                   onClick={() => {
                     setError("");
-                    setEditing(undefined);
                     setFormOpen(true);
                   }}
                 >
@@ -661,7 +695,8 @@ function StaffWorkspace({
             {!canCatalog && (
               <Alert severity="info" role="note" sx={{ mb: 2 }}>
                 View only: creating, editing and publishing offerings requires
-                the Catalog manager role.
+                the Catalog manager role. Open an offering to see its details
+                and sales page.
               </Alert>
             )}
             <Stack
@@ -685,6 +720,24 @@ function StaffWorkspace({
                 <MenuItem value="published">Published</MenuItem>
                 <MenuItem value="draft">Draft</MenuItem>
                 <MenuItem value="unpublished">Unpublished</MenuItem>
+              </TextField>
+              <TextField
+                select
+                label="Sales page"
+                value={pageFilter}
+                onChange={(e) =>
+                  setPageFilter(e.target.value as typeof pageFilter)
+                }
+                sx={{ minWidth: 200 }}
+              >
+                <MenuItem value="all">All sales pages</MenuItem>
+                {(Object.keys(salesPageStatusText) as PageStatus[]).map(
+                  (key) => (
+                    <MenuItem key={key} value={key}>
+                      {salesPageStatusText[key]}
+                    </MenuItem>
+                  ),
+                )}
               </TextField>
               <SortSelect
                 view={offeringsView}
@@ -715,7 +768,7 @@ function StaffWorkspace({
                     sx={{ justifyContent: "space-between", gap: 1 }}
                   >
                     <Typography variant="subtitle1" component="h3">
-                      {c.title}
+                      <OfferingLink offering={c} />
                     </Typography>
                     <Chip
                       label={statusLabels[offeringStatus(c)]}
@@ -725,7 +778,9 @@ function StaffWorkspace({
                   </Stack>
                   <Typography variant="body2" color="text.secondary">
                     {c.category}
-                    {c.approval_required ? " · Approval required" : ""}
+                    {c.approval_required ? " · Approval required" : ""} · Sales
+                    page:{" "}
+                    {salesPageStatusText[c.sales_page_status].toLowerCase()}
                   </Typography>
                   <Typography variant="body2" sx={{ mt: 1 }}>
                     {courseStart(c)}
@@ -770,14 +825,17 @@ function StaffWorkspace({
                       column="status"
                       label="Status"
                     />
+                    <TableCell>Sales page</TableCell>
                     <TableCell>Action</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
                   {offeringsView.visible.map((c) => (
                     <TableRow key={c.id} hover>
-                      <TableCell>
-                        <Typography variant="subtitle2">{c.title}</Typography>
+                      <TableCell sx={{ minWidth: 180 }}>
+                        <Typography variant="subtitle2">
+                          <OfferingLink offering={c} />
+                        </Typography>
                         <Typography variant="caption" color="text.secondary">
                           {c.category}
                           {c.approval_required ? " · Approval required" : ""}
@@ -806,6 +864,9 @@ function StaffWorkspace({
                           variant="outlined"
                           color={statusColors[offeringStatus(c)]}
                         />
+                      </TableCell>
+                      <TableCell>
+                        {salesPageShortText[c.sales_page_status]}
                       </TableCell>
                       <TableCell>
                         <Stack direction="row" sx={{ gap: 0.5 }}>
@@ -1157,13 +1218,6 @@ function StaffWorkspace({
             onChanged={setMessage}
           />
         )}
-        {tab === "sales-pages" && (
-          <StaffSalesPages
-            canEdit={can("content:write")}
-            itemId={item}
-            onChanged={setMessage}
-          />
-        )}
         {tab === "transactions" && can("payments:read") && (
           <StaffTransactions
             canRequest={can("refunds:request")}
@@ -1197,12 +1251,13 @@ function StaffWorkspace({
         )}
         <OfferingForm
           open={formOpen}
-          offering={editing}
           onClose={() => setFormOpen(false)}
-          onSaved={async (text) => {
+          onSaved={async (text, saved) => {
             setFormOpen(false);
-            await refresh().catch((e) => setError(e.message));
-            setMessage(text);
+            setMessage(`${text} Its page is open below.`);
+            // Open the new draft's page; its title takes focus.
+            arrive("offering");
+            if (saved) router.push(`/staff/offerings/${saved.id}`);
           }}
         />
         <UnpublishDialog

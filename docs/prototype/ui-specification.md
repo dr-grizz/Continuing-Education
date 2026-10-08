@@ -188,7 +188,7 @@ Outlined `Paper`. Catalog cards add a hover and focus-within state: primary bord
 
   After registering, focus moves to "Go to My learning".
 - Below the registration action, a full-width outlined **Save course** button (bookmark icon) follows the toggle pattern; signed-out learners see "Sign in to save this course". Saving registers nothing.
-- Description and outcomes list, or the course's published **sales page** in their place (blocks as described under Staff → Sales pages; headings start at `h2`). The page title is the sales page's title when set, otherwise the course title. Then a **Part of** heading with link chips to the published collections and pathways that include the course, and the "Before you register" simulation notice.
+- Description and outcomes list, or the course's published **sales page** in their place (blocks as described under the offering page's Sales page tab; headings start at `h2`). The page title is the sales page's title when set, otherwise the course title. Then a **Part of** heading with link chips to the published collections and pathways that include the course, and the "Before you register" simulation notice.
 
 ### Collection or pathway (`/collections/[slug]`)
 
@@ -226,7 +226,7 @@ Mock sign-in. The Email field (`autoComplete="username"`) and Password field (`c
   - Without `exceptions:resolve`, Exceptions shows "Support or IT/Canvas role required" instead of Review.
   - Without `prototype:simulate`, the simulation select is disabled with an explanation.
 - **Admin layout (October 7, 2026):** staff pages use the full window width (the shell drops its centered container and outer padding under `/staff`).
-  - **Sidebar** (`nav`, `aria-label="Staff sections"`): grouped links, each group a labelled list. Overview: Dashboard. Catalog: Offerings, Collections, Explore page, Sales pages. Learners: Approvals (count), Exceptions (count), Learners. Finance: Transactions (`payments:read`). Administration: Staff (`staff:manage`), Roles, Activity. Only permitted sections appear.
+  - **Sidebar** (`nav`, `aria-label="Staff sections"`): grouped links, each group a labelled list. Overview: Dashboard. Catalog: Offerings, Collections, Explore page. Learners: Approvals (count), Exceptions (count), Learners. Finance: Transactions (`payments:read`). Administration: Staff (`staff:manage`), Roles, Activity. Only permitted sections appear.
   - The current link has `aria-current="page"` and the selected style, which uses `Highlight` in forced colors. On `md` and up the sidebar is sticky and collapses to a 72px icon rail (each link named, with a tooltip; remembered in `localStorage`). Below `md` it is a drawer opened by **Staff sections**, which closes on navigation.
   - **Addresses:** each section is its own route via `staff/[[...section]]`: `/staff` (Dashboard), `/staff/offerings`, `/staff/collections`, `/staff/explore`, `/staff/approvals`, `/staff/exceptions`, `/staff/learners`, `/staff/transactions`, `/staff/staff` (with `?role=` for the Roles → Manage people filter), `/staff/roles` and `/staff/activity`. Unknown or not-permitted addresses are replaced by `/staff`. Back and forward work.
   - **Header:** a "Staff workspace" overline, an `h1` with the section name, and a compact session panel (name, email, role chips, mock sign-in note, **Switch staff member**, **API docs**). Moving between sections focuses the `h1` and sets the document title to "{Section} · Staff".
@@ -236,7 +236,12 @@ Mock sign-in. The Email field (`autoComplete="username"`) and Password field (`c
   - Table on `md` and up (Title with the `/collections/{slug}` address, linked once published; Type; Courses as an ordered list for pathways, unpublished ones marked "not published, hidden from learners"; Followers for pathways; Status chip; Actions). Cards below `md`.
   - Row actions: **Edit**, plus **Publish** for drafts or **Unpublish** (error color) for published ones. Unpublish opens a confirmation dialog stating that learners lose sight of it, followers keep their follow, and registrations are unaffected. A refused publish (too few published courses) shows an inline error above the table.
   - **New collection** and **Edit** open one dialog following the Forms pattern: Type (fixed after creation), Title, Web address (optional on create, fixed afterwards), Summary, and a **Courses** fieldset. Each course row has **Move up**, **Move down** and **Remove** icon buttons named with the course title. Focus stays on the moved course's arrow, switching to the other arrow at the ends; after a removal, focus goes to the neighbouring Remove button or the **Add a course** select. A visually hidden status region announces each move, addition and removal.
-- **Sales pages** (`/staff/sales-pages`, decision F2): a list of every offering with its course status and page status (No sales page; Draft, not published; Published; Published, with unpublished changes). Each title links to the editor at `/staff/sales-pages/{offering id}`; following a link moves focus to the new view's `h2`. Staff without `content:write` see a view-only note and the preview.
+- **Offering page** (`/staff/offerings/{id}` and `/{tab}`, built October 8, 2026): opened from an offering's title in the Offerings list. An **All offerings** link, the course title (`h2`), a status chip and the sales page status, then an **Offering sections** `nav` of links (Overview, Details, Settings, Sales page, Activity; the current one has `aria-current="page"`). Each tab has its own address and an `h3`. Following a link moves focus to the new tab's heading (or to the title when arriving from the list, and back to the list heading on return). The former `/staff/sales-pages` addresses redirect to the matching tab.
+  - **Overview:** Publish, or Unpublish (with the existing dialog), for catalog managers; price, schedule, format, seats in use and approval as a description list; a **Registrations** table of counts by status with a total (counts only; learner details stay in Learners); links to the course page, the Canvas course and the Sales page tab.
+  - **Details** and **Settings:** the offering form inline, each with only its own fields (Details: title, topic, summary, description, course type, format, dates, price with history, capacity; Settings: approval, approval validity, enrollment window, Canvas link). Saving sends the other fields unchanged, the error summary lists only this tab's fields, and **Discard changes** resets the form. Staff without `catalog:write` see a view-only note and a description list.
+  - **Unsaved changes:** a tab with unsaved changes asks "Leave without saving?" (Stay, Discard changes) before following a link on the page, and the browser warns before closing. The staff sidebar does not ask yet.
+  - **Activity:** the offering's own audit events, newest first, with time, who and any reason.
+- **Sales page tab** (decision F2): staff without `content:write` see a view-only note and the preview.
   - **Editor:** **Edit** and **Preview** tabs. Each block is a `fieldset` whose `legend` ("Block 2 of 5: Text") is its first child, with Move up, Move down and Remove icon buttons named after the block. Focus stays on the moved block's arrow (switching arrows at the ends), goes to the next block after a removal, and to a new block when added; a polite live region announces each change. Blocks: Hero image (library image, a **Decorative only** checkbox, otherwise required alternative text, optional tagline), Text, Learning outcomes (the offering's own outcomes), Instructor, Testimonial (quote, name, role, a consent checkbox and a staff-only note on where consent is kept), Questions and answers. Up to 20 blocks.
   - Text is plain: blank lines separate paragraphs and lines starting with "- " form a bulleted list. There is no HTML. Prices, dates, seats and registration come from the offering.
   - **Browser tab and search results:** page title (70 characters) and description (160).
@@ -247,16 +252,17 @@ Mock sign-in. The Email field (`autoComplete="username"`) and Password field (`c
   - Search by title, Status filter (All, Published, Draft), live count.
   - Sortable columns: Offering, Schedule, Price, Seats, Status. The phone sort select adds "Fewest seats left" and "Drafts first".
   - The Schedule column adds "Enrollment closes/closed {date}" for Scheduled courses.
-  - Row actions: **Edit**, plus **Publish** for drafts or **Unpublish** (error color) for published offerings. Accessible names include the course title.
-  - **New offering** and **Edit** open the same offering form, which follows the Forms pattern and is version-checked. Fields:
+  - Each title links to the offering's page. A **Sales page** column (None, Draft, Published, Unpublished changes) and filter show which pages need work.
+  - Row actions: **Publish** for drafts or **Unpublish** (error color) for published offerings. Accessible names include the course title. Editing happens on the offering page.
+  - **New offering** opens the offering form in a dialog; after saving, the new draft's page opens with its title focused. The form follows the Forms pattern and is version-checked. Fields:
     - Course title, Topic, Short summary, Description.
     - Course type, Format.
     - Start and End dates plus Enrollment closes (days after start), for Scheduled only.
     - Price (USD), Seat capacity.
     - Approval switch, plus Approval valid for (days) when approval is required.
     - Canvas course URL (optional, https).
-  - New offerings save as drafts, and each policy defaults to 7 days. Focus returns to the opening button on close.
-  - Editing a **published** offering:
+  - New offerings save as drafts, and each policy defaults to 7 days. Focus returns to the opening button when the dialog is cancelled.
+  - Editing a **published** offering (Details and Settings tabs):
     - An info note explains that course type and the approval requirement are locked, and that dates are locked while learners are registered. Those controls are disabled, with helper text.
     - Capacity shows the seats in use and cannot go below them.
     - Price helper: a new price applies to new reservations, and earlier reservations keep their quoted price.
