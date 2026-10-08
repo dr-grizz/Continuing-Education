@@ -186,6 +186,29 @@ test("placeholder Canvas link dialog", async ({ page }) => {
   await expect(page.getByRole("dialog")).toBeVisible();
   await scan(page, "Placeholder Canvas link dialog");
 });
+test("text fields show focus with a thicker border, not an outline over the label", async ({
+  page,
+}) => {
+  await page.goto("/sign-in");
+  const field = page.getByRole("textbox").first();
+  await field.focus();
+  await page.keyboard.press("Shift+Tab");
+  await page.keyboard.press("Tab");
+  await expect(field).toBeFocused();
+  expect(await field.evaluate((el) => getComputedStyle(el).outlineStyle)).toBe(
+    "none",
+  );
+  expect(
+    await field.evaluate(
+      (el) =>
+        getComputedStyle(
+          el
+            .closest(".MuiOutlinedInput-root")!
+            .querySelector(".MuiOutlinedInput-notchedOutline")!,
+        ).borderWidth,
+    ),
+  ).toBe("3px");
+});
 test("Stripe test cards dialog", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Test cards" }).click();

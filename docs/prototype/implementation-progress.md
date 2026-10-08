@@ -167,6 +167,8 @@ A real screen-reader session, forced colors and cross-browser checks remain outs
 
 ## Latest implementation record
 
+October 8, 2026 (evening, later): text field focus. The global 3px focus ring was drawn on the input itself and covered floating labels. Text fields and selects now show focus with their own border, thickened from 1px to 3px in the primary color (light blue in dark mode); everything else keeps the ring. Verified from the keyboard in light and dark mode; accessibility checks 149 passed, plus a new check that a focused text field has no ring and a 3px border.
+
 October 8, 2026 (evening): offering pages. Each offering now has its own staff page, and the sales page editor moved into it (branch `sales-pages`).
 
 - **Offering page** at `/staff/offerings/{id}`: tabs Overview (publish or unpublish, key facts, registration counts by status, links), Details and Settings (the offering form inline, each with only its fields), Sales page (the editor below) and Activity (the offering's audit events). Each tab has its own address; leaving a tab with unsaved changes asks first.

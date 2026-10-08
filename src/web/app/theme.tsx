@@ -54,6 +54,9 @@ const theme = createTheme({
         },
         // Tab rows clip overflow, so tabs draw their focus ring inside.
         ".MuiTab-root.Mui-focusVisible": { outlineOffset: "-3px" },
+        // Text fields and selects show focus with their own thicker border
+        // (MuiOutlinedInput below); an outline here would cover the label.
+        ".MuiInputBase-input:focus-visible": { outline: "none !important" },
       },
     },
     MuiInputBase: {
@@ -72,6 +75,11 @@ const theme = createTheme({
           borderColor: "#7c8791",
           ...theme.applyStyles("dark", { borderColor: "#71808c" }),
         }),
+        // Focus: the existing border turns the primary color and thickens
+        // from 1px to 3px, instead of a second rectangle.
+        root: {
+          "&.Mui-focused .MuiOutlinedInput-notchedOutline": { borderWidth: 3 },
+        },
       },
     },
     // Windows High Contrast and other forced-color modes drop backgrounds, so

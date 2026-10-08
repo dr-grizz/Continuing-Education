@@ -89,6 +89,7 @@ MUI defaults: `xs` <600, `sm` ≥600, `md` ≥900, `lg` ≥1200. Content is cent
 - Buttons stay focusable while their request runs: use `aria-disabled` and ignore repeat clicks instead of `disabled`, because disabling a focused button drops focus to the page.
 - When an action replaces its own button, move focus to the next step's action (`data-next-action`), or to the item heading (`tabIndex={-1}`) when no action remains.
 - Tabs draw their focus ring inside (`outline-offset: -3px`), because tab rows clip overflow.
+- Text fields and selects show focus with their own border, which turns the primary color and thickens from 1px to 3px. They get no focus ring: on an input, the ring would cover the floating label.
 - Screen-reader-only text uses the shared `visuallyHidden` style (`components/visually-hidden.ts`). Never write `width: 1` in `sx` for a 1-pixel size: MUI reads numbers from 0 to 1 as percentages.
 - **Forced colors:** the brand header keeps its colors (`forced-color-adjust: none`); the selected tab bar and the selected List/Grid option use the system `Highlight` color; filled buttons get a `ButtonText` border. States must never be shown by a background fill alone.
 - Dialogs are modal and labelled by their title, and focus starts inside the dialog. On close, focus returns to the opening control; if that control no longer exists (for example a resolved queue row), focus moves to the section heading.
