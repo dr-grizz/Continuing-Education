@@ -12,6 +12,7 @@
     "db:generate": "prisma generate",
     "db:remove-test-learner": "ts-node -P tsconfig.server.json scripts/remove-test-learner.ts",
     "dev": "concurrently -k -n web,api,worker \"npm run dev:web\" \"npm run dev:api\" \"npm run dev:worker\"",
+    "dev:lan": "ts-node -P tsconfig.server.json scripts/dev-lan.ts",
     "dev:web": "next dev src/web --hostname 127.0.0.1 --port 3000",
     "dev:api": "ts-node -P tsconfig.server.json src/server/main.ts",
     "dev:worker": "ts-node -P tsconfig.server.json src/worker/main.ts",

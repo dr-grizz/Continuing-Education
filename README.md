@@ -23,6 +23,8 @@ npm run dev
 - OpenAPI JSON: http://localhost:3001/api/openapi.json
 - PostgreSQL: localhost:5433, database `continuing_education`, user `portal`; local password is in ignored `.env`.
 
+**Other devices on your network** (phones, tablets, another computer): run `npm run dev:lan` instead of `npm run dev`. It prints the address to open, such as `http://10.0.0.5:3000`. Only the website listens on the network; the API, worker and database stay on this computer, so the API docs link works only here. Use a trusted network: staff sign-in is mock, with no passwords, so anyone who can reach the address can act as any staff member. Stripe Checkout returns learners to the network address. If macOS asks whether `node` may accept incoming connections, allow it.
+
 Stop application processes with Ctrl+C. `docker compose stop db` stops PostgreSQL without removing its persistent volume. Do not use `down -v` unless you intend to erase the prototype data. Setup and migration preserve existing environments/data; seed runs once.
 
 ## Database migrations
