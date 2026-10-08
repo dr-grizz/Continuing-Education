@@ -1802,7 +1802,7 @@ async function main() {
         { type: "outcomes", heading: "What you learn" },
         quote,
       ],
-      seo: { title: "Data course", description: "" },
+      seo: { title: "Data course" },
     };
     assert.equal(
       (await http(pagePath, STAFF, { version: 0, page: draftPage }, catalogId))

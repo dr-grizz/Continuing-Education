@@ -47,7 +47,7 @@ export type Block =
     };
 export type SalesPage = {
   blocks: Block[];
-  seo: { title: string; description: string };
+  seo: { title: string };
 };
 
 export const blockLabels: Record<Block["type"], string> = {

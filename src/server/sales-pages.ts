@@ -53,12 +53,13 @@ export type Block =
   | FaqBlock;
 export type SalesPage = {
   blocks: Block[];
-  seo: { title: string; description: string };
+  /** Browser tab title; blank uses the course title. */
+  seo: { title: string };
 };
 
 export const emptySalesPage = (): SalesPage => ({
   blocks: [],
-  seo: { title: "", description: "" },
+  seo: { title: "" },
 });
 
 export const blockLabels: Record<Block["type"], string> = {
@@ -103,7 +104,7 @@ function flag(source: Record<string, unknown>, field: string, where: string) {
 /** Checks a page's structure and limits and returns it with only known fields. */
 export function parseSalesPage(input: unknown): SalesPage {
   const page = record(input, "Page");
-  const seo = record(page.seo ?? {}, "Search settings");
+  const seo = record(page.seo ?? {}, "Page title");
   if (!Array.isArray(page.blocks))
     throw new BadRequestException("Page blocks must be a list.");
   if (page.blocks.length > MAX_BLOCKS)
@@ -177,10 +178,7 @@ export function parseSalesPage(input: unknown): SalesPage {
   });
   return {
     blocks,
-    seo: {
-      title: text(seo, "title", 70, "Search settings"),
-      description: text(seo, "description", 160, "Search settings"),
-    },
+    seo: { title: text(seo, "title", 70, "Page title") },
   };
 }
 
