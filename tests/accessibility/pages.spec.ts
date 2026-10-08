@@ -157,6 +157,17 @@ test("placeholder Canvas link dialog", async ({ page }) => {
   await expect(page.getByRole("dialog")).toBeVisible();
   await scan(page, "Placeholder Canvas link dialog");
 });
+test("Stripe test cards dialog", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Test cards" }).click();
+  const dialog = page.getByRole("dialog", {
+    name: "Stripe sandbox test cards",
+  });
+  await expect(dialog).toBeVisible();
+  await scan(page, "Stripe test cards dialog");
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("button", { name: "Test cards" })).toBeFocused();
+});
 test.describe("staff workspace", () => {
   test("staff sign-in", async ({ page }) => {
     await page.request.delete("/api/staff-session");

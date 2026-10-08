@@ -918,7 +918,6 @@ async function main() {
     const STAFF = process.env.STAFF_API_TOKEN;
     const approverId = await staffByEmail("approver@cuce.test");
     const catalogId = await staffByEmail("catalog@cuce.test");
-    const financeId = await staffByEmail("finance@cuce.test");
     const supportId = await staffByEmail("support@cuce.test");
     const directory = await http(
       "prototype/staff-directory",
@@ -1043,7 +1042,7 @@ async function main() {
       "audit records the individual staff member",
     );
     const report = await (
-      await http("reconciliation", STAFF, undefined, financeId)
+      await http("reconciliation", STAFF, undefined, approverId)
     ).json();
     const labeled = report.audit.find(
       (entry: any) =>
@@ -1057,11 +1056,11 @@ async function main() {
           "prototype/simulation",
           STAFF,
           { provisioningOutcome: "normal" },
-          financeId,
+          approverId,
         )
       ).status,
       403,
-      "finance cannot change the simulation",
+      "approvers cannot change the simulation",
     );
     const currentOutcome = (await service.simulation()).provisioningOutcome;
     assert.equal(
@@ -1088,7 +1087,7 @@ async function main() {
     const added = await http("staff/members", STAFF, {
       email: newEmail.toUpperCase(),
       displayName: "Role Test",
-      roles: ["finance"],
+      roles: ["approver"],
     });
     assert.equal(added.status, 201);
     const addedMember = await added.json();
@@ -1099,7 +1098,7 @@ async function main() {
         await http("staff/members", STAFF, {
           email: newEmail,
           displayName: "Duplicate",
-          roles: ["finance"],
+          roles: ["approver"],
         })
       ).status,
       409,
@@ -1117,7 +1116,7 @@ async function main() {
     const promoted = await http(`staff/members/${addedMember.id}`, STAFF, {
       version: addedMember.version,
       displayName: "Role Test",
-      roles: ["finance", "catalog_manager"],
+      roles: ["approver", "catalog_manager"],
       active: true,
     });
     assert.equal(promoted.status, 200);
@@ -1130,7 +1129,7 @@ async function main() {
     const deactivated = await http(`staff/members/${addedMember.id}`, STAFF, {
       version: promotedMember.version,
       displayName: "Role Test",
-      roles: ["finance"],
+      roles: ["approver"],
       active: false,
     });
     assert.equal(deactivated.status, 200);
@@ -1162,7 +1161,7 @@ async function main() {
     const roles = await (
       await http("staff/roles", STAFF, undefined, approverId)
     ).json();
-    assert.equal(roles.length, 7);
+    assert.equal(roles.length, 6);
     const contentId = await staffByEmail("content@cuce.test");
     const contentMe = await (
       await http("staff/me", STAFF, undefined, contentId)
@@ -1222,7 +1221,7 @@ async function main() {
         `staff/learners/${managedLearner.id}`,
         STAFF,
         undefined,
-        financeId,
+        approverId,
       )
     ).json();
     assert.equal(detail.registrations[0].status, "reserved");
@@ -1379,27 +1378,25 @@ async function main() {
       1,
     );
     assert.equal(asApprover.completion.available, false);
-    const asFinance = await (
-      await http("staff/dashboard?days=30", STAFF, undefined, financeId)
+    const asAdmin = await (
+      await http("staff/dashboard?days=30", STAFF, undefined, adminStaffId)
     ).json();
-    assert.ok(
-      asFinance.sales && typeof asFinance.sales.gross_cents === "number",
-    );
+    assert.ok(asAdmin.sales && typeof asAdmin.sales.gross_cents === "number");
     assert.equal(
-      asFinance.sales.trend.reduce(
+      asAdmin.sales.trend.reduce(
         (sum: number, point: any) => sum + point.value,
         0,
       ),
-      asFinance.sales.gross_cents,
+      asAdmin.sales.gross_cents,
       "sales trend sums to gross",
     );
     assert.equal(
-      (await http("staff/dashboard?days=5", STAFF, undefined, financeId))
+      (await http("staff/dashboard?days=5", STAFF, undefined, adminStaffId))
         .status,
       400,
     );
     console.log(
-      "PASS: dashboard reports enrollment to all staff, sales only to Finance, filtered by date range and offering",
+      "PASS: dashboard reports enrollment to all staff, sales only to staff administrators, filtered by date range and offering",
     );
 
     // Collections, pathways, saved courses and follows (decisions F3 and F4).
@@ -1952,7 +1949,7 @@ async function main() {
         "approvers cannot see transactions",
       );
       const listed = await (
-        await http("staff/transactions", STAFF, undefined, financeId)
+        await http("staff/transactions", STAFF, undefined, adminStaffId)
       ).json();
       const row = listed.find((t: any) => t.id === paidOrder);
       assert.equal(row.provider, "stripe");
@@ -1990,7 +1987,7 @@ async function main() {
             refundPath,
             STAFF,
             { reason: "Duplicate request for the same payment" },
-            financeId,
+            adminStaffId,
           )
         ).status,
         409,
@@ -2012,7 +2009,7 @@ async function main() {
           refundPath,
           STAFF,
           { reason: "Learner withdrew before the start" },
-          financeId,
+          adminStaffId,
         )
       ).json();
       const simulatedOrder = (

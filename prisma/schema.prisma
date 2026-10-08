@@ -232,14 +232,14 @@ enum SimulatedOutcome {
   @@map("simulated_outcome")
 }
 
-/// Staff role, mapped to permission scopes in src/server/roles.ts. The first five are the
-/// plan's M5 roles; staff_admin (manage staff and roles) is a prototype proposal;
+/// Staff role, mapped to permission scopes in src/server/roles.ts. Approver, catalog manager,
+/// support and IT/Canvas administrator are from the plan's M5 roles (Finance was removed on
+/// October 8, 2026: the Finance department works in Stripe); staff_admin (manage staff and roles) is a prototype proposal;
 /// content_editor (sales pages) was added October 7, 2026.
 enum StaffRole {
   approver
   catalog_manager
   support
-  finance
   it_canvas_admin
   staff_admin
   /// Edits customizable sales pages (planned feature; reserved scope content:write).

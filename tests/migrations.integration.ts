@@ -187,8 +187,8 @@ async function main() {
     assert.equal(
       (await fresh.pool.query("SELECT count(*)::int AS n FROM staff_members"))
         .rows[0].n,
-      7,
-      "demo staff seeded",
+      6,
+      "demo staff seeded (013 removes the Finance demo member)",
     );
     console.log(
       "PASS: fresh database gets the baseline schema, checks, trigger and synthetic seed",

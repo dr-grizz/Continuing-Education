@@ -289,7 +289,7 @@ Mock sign-in. The Email field (`autoComplete="username"`) and Password field (`c
     - KPI tiles: new registrations, enrolled, in progress, awaiting approval, needs staff review, and seats filled now as a percentage with a meter.
     - A "New registrations per day, week or month" column chart.
     - A By offering table (cards below `md`) with seat meters (`role="meter"`) and Export CSV.
-  - **Sales (simulated)**, only with `reports:sales` (otherwise "Sales figures require the Finance role"):
+  - **Sales (simulated)**, only with `reports:sales` (otherwise "Sales figures are shown to staff administrators"):
     - Tiles: gross, orders, average order (two decimals), first-time and returning buyers, and refunds ("—", arriving with Stripe).
     - A gross sales chart.
     - A Sales by offering table with Export CSV.

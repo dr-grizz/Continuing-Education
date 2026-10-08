@@ -1,6 +1,6 @@
 # Prototype implementation progress
 
-Updated October 7, 2026. This document records the current local prototype, completed tasks, verification evidence, and remaining work. Checked items mean implemented for the prototype; they do not imply production readiness. Unchecked items are proposed work, not authorization to deploy, connect production services, or create GitHub issues.
+Updated October 8, 2026. This document records the current local prototype, completed tasks, verification evidence, and remaining work. Checked items mean implemented for the prototype; they do not imply production readiness. Unchecked items are proposed work, not authorization to deploy, connect production services, or create GitHub issues.
 
 The prototype now covers the full simulated registration lifecycle: catalog, individual demo learners, approval with expiry, simulated payment at the quoted price, simulated enrollment with failure injection and staff recovery, and a Canvas link after enrollment. Staff sign in as synthetic role-based members (mock sign-in, SSO later), manage offerings, staff and learners, and see a sample enrollment and sales dashboard. The database schema is managed by Prisma migrations with automated migration tests. The dated record at the end of this document gives details of each change.
 
@@ -14,7 +14,7 @@ The prototype now covers the full simulated registration lifecycle: catalog, ind
 | Registration | Enrollment windows, approvals that expire (default 7 days), repeat requests after a decline or lapse, quoted prices                                                                                                                         | Production capacity, tax and refund policies                                                                                                          |
 | Payments     | Stripe-hosted Checkout in the sandbox when keys are configured (ADR 0005), confirmed only by signed webhooks; otherwise the simulated payment command                                                                                       | Sandbox (test mode) only; refund request queue, disputes and reconciliation still to build                                                            |
 | Enrollment   | Worker simulates identity preparation and Canvas enrollment, with injected delays and failures, bounded retries and an exceptions queue                                                                                                     | No university identity or Canvas connection; Canvas links are placeholders                                                                            |
-| Staff        | Role-based mock sign-in (seven roles, seven demo members on `cuce.test`); offering create, edit, publish and unpublish; curated collections and pathways; approvals; exceptions; activity; Learners, Staff and Roles tabs; sample dashboard | Staff SSO and MFA are a later add-on ([ADR 0004](../adr/0004-staff-roles-mock-sign-in.md)); sales figures are simulated; completion data needs Canvas |
+| Staff        | Role-based mock sign-in (six roles, six demo members on `cuce.test`); offering create, edit, publish and unpublish; curated collections and pathways; approvals; exceptions; activity; Learners, Staff and Roles tabs; sample dashboard | Staff SSO and MFA are a later add-on ([ADR 0004](../adr/0004-staff-roles-mock-sign-in.md)); sales figures are simulated; completion data needs Canvas |
 | Automation   | REST API under `/api/v1`, OpenAPI, scoped local tokens, idempotent commands and operation status                                                                                                                                            | Production service accounts, OAuth and outbound notifications                                                                                         |
 
 Local website: `http://127.0.0.1:3000/`. API documentation: `http://localhost:3001/api/docs`. PostgreSQL uses loopback port `5433`. Setup instructions are in the [README](../../README.md).
@@ -166,6 +166,15 @@ A real screen-reader session, forced colors and cross-browser checks remain outs
 | UI asset attribution                  | [Image credits](image-credits.md) and [logo source](../../src/web/public/brand/SOURCE.txt) |
 
 ## Latest implementation record
+
+October 8, 2026 (evening): the portal's Finance role was removed, and the prototype bar has Stripe test cards.
+
+- **Finance role removed:** the university Finance department works in Stripe, not in the portal. Migration `013_remove_finance_role` rebuilds the `staff_role` enum without `finance` and deletes the demo member Fran Finance. It stops, with instructions, if anyone else holds only that role, and removes the role from anyone holding it with others. The staff administrator now holds `reports:sales`, `payments:read` and `refunds:request`; Support keeps `payments:read` and `refunds:request`. The dashboard says sales figures are shown to staff administrators.
+- **Stripe test cards:** a **Test cards** button in the local prototype bar opens a dialog listing Stripe's published sandbox cards (success, authentication, generic decline, insufficient funds), each with a Copy button and a status message.
+- **Verification:**
+  - `npm test`: 23 groups passed. `npm run test:migrations`: 10 passed.
+  - Accessibility scans (light, dark, phone, WebKit, forced colors, reflow): 135 passed, including a new scan of the test cards dialog. One catalog scan failed while the integration tests were changing data at the same time, and passed on rerun. Firefox runs in CI.
+  - Keyboard: the dialog takes focus, Copy confirms through the status message, and Escape returns focus to **Test cards**.
 
 October 8, 2026 (later): refunds hand off to an external Finance department; portal staff do not use Stripe.
 
