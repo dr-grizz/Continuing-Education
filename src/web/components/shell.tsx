@@ -23,13 +23,13 @@ import { useRouter } from "next/navigation";
 import { usePathname } from "next/navigation";
 import Image from "next/image";
 import MenuIcon from "@mui/icons-material/Menu";
+import SettingsIcon from "@mui/icons-material/Settings";
 import { brand } from "../app/theme";
 import { StripeTestCardsButton } from "./stripe-test-cards";
 const navLinks = [
   ["/", "Courses"],
   ["/learning", "My learning"],
   ["/staff", "Staff"],
-  ["/settings", "Settings"],
 ];
 export default function Shell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -142,6 +142,25 @@ export default function Shell({ children }: { children: React.ReactNode }) {
                   </Button>
                 ))}
             </Stack>
+            {/* Settings sits at the right of the bar at every width; the
+                gold underline marks it as the current page, like the links. */}
+            <IconButton
+              href="/settings"
+              color="inherit"
+              aria-label="Settings"
+              aria-current={pathname === "/settings" ? "page" : undefined}
+              sx={{
+                width: 48,
+                height: 48,
+                borderRadius: 0,
+                borderBottom:
+                  pathname === "/settings"
+                    ? `2px solid ${brand.gold}`
+                    : "2px solid transparent",
+              }}
+            >
+              <SettingsIcon />
+            </IconButton>
             <IconButton
               color="inherit"
               aria-label="Open navigation menu"

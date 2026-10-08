@@ -169,7 +169,7 @@ A real screen-reader session, forced colors and cross-browser checks remain outs
 
 October 8, 2026 (night): Settings page with a color theme choice (branch `theme-switch`, from `sales-pages`).
 
-- **Settings** (`/settings`, linked in the header): Appearance with a Color theme radio group (Match device, the default; Light; Dark), applied immediately and remembered in the browser; Account shows the demo session.
+- **Settings** (`/settings`, a gear icon at the right of the header at every width): Appearance with a Color theme radio group (Match device, the default; Light; Dark), applied immediately and remembered in the browser; Account shows the demo session.
 - The theme now comes from a class on `<html>` instead of only the media query. `InitColorSchemeScript` applies the saved choice before the page paints.
 - **Accessibility scans** now skip endlessly repeating animations (the keyboard focus pulse on radio buttons) when waiting for animations to finish.
 - **Verification:** accessibility 157 passed in light, dark, phone, WebKit, forced colors and reflow, including the Settings page in both themes, choosing the opposite theme from the keyboard, and the choice surviving a reload. In the browser: the saved theme is applied before the page appears, with no flash.

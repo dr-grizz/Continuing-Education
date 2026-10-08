@@ -62,7 +62,8 @@ MUI defaults: `xs` <600, `sm` ≥600, `md` ≥900, `lg` ≥1200. Content is cent
 - **Skip link:** first focusable element. Hidden until focused, then targets `#main`.
 - **Header:** navy app bar.
   - Logo links home: 196px wide on phones, 260px on tablets, 300px on desktop. Its alt text is "Cedarville University Continuing Education".
-  - `md` and up: inline navigation (Courses, My learning, Staff, Settings, Sign in/out). The current page has `aria-current="page"` and a gold underline. The demo session email appears below.
+  - `md` and up: inline navigation (Courses, My learning, Staff, Sign in/out). The current page has `aria-current="page"` and a gold underline. The demo session email appears below.
+  - **Settings:** a 48px gear icon button (`aria-label="Settings"`) at the right of the bar at every width, before the phone menu button. On the Settings page it has `aria-current="page"` and the gold underline.
   - Below `md`: a 48px menu button (`aria-label="Open navigation menu"`, `aria-expanded`, `aria-controls`) opens a `Menu`. The menu lists the session email as a subheader, then the links (48px rows, current page selected) and sign in/out. Escape closes it and returns focus to the button.
 - **Prototype banner:** one line on phones ("Local prototype · Sample data only"). The full text, which adds "No real payments or Canvas enrollments", appears from `sm`.
 - **Main:** `<main id="main" tabIndex={-1}>`.
