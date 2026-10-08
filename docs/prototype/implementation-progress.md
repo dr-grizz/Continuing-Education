@@ -167,6 +167,21 @@ A real screen-reader session, forced colors and cross-browser checks remain outs
 
 ## Latest implementation record
 
+October 8, 2026 (night, later): collection and pathway pages (branch `collection-sales-pages`).
+
+- **Collection page** at `/staff/collections/{id}`, like offering pages, with tabs:
+  - Overview: publish or unpublish, facts, links.
+  - Details: the collection form inline, with Save and Discard.
+  - Sales page: the editor.
+  - Activity: the collection's audit events.
+- **Collections list:** titles open the page. The Edit button and the separate sales page link are gone; a Sales page column shows the status. **New collection** still uses a dialog, then opens the new draft's page.
+- **Shared pieces:** `components/page-tabs.tsx` (tab links), the activity list and fact list, and the collection form (dialog or inline) with its unpublish dialog.
+- **API:** `GET /staff/collections/{id}` returns the collection and its activity.
+- **Verification:**
+  - `npm test`: 24 groups passed, adding the collection endpoint (status, its own activity, 404 for unknown ids).
+  - Accessibility: 168 passed in light, dark, phone, WebKit, forced colors and reflow. New checks open a pathway from the list (focus on its title), scan every tab as a catalog manager and as an approver, return to the list (focus on its heading), and check reflow on the tabs.
+  - Keyboard walkthrough: Enter on a tab link focuses its heading. The Details form asks "Leave without saving?" before switching tabs, and Discard goes ahead.
+
 October 8, 2026 (night): sales pages for collections and pathways (branch `collection-sales-pages`, from `theme-switch`).
 
 - **Database:** migration `016_collection_sales_pages` lets a sales page and its revisions belong to an offering or a collection (exactly one, checked). Existing pages keep their data.

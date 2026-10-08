@@ -25,6 +25,7 @@ import { OfferingForm, StaffOffering, UnpublishDialog } from "./offering-form";
 import { SalesPageEditor } from "./staff-sales-pages";
 import { registrationStatusLabels } from "./staff-learners";
 import { useUnsavedChanges } from "./unsaved-changes";
+import { PageTabs } from "./page-tabs";
 
 // One offering's staff page at /staff/offerings/{id}/{tab}. Catalog managers
 // edit Details and Settings and publish; content editors edit the Sales page;
@@ -44,16 +45,17 @@ export const salesPageShortText: Record<PageStatus, string> = {
   published: "Published",
   changes: "Unpublished changes",
 };
+export type ActivityEntry = {
+  action: string;
+  actor: string;
+  actor_email: string | null;
+  details: { reason?: string; revision?: number } | null;
+  created_at: string;
+};
 type Detail = {
   offering: StaffOffering;
   registrations: Record<string, number>;
-  activity: {
-    action: string;
-    actor: string;
-    actor_email: string | null;
-    details: { reason?: string; revision?: number } | null;
-    created_at: string;
-  }[];
+  activity: ActivityEntry[];
 };
 export const offeringTabs = [
   { slug: "", label: "Overview" },
@@ -71,7 +73,7 @@ const when = (value: string) =>
     dateStyle: "medium",
     timeStyle: "short",
   });
-const actorName = (entry: Detail["activity"][number]) =>
+const actorName = (entry: ActivityEntry) =>
   entry.actor_email ??
   actorLabels[entry.actor.split(":")[0]] ??
   actorLabels[entry.actor] ??
@@ -183,50 +185,13 @@ export function StaffOfferingPage({
           {salesPageStatusText[o.sales_page_status].toLowerCase()}
         </Typography>
       </Stack>
-      <Box
-        component="nav"
-        aria-label="Offering sections"
-        sx={{ mt: 2, mb: 3, borderBottom: 1, borderColor: "divider" }}
-      >
-        <Box
-          component="ul"
-          sx={{
-            display: "flex",
-            flexWrap: "wrap",
-            gap: { xs: 0, sm: 1 },
-            listStyle: "none",
-            p: 0,
-            m: 0,
-          }}
-        >
-          {offeringTabs.map((t) => {
-            const selected = t.slug === current.slug;
-            return (
-              <li key={t.slug}>
-                <Link
-                  component={NextLink}
-                  href={hrefOf(t.slug)}
-                  aria-current={selected ? "page" : undefined}
-                  onClick={go(hrefOf(t.slug), "offering-tab")}
-                  underline="none"
-                  sx={{
-                    display: "block",
-                    px: 1.5,
-                    py: 1.25,
-                    fontWeight: selected ? 700 : 500,
-                    color: selected ? "primary.main" : "text.secondary",
-                    borderBottom: 3,
-                    borderColor: selected ? "primary.main" : "transparent",
-                    "&:hover": { color: "text.primary" },
-                  }}
-                >
-                  {t.label}
-                </Link>
-              </li>
-            );
-          })}
-        </Box>
-      </Box>
+      <PageTabs
+        label="Offering sections"
+        tabs={offeringTabs}
+        current={current.slug}
+        hrefOf={hrefOf}
+        onFollow={(href) => go(href, "offering-tab")}
+      />
       <Box component="section" aria-labelledby="offering-panel-heading">
         <Typography
           id="offering-panel-heading"
@@ -343,7 +308,7 @@ function AllOfferingsLink({
   );
 }
 
-function Facts({ rows }: { rows: [string, string][] }) {
+export function Facts({ rows }: { rows: [string, string][] }) {
   return (
     <Box
       component="dl"
@@ -519,11 +484,18 @@ function Overview({
   );
 }
 
-function Activity({ entries }: { entries: Detail["activity"] }) {
+export function Activity({
+  entries,
+  noun = "offering",
+}: {
+  entries: ActivityEntry[];
+  /** What the page is about, for the empty message. */
+  noun?: string;
+}) {
   if (!entries.length)
     return (
       <Typography variant="body2" color="text.secondary">
-        No activity recorded for this offering.
+        No activity recorded for this {noun}.
       </Typography>
     );
   return (

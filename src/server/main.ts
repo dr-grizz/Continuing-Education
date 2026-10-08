@@ -249,6 +249,15 @@ class WorkflowController {
     requireScope(req, "staff:read");
     return this.portal.list(query, true);
   }
+  @Get("staff/collections/:id")
+  @ApiOperation({
+    summary:
+      "One collection or pathway for staff: details, courses, sales page status and its activity",
+  })
+  staffCollection(@Req() req: any, @Param("id", ParseUUIDPipe) id: string) {
+    requireScope(req, "staff:read");
+    return this.portal.staffCollectionPage(id);
+  }
   @Get("staff/offerings/:id")
   @ApiOperation({
     summary:

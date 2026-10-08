@@ -167,6 +167,23 @@ for (const [name, apply] of conditions)
       }
       expect(problems, `${name}: horizontal scrolling`).toEqual([]);
     });
+    test("collection page tabs", async ({ page }) => {
+      await page.request.post("/api/staff-session", {
+        data: { email: "catalog@cuce.test" },
+      });
+      const problems: string[] = [];
+      for (const tab of ["", "details", "activity"]) {
+        await page.goto(
+          `/staff/collections/20000000-0000-4000-8000-000000000003${tab ? `/${tab}` : ""}`,
+        );
+        await expect(page.locator("#collection-panel-heading")).toBeVisible();
+        await settle(page);
+        await apply(page);
+        const found = await overflow(page);
+        if (found) problems.push(`${tab || "overview"}: ${found}`);
+      }
+      expect(problems, `${name}: horizontal scrolling`).toEqual([]);
+    });
     test("sales page editor and preview", async ({ page }) => {
       await openEditorWithRichContent(page);
       await apply(page);

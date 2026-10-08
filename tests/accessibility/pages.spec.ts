@@ -346,38 +346,38 @@ test("unsaved changes: the staff sidebar asks before leaving", async ({
   await dialog.getByRole("button", { name: "Discard changes" }).click();
   await expect(page).toHaveURL(/\/staff\/collections$/);
 });
-test("collection sales page, opened from the list", async ({ page }) => {
-  await page.request.post("/api/staff-session", {
-    data: { email: "content@cuce.test" },
+// A pathway's page, opened from the list, then each tab, as a catalog manager
+// (editable) and as an approver (read-only).
+const collectionTabs = ["", "details", "sales-page", "activity"];
+for (const who of ["catalog@cuce.test", "approver@cuce.test"])
+  test(`collection page tabs as ${who.split("@")[0]}`, async ({ page }) => {
+    await page.request.post("/api/staff-session", { data: { email: who } });
+    await page.goto("/staff/collections");
+    await page
+      .getByRole("link", { name: "Data-Informed Leader", exact: true })
+      .filter({ visible: true })
+      .click();
+    await expect(page).toHaveURL(/\/staff\/collections\/[0-9a-f-]+$/);
+    const title = page.getByRole("heading", {
+      level: 2,
+      name: "Data-Informed Leader",
+    });
+    // Following the link moves focus to the pathway's title.
+    await expect(title).toBeFocused();
+    const base = new URL(page.url()).pathname;
+    for (const tab of collectionTabs) {
+      await page.goto(`${base}${tab ? `/${tab}` : ""}`);
+      await expect(title).toBeVisible();
+      await expect(page.locator("#collection-panel-heading")).toBeVisible();
+      await scan(page, `Collection page ${tab || "overview"} as ${who}`);
+    }
+    await page
+      .getByRole("link", { name: "All collections and pathways" })
+      .click();
+    await expect(
+      page.getByRole("heading", { name: "Collections and pathways" }),
+    ).toBeFocused();
   });
-  await page.goto("/staff/collections");
-  const link = page
-    .getByRole("link", { name: /^Sales page for / })
-    .filter({ visible: true })
-    .first();
-  await link.click();
-  await expect(page).toHaveURL(/\/staff\/collections\/[0-9a-f-]+\/sales-page$/);
-  await expect(
-    page.getByRole("heading", { level: 3, name: "Sales page" }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("textbox", { name: "Page content" }),
-  ).toBeVisible();
-  // Following the link moves focus to the collection's title.
-  await expect(
-    page
-      .getByRole("heading", { level: 2 })
-      .filter({ hasNotText: "Collections and pathways" })
-      .first(),
-  ).toBeFocused();
-  await scan(page, "Collection sales page");
-  await page
-    .getByRole("link", { name: "All collections and pathways" })
-    .click();
-  await expect(
-    page.getByRole("heading", { name: "Collections and pathways" }),
-  ).toBeFocused();
-});
 test("sales page editor and preview", async ({ page }) => {
   await openEditorWithRichContent(page);
   await scan(page, "Sales page editor");
@@ -410,7 +410,6 @@ test.describe("staff dialogs", () => {
     ["Unpublish offering", "Offerings", /^Unpublish /],
     ["Learner details", "Learners", /^View learner /],
     ["New collection", "Collections", /^New collection$/],
-    ["Edit collection", "Collections", /^Edit /],
     ["Add staff member", "Staff", /^Add staff member$/],
   ];
   for (const [name, tab, button] of dialogs)

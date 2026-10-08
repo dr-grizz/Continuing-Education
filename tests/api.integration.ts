@@ -2272,6 +2272,36 @@ async function main() {
       ).find((c: any) => c.id === pageCollection.id).sales_page_status,
       "published",
     );
+    const collectionPage = await (
+      await http(
+        `staff/collections/${pageCollection.id}`,
+        STAFF,
+        undefined,
+        approverId,
+      )
+    ).json();
+    assert.equal(collectionPage.collection.sales_page_status, "published");
+    assert.deepEqual(
+      collectionPage.activity.map((e: any) => e.action).sort(),
+      [
+        "collection.created",
+        "collection.published",
+        "sales_page.draft_saved",
+        "sales_page.published",
+      ],
+      "the collection page lists its own activity",
+    );
+    assert.equal(
+      (
+        await http(
+          `staff/collections/${randomUUID()}`,
+          STAFF,
+          undefined,
+          approverId,
+        )
+      ).status,
+      404,
+    );
     assert.equal(
       (await (await http(pagePath, STAFF, undefined, contentId)).json())
         .revisions.length,

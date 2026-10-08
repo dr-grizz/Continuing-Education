@@ -24,6 +24,7 @@ import {
   Typography,
 } from "@mui/material";
 import NextLink from "next/link";
+import { useRouter } from "next/navigation";
 import { arrive, focusOnArrival } from "./arrival-focus";
 import { salesPageShortText, type PageStatus } from "./staff-offering";
 import { api, CollectionKind } from "./api";
@@ -32,7 +33,7 @@ import { OrderedListEditor } from "./ordered-list-editor";
 
 // Staff-curated collections and pathways (decisions F3 and F4). Catalog managers
 // create drafts, order courses and publish; other staff see the list read-only.
-type StaffCollection = {
+export type StaffCollection = {
   id: string;
   kind: CollectionKind;
   slug: string;
@@ -44,24 +45,20 @@ type StaffCollection = {
   courses: { id: string; title: string; published: boolean }[];
   sales_page_status: PageStatus;
 };
-// Opens the collection's sales page editor; its heading takes focus.
-const salesPageLink = (row: StaffCollection) => (
-  <>
-    <Link
-      component={NextLink}
-      href={`/staff/collections/${row.id}/sales-page`}
-      onClick={() => arrive("collection-page")}
-      underline="always"
-      aria-label={`Sales page for ${row.title}`}
-    >
-      Sales page
-    </Link>
-    <Typography variant="body2" color="text.secondary">
-      {salesPageShortText[row.sales_page_status]}
-    </Typography>
-  </>
+// Opens the collection's or pathway's page; its title takes focus.
+const titleLink = (row: StaffCollection) => (
+  <Link
+    component={NextLink}
+    href={`/staff/collections/${row.id}`}
+    onClick={() => arrive("collection")}
+    underline="always"
+    color="inherit"
+    sx={{ overflowWrap: "break-word" }}
+  >
+    {row.title}
+  </Link>
 );
-const kindLabel = (kind: CollectionKind) =>
+export const kindLabel = (kind: CollectionKind) =>
   kind === "pathway" ? "Pathway" : "Collection";
 const minimumCourses = (kind: CollectionKind) => (kind === "pathway" ? 2 : 1);
 
@@ -74,14 +71,15 @@ export function StaffCollections({
   offerings: StaffOffering[];
   onChanged: (message: string) => void;
 }) {
-  // Returning from a sales page focuses this heading.
+  const router = useRouter();
+  // Returning from a collection's page focuses this heading.
   const listHeading = useRef<HTMLHeadingElement>(null);
   useEffect(() => focusOnArrival(listHeading.current, "collections"));
   const [rows, setRows] = useState<StaffCollection[]>([]),
     [loaded, setLoaded] = useState(false),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(""),
-    [editing, setEditing] = useState<StaffCollection | null>(),
+    [creating, setCreating] = useState(false),
     [unpublishing, setUnpublishing] = useState<StaffCollection>();
   const load = () =>
     api<StaffCollection[]>("staff/collections", { role: "staff" })
@@ -150,12 +148,6 @@ export function StaffCollections({
   const actions = (row: StaffCollection) =>
     canManage && (
       <Stack direction="row" sx={{ gap: 1, flexWrap: "wrap" }}>
-        <Button
-          onClick={() => setEditing(row)}
-          aria-label={`Edit ${row.title}`}
-        >
-          Edit
-        </Button>
         {row.published ? (
           <Button
             color="error"
@@ -203,7 +195,7 @@ export function StaffCollections({
           </Typography>
         </Box>
         {canManage && (
-          <Button variant="contained" onClick={() => setEditing(null)}>
+          <Button variant="contained" onClick={() => setCreating(true)}>
             New collection
           </Button>
         )}
@@ -248,7 +240,7 @@ export function StaffCollections({
                   <TableRow key={row.id}>
                     <TableCell>
                       <Typography sx={{ fontWeight: 600 }}>
-                        {row.title}
+                        {titleLink(row)}
                       </Typography>
                       {row.published ? (
                         <Link
@@ -270,7 +262,9 @@ export function StaffCollections({
                       {row.kind === "pathway" ? row.followers : "—"}
                     </TableCell>
                     <TableCell>{status(row)}</TableCell>
-                    <TableCell>{salesPageLink(row)}</TableCell>
+                    <TableCell>
+                      {salesPageShortText[row.sales_page_status]}
+                    </TableCell>
                     {canManage && <TableCell>{actions(row)}</TableCell>}
                   </TableRow>
                 ))}
@@ -289,7 +283,7 @@ export function StaffCollections({
                       {kindLabel(row.kind)}
                     </Typography>
                     <Typography variant="h6" component="h3">
-                      {row.title}
+                      {titleLink(row)}
                     </Typography>
                   </Box>
                   <Box>{status(row)}</Box>
@@ -305,57 +299,86 @@ export function StaffCollections({
                     {row.followers === 1 ? "follower" : "followers"}
                   </Typography>
                 )}
-                <Box sx={{ mt: 1 }}>{salesPageLink(row)}</Box>
+                <Typography
+                  variant="body2"
+                  color="text.secondary"
+                  sx={{ mt: 1 }}
+                >
+                  Sales page:{" "}
+                  {salesPageShortText[row.sales_page_status].toLowerCase()}
+                </Typography>
                 {canManage && <Box sx={{ mt: 1.5 }}>{actions(row)}</Box>}
               </Paper>
             ))}
           </Stack>
         </>
       )}
-      <CollectionDialog
-        open={editing !== undefined}
-        collection={editing ?? undefined}
+      <CollectionForm
+        open={creating}
         offerings={offerings}
-        onClose={() => setEditing(undefined)}
-        onSaved={async (text) => {
-          setEditing(undefined);
-          await load();
-          onChanged(text);
+        onClose={() => setCreating(false)}
+        onSaved={async (text, saved) => {
+          setCreating(false);
+          onChanged(`${text} Its page is open below.`);
+          // Open the new draft's page; its title takes focus.
+          arrive("collection");
+          if (saved) router.push(`/staff/collections/${saved.id}`);
         }}
       />
-      <Dialog
-        open={Boolean(unpublishing)}
-        onClose={() => setUnpublishing(undefined)}
-        aria-labelledby="unpublish-collection-title"
-      >
-        <DialogTitle id="unpublish-collection-title">
-          Unpublish {unpublishing?.title}?
-        </DialogTitle>
-        <DialogContent>
-          <DialogContentText>
-            Learners will no longer see this{" "}
-            {unpublishing?.kind === "pathway" ? "pathway" : "collection"} in the
-            catalog.
-            {unpublishing?.kind === "pathway" &&
-              ` It disappears from My learning for ${unpublishing.followers} ${
-                unpublishing.followers === 1 ? "follower" : "followers"
-              }; their follows are kept if you publish it again.`}{" "}
-            Registrations are not affected.
-          </DialogContentText>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setUnpublishing(undefined)}>Cancel</Button>
-          <Button
-            color="error"
-            variant="contained"
-            aria-disabled={Boolean(busy) || undefined}
-            onClick={() => unpublishing && setPublished(unpublishing, false)}
-          >
-            {busy ? "Unpublishing…" : "Unpublish"}
-          </Button>
-        </DialogActions>
-      </Dialog>
+      <CollectionUnpublishDialog
+        collection={unpublishing}
+        busy={Boolean(busy)}
+        onCancel={() => setUnpublishing(undefined)}
+        onConfirm={() => unpublishing && setPublished(unpublishing, false)}
+      />
     </>
+  );
+}
+
+export function CollectionUnpublishDialog({
+  collection,
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  collection?: StaffCollection;
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <Dialog
+      open={Boolean(collection)}
+      onClose={onCancel}
+      aria-labelledby="unpublish-collection-title"
+    >
+      <DialogTitle id="unpublish-collection-title">
+        Unpublish {collection?.title}?
+      </DialogTitle>
+      <DialogContent>
+        <DialogContentText>
+          Learners will no longer see this{" "}
+          {collection?.kind === "pathway" ? "pathway" : "collection"} in the
+          catalog.
+          {collection?.kind === "pathway" &&
+            ` It disappears from My learning for ${collection.followers} ${
+              collection.followers === 1 ? "follower" : "followers"
+            }; their follows are kept if you publish it again.`}{" "}
+          Registrations are not affected.
+        </DialogContentText>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onCancel}>Cancel</Button>
+        <Button
+          color="error"
+          variant="contained"
+          aria-disabled={busy || undefined}
+          onClick={onConfirm}
+        >
+          {busy ? "Unpublishing…" : "Unpublish"}
+        </Button>
+      </DialogActions>
+    </Dialog>
   );
 }
 
@@ -366,18 +389,24 @@ const fieldLabels: Record<Field, string> = {
   summary: "Summary",
   courses: "Courses",
 };
-function CollectionDialog({
+// Create (dialog) and edit form for collections and pathways. A collection's
+// Details tab shows it inline (`inline`), with Save changes and Discard changes.
+export function CollectionForm({
   open,
   collection,
   offerings,
+  inline = false,
   onClose,
   onSaved,
+  onDirtyChange,
 }: {
   open: boolean;
   collection?: StaffCollection;
   offerings: StaffOffering[];
+  inline?: boolean;
   onClose: () => void;
-  onSaved: (message: string) => Promise<void>;
+  onSaved: (message: string, saved?: { id: string }) => Promise<void>;
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const [kind, setKind] = useState<CollectionKind>("collection"),
     [title, setTitle] = useState(""),
@@ -403,6 +432,22 @@ function CollectionDialog({
   }, [failure]);
   const byId = new Map(offerings.map((o) => [o.id, o]));
   const published = collection?.published ?? false;
+  const reset = () => {
+    setTitle(collection?.title ?? "");
+    setSummary(collection?.summary ?? "");
+    setCourseIds(collection?.courses.map((c) => c.id) ?? []);
+    setErrors({});
+    setFailure("");
+  };
+  const dirty =
+    inline &&
+    !!collection &&
+    (title !== collection.title ||
+      summary !== collection.summary ||
+      courseIds.join() !== collection.courses.map((c) => c.id).join());
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
   function validate() {
     const found: Partial<Record<Field, string>> = {};
     if (title.trim().length < 3 || title.trim().length > 120)
@@ -438,20 +483,20 @@ function CollectionDialog({
         summary: summary.trim(),
         offeringIds: courseIds,
       };
-      if (collection)
-        await api(`collections/${collection.id}/edit`, {
-          role: "staff",
-          body: { ...body, version: collection.version },
-        });
-      else
-        await api("collections", {
-          role: "staff",
-          body: { ...body, kind, ...(slug ? { slug } : {}) },
-        });
+      const saved = collection
+        ? await api<{ id: string }>(`collections/${collection.id}/edit`, {
+            role: "staff",
+            body: { ...body, version: collection.version },
+          })
+        : await api<{ id: string }>("collections", {
+            role: "staff",
+            body: { ...body, kind, ...(slug ? { slug } : {}) },
+          });
       await onSaved(
         collection
           ? `Changes saved for ${body.title}.`
           : `Draft ${kind} saved. Publish it when it is ready.`,
+        saved,
       );
     } catch (e) {
       setFailure((e as Error).message);
@@ -465,6 +510,160 @@ function CollectionDialog({
   ][];
   const fieldId = (name: Field) =>
     name === "courses" ? "collection-courses-add" : `collection-${name}`;
+  const fields = (
+    <Stack spacing={2.5} sx={{ pt: inline ? 0 : 1 }}>
+      {(errorList.length > 0 || failure) && (
+        <Alert
+          severity="error"
+          ref={summaryRef}
+          tabIndex={-1}
+          aria-labelledby="collection-error-heading"
+        >
+          <Typography
+            id="collection-error-heading"
+            variant="subtitle2"
+            component={inline ? "h4" : "h3"}
+          >
+            {failure ? "The collection was not saved" : "Fix these fields"}
+          </Typography>
+          {failure ? (
+            failure
+          ) : (
+            <ul style={{ margin: "4px 0 0", paddingLeft: 20 }}>
+              {errorList.map(([name, text]) => (
+                <li key={name}>
+                  <Link
+                    href={`#${fieldId(name)}`}
+                    color="inherit"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      document.getElementById(fieldId(name))?.focus();
+                    }}
+                  >
+                    {fieldLabels[name]}: {text}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Alert>
+      )}
+      <TextField
+        select
+        id="collection-kind"
+        label="Type"
+        value={kind}
+        onChange={(e) => setKind(e.target.value as CollectionKind)}
+        disabled={Boolean(collection)}
+        helperText={
+          collection
+            ? "The type is fixed after creation."
+            : "A pathway shows its courses in a recommended order."
+        }
+        fullWidth
+      >
+        <MenuItem value="collection">Collection</MenuItem>
+        <MenuItem value="pathway">Pathway</MenuItem>
+      </TextField>
+      <TextField
+        id="collection-title"
+        label="Title"
+        required
+        value={title}
+        onChange={(e) => {
+          setTitle(e.target.value);
+          if (errors.title) setErrors({ ...errors, title: undefined });
+        }}
+        error={Boolean(errors.title)}
+        helperText={errors.title}
+        fullWidth
+      />
+      {!collection ? (
+        <TextField
+          id="collection-slug"
+          label="Web address (optional)"
+          value={slug}
+          onChange={(e) => {
+            setSlug(e.target.value);
+            if (errors.slug) setErrors({ ...errors, slug: undefined });
+          }}
+          error={Boolean(errors.slug)}
+          helperText={
+            errors.slug ??
+            "Leave empty to build it from the title. It cannot be changed later."
+          }
+          fullWidth
+        />
+      ) : (
+        <Typography variant="body2" color="text.secondary">
+          Web address: /collections/{collection.slug} (fixed)
+        </Typography>
+      )}
+      <TextField
+        id="collection-summary"
+        label="Summary"
+        required
+        multiline
+        minRows={2}
+        value={summary}
+        onChange={(e) => {
+          setSummary(e.target.value);
+          if (errors.summary) setErrors({ ...errors, summary: undefined });
+        }}
+        error={Boolean(errors.summary)}
+        helperText={
+          errors.summary ?? "Shown to learners. 10 to 500 characters."
+        }
+        fullWidth
+      />
+      <OrderedListEditor
+        id="collection-courses"
+        legend={kind === "pathway" ? "Courses in recommended order" : "Courses"}
+        noun="course"
+        ids={courseIds}
+        options={offerings.map((o) => ({
+          id: o.id,
+          title: o.title,
+          note: o.published ? undefined : "Not published; hidden from learners",
+        }))}
+        onChange={(next) => {
+          setCourseIds(next);
+          if (errors.courses) setErrors({ ...errors, courses: undefined });
+        }}
+        emptyText="No courses added yet."
+        error={errors.courses}
+        helperText={
+          kind === "pathway"
+            ? "Publishing needs at least two published courses."
+            : "Publishing needs at least one published course."
+        }
+      />
+    </Stack>
+  );
+  if (inline)
+    return (
+      <Box>
+        {fields}
+        <Stack
+          direction="row"
+          sx={{ mt: 3, gap: 2, alignItems: "center", flexWrap: "wrap" }}
+        >
+          <Button
+            variant="contained"
+            onClick={save}
+            aria-disabled={busy || undefined}
+          >
+            {busy ? "Saving…" : "Save changes"}
+          </Button>
+          <Button onClick={reset} disabled={busy || !dirty}>
+            Discard changes
+          </Button>
+          <Typography variant="body2" color="text.secondary" aria-live="polite">
+            {dirty ? "You have unsaved changes." : ""}
+          </Typography>
+        </Stack>
+      </Box>
+    );
   return (
     <Dialog
       open={open}
@@ -476,140 +675,7 @@ function CollectionDialog({
       <DialogTitle id="collection-dialog-title">
         {collection ? `Edit ${collection.title}` : "New collection or pathway"}
       </DialogTitle>
-      <DialogContent>
-        <Stack spacing={2.5} sx={{ pt: 1 }}>
-          {(errorList.length > 0 || failure) && (
-            <Alert
-              severity="error"
-              ref={summaryRef}
-              tabIndex={-1}
-              aria-labelledby="collection-error-heading"
-            >
-              <Typography
-                id="collection-error-heading"
-                variant="subtitle2"
-                component="h3"
-              >
-                {failure ? "The collection was not saved" : "Fix these fields"}
-              </Typography>
-              {failure ? (
-                failure
-              ) : (
-                <ul style={{ margin: "4px 0 0", paddingLeft: 20 }}>
-                  {errorList.map(([name, text]) => (
-                    <li key={name}>
-                      <Link
-                        href={`#${fieldId(name)}`}
-                        color="inherit"
-                        onClick={(event) => {
-                          event.preventDefault();
-                          document.getElementById(fieldId(name))?.focus();
-                        }}
-                      >
-                        {fieldLabels[name]}: {text}
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </Alert>
-          )}
-          <TextField
-            select
-            id="collection-kind"
-            label="Type"
-            value={kind}
-            onChange={(e) => setKind(e.target.value as CollectionKind)}
-            disabled={Boolean(collection)}
-            helperText={
-              collection
-                ? "The type is fixed after creation."
-                : "A pathway shows its courses in a recommended order."
-            }
-            fullWidth
-          >
-            <MenuItem value="collection">Collection</MenuItem>
-            <MenuItem value="pathway">Pathway</MenuItem>
-          </TextField>
-          <TextField
-            id="collection-title"
-            label="Title"
-            required
-            value={title}
-            onChange={(e) => {
-              setTitle(e.target.value);
-              if (errors.title) setErrors({ ...errors, title: undefined });
-            }}
-            error={Boolean(errors.title)}
-            helperText={errors.title}
-            fullWidth
-          />
-          {!collection ? (
-            <TextField
-              id="collection-slug"
-              label="Web address (optional)"
-              value={slug}
-              onChange={(e) => {
-                setSlug(e.target.value);
-                if (errors.slug) setErrors({ ...errors, slug: undefined });
-              }}
-              error={Boolean(errors.slug)}
-              helperText={
-                errors.slug ??
-                "Leave empty to build it from the title. It cannot be changed later."
-              }
-              fullWidth
-            />
-          ) : (
-            <Typography variant="body2" color="text.secondary">
-              Web address: /collections/{collection.slug} (fixed)
-            </Typography>
-          )}
-          <TextField
-            id="collection-summary"
-            label="Summary"
-            required
-            multiline
-            minRows={2}
-            value={summary}
-            onChange={(e) => {
-              setSummary(e.target.value);
-              if (errors.summary) setErrors({ ...errors, summary: undefined });
-            }}
-            error={Boolean(errors.summary)}
-            helperText={
-              errors.summary ?? "Shown to learners. 10 to 500 characters."
-            }
-            fullWidth
-          />
-          <OrderedListEditor
-            id="collection-courses"
-            legend={
-              kind === "pathway" ? "Courses in recommended order" : "Courses"
-            }
-            noun="course"
-            ids={courseIds}
-            options={offerings.map((o) => ({
-              id: o.id,
-              title: o.title,
-              note: o.published
-                ? undefined
-                : "Not published; hidden from learners",
-            }))}
-            onChange={(next) => {
-              setCourseIds(next);
-              if (errors.courses) setErrors({ ...errors, courses: undefined });
-            }}
-            emptyText="No courses added yet."
-            error={errors.courses}
-            helperText={
-              kind === "pathway"
-                ? "Publishing needs at least two published courses."
-                : "Publishing needs at least one published course."
-            }
-          />
-        </Stack>
-      </DialogContent>
+      <DialogContent>{fields}</DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Cancel</Button>
         <Button

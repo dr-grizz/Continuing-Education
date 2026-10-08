@@ -2049,6 +2049,26 @@ export class PortalService {
       })),
     }));
   }
+  // One collection's or pathway's staff page: the collection (as in the staff
+  // list, with its sales page status) and its own activity.
+  async staffCollectionPage(id: string) {
+    const collection = (await this.staffCollections()).find((c) => c.id === id);
+    if (!collection) throw new NotFoundException("Collection not found.");
+    const activity = await sql<{
+      action: string;
+      actor: string;
+      actor_email: string | null;
+      details: Prisma.JsonValue;
+      created_at: Date;
+    }>(
+      prisma,
+      `SELECT a.action,a.actor,s.email AS actor_email,a.details,a.created_at
+      FROM audit_events a LEFT JOIN staff_members s ON a.actor='staff:'||s.id::text
+      WHERE a.object_id=$1::uuid ORDER BY a.id DESC LIMIT 100`,
+      id,
+    );
+    return { collection, activity };
+  }
   private async staffCollection(tx: Tx, id: string) {
     return (await this.staffCollectionsIn(tx)).find((c) => c.id === id);
   }

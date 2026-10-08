@@ -62,7 +62,7 @@ import {
   type PageStatus,
 } from "../../../components/staff-offering";
 import { arrive, focusOnArrival } from "../../../components/arrival-focus";
-import { StaffCollectionSalesPage } from "../../../components/staff-collection-page";
+import { StaffCollectionPage } from "../../../components/staff-collection-page";
 import {
   UnsavedChangesProvider,
   useUnsavedChanges,
@@ -339,14 +339,12 @@ function StaffWorkspace({
   // Unknown or not-permitted addresses are replaced by the Dashboard's. The
   // former Sales pages section now lives in each offering's Sales page tab.
   useEffect(() => {
-    if (slug === "collections" && item && view !== "sales-page")
-      router.replace(`/staff/collections/${item}/sales-page`);
-    else if (slug === "sales-pages")
+    if (slug === "sales-pages")
       router.replace(
         item ? `/staff/offerings/${item}/sales-page` : "/staff/offerings",
       );
     else if (slug && currentSection.slug !== slug) router.replace("/staff");
-  }, [slug, item, view, currentSection.slug, router]);
+  }, [slug, item, currentSection.slug, router]);
   // Moving between sections moves focus to the new heading and updates the title.
   useEffect(() => {
     document.title = `${currentSection.label} · Staff | Continuing Education`;
@@ -1216,11 +1214,13 @@ function StaffWorkspace({
         {loaded && tab === "dashboard" && (
           <StaffDashboard offerings={courses} canSales={can("reports:sales")} />
         )}
-        {tab === "collections" && item && (
-          <StaffCollectionSalesPage
+        {tab === "collections" && item && loaded && (
+          <StaffCollectionPage
             key={item}
             id={item}
-            canEdit={can("content:write")}
+            tab={view}
+            can={can}
+            offerings={courses}
             onChanged={setMessage}
           />
         )}
