@@ -109,7 +109,7 @@ Payments are simulated unless a Stripe **test-mode** key is configured ([ADR 000
 
 3. Restart `npm run dev`. Reserved seats in My learning now show **Pay with Stripe**. Pay with test card `4242 4242 4242 4242` (any future date, any CVC); `4000 0000 0000 9995` is declined.
 
-For Finance and IT, [How the portal works with Stripe](docs/finance/stripe-integration.md) explains the payment and refund flows, what is shared with Stripe, and the API key permissions and Dashboard roles needed. Only the signed webhook marks a payment paid; the page Stripe returns to is informational. No tax is collected. Refunds are processed by Finance in the Stripe Dashboard; the portal does not issue them.
+For the university Finance department and whoever hosts the portal, [How the portal works with Stripe](docs/finance/stripe-integration.md) explains the payment and refund flows, the refund handoff to Finance, what is shared with Stripe, and what the portal needs from the university's Stripe account. Only the signed webhook marks a payment paid; the page Stripe returns to is informational. No tax is collected. Refunds are processed by Finance in the Stripe Dashboard; the portal does not issue them.
 
 ## Automation
 

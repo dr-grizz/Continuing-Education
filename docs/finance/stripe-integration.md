@@ -1,10 +1,10 @@
 # How the portal works with Stripe
 
-For the Finance department and IT. Updated October 8, 2026. Technical decision record: [ADR 0005](../adr/0005-stripe-hosted-checkout.md).
+For the university Finance department, and for whoever builds and hosts the portal. Updated October 8, 2026. Technical decision record: [ADR 0005](../adr/0005-stripe-hosted-checkout.md).
 
 ## Summary
 
-The Continuing Education portal takes course payments through **Stripe-hosted Checkout**. Learners pay on Stripe's own page, so card details never reach university systems. Stripe tells the portal about payments and refunds through **signed webhook notifications**, and the portal never moves money itself. **Finance issues every refund in the Stripe Dashboard**; staff can only *request* a refund in the portal. Today this runs against a Stripe **sandbox** (test mode) on a developer's computer; going live needs the access listed under [Access needed](#access-needed).
+The Continuing Education portal takes course payments through **Stripe-hosted Checkout**. Learners pay on Stripe's own page, so card details never reach university systems. Stripe tells the portal about payments and refunds through **signed webhook notifications**, and the portal never moves money itself. **The Finance department issues every refund in the Stripe Dashboard.** Continuing Education staff record a refund request in the portal and send it to Finance; from then on the refund happens outside the portal, and Stripe reports the result back automatically. Finance does not need to use the portal. Today this runs against a Stripe **sandbox** (test mode) on a developer's computer; going live needs the access listed under [Access needed](#access-needed).
 
 ## How a payment works
 
@@ -32,22 +32,25 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    actor Staff as Support or Finance staff
+    actor CE as Continuing Education staff
     participant Portal
-    actor Finance as Finance (Stripe Dashboard)
+    actor Finance as Finance department
     participant Stripe
-    Staff->>Portal: Request refund, with a reason (Staff → Transactions)
-    Portal-->>Finance: The request shows as "Refund requested"
+    CE->>Portal: Record a refund request, with a reason (Staff → Transactions)
+    CE->>Finance: Send the request (outside the portal): Stripe payment ID, amount, learner, course, reason
     Finance->>Stripe: Refund the full payment in the Stripe Dashboard
     Stripe->>Portal: Signed webhook: charge.refunded
     Portal->>Portal: Record the refund, close the request, end course access, release the seat
 ```
 
+- **The handoff leaves the portal.** Once Continuing Education staff send the request, Finance works only in Stripe. The portal needs nothing more from anyone: Stripe's notification closes the request and updates the learner.
+- **What Finance needs in the request:** the Stripe payment ID, amount, learner's email, course and reason. In Staff → Transactions, **Copy for Finance** copies exactly that (plus a Stripe Dashboard link for Finance) to paste into an email or ticket. How requests are sent is for Finance to choose.
 - **The portal never refunds.** Its Stripe key has no refund permission.
 - **Full refunds only** (policy). If a partial refund is made in Stripe anyway, the portal records it and flags it for review; course access is unchanged.
-- **A full refund ends course access.** The registration becomes "Refunded, access ended" and the seat is released. Removing the learner from the Canvas course is a manual IT step until Canvas is connected.
+- **A full refund ends course access.** The registration becomes "Refunded, access ended" and the seat is released. Removing the learner from the Canvas course is a manual step for the Canvas administrators until Canvas is connected.
 - **Learners can register and pay again** after a refund. The new payment is a new order; the refunded one stays in the history.
-- **Refunds made directly in Stripe without a portal request** are still recorded and flagged.
+- **Refunds made in Stripe without a portal request** are still recorded and flagged.
+- **A request that is no longer needed** can be cancelled in the portal, with a reason; Continuing Education staff then tell Finance not to proceed.
 
 ## What the portal asks Stripe to do
 
@@ -94,7 +97,7 @@ The learner enters card details and billing ZIP code on Stripe's page; the porta
 
 ### For the portal's connection to Stripe
 
-Set up by a Stripe Administrator, or a Developer, for each environment (sandbox now, live later):
+Set up by a Stripe Administrator of the university's account, for each environment (sandbox now, live later), and handed to whoever builds and hosts the portal:
 
 1. **A restricted API key** (`rk_test_…` in the sandbox, `rk_live_…` in live), with:
 
@@ -107,28 +110,22 @@ Set up by a Stripe Administrator, or a Developer, for each environment (sandbox 
    | Everything else | None |
 
    The prototype refuses live keys until production is approved. A restricted key limits the damage if it ever leaks; the portal only calls the APIs above.
-2. **A webhook endpoint** for the live environment, at the portal's public HTTPS address `…/api/v1/webhooks/stripe`, subscribed to the six events above. Its **signing secret** goes to IT through the university's secret store, never by email or chat. (In the sandbox, a developer uses `stripe listen` instead.)
+2. **A webhook endpoint** for the live environment, at the portal's public HTTPS address `…/api/v1/webhooks/stripe`, subscribed to the six events above. Its **signing secret**, like the API key, goes to whoever hosts the portal and is kept in the hosting platform's secret settings, never in email, chat or the code repository. (In the sandbox, the portal developer uses `stripe listen` instead.)
 3. Account settings to confirm: business name and statement descriptor, Checkout branding, customer emails for successful payments and refunds, **Stripe Tax off**, and **Link turned off** for this account if Finance prefers (the portal already hides it).
 
-### For people (Stripe Dashboard roles)
+### Who needs Stripe access
 
-| Who | Suggested Stripe role | Why |
-| --- | --- | --- |
-| Finance staff who issue refunds | **Refund Analyst** | View and refund payments only; cannot pay out, change settings or see API keys |
-| Finance staff who reconcile, report or manage payouts | **Analyst**, or **View Only** if they only read and download reports | Analyst can refund, pay out and export; View Only can view and download financial reports |
-| IT or the portal developer setting up keys and webhooks | **Developer** (sandbox); in live, keys created by an Administrator | Developer can manage API keys and webhooks, but also refund and pay out, so limit it to the people who need it |
-| Support staff | None | They request refunds in the portal; Finance completes them |
-
-Require two-step authentication for everyone with Dashboard access. Role definitions are Stripe's: [Stripe user roles](https://docs.stripe.com/get-started/account/teams/roles).
+- **Portal staff: none.** They never open the Stripe Dashboard. Staff → Transactions shows each Stripe payment ID, and **Copy for Finance** produces the request text, including the ID and a Dashboard link for Finance.
+- **The Finance department** manages its own Stripe users and roles; that is outside Continuing Education.
+- **The portal developer** works in a Stripe sandbox during development. For live, the university's Stripe administrator creates the restricted key and webhook endpoint and hands them over; the developer does not need Dashboard access to the live account.
 
 ## Questions for Finance
 
-1. Who in Finance receives refund requests, and the expected turnaround?
-2. Which staff get which Stripe role above?
-3. How do Stripe payouts and reports map to university accounts (cost center, GL codes)? The payment metadata above is available for matching.
-4. How should disputes (chargebacks) be handled, and does a lost dispute end course access?
-5. Should Stripe send payment and refund receipts, and from which business name?
-6. Approval to create the live environment's restricted key and webhook endpoint, and who holds the signing secret.
+1. How should Continuing Education send refund requests (email address or ticket queue), what must a request include, and what is the expected turnaround?
+2. How do Stripe payouts and reports map to university accounts (cost center, GL codes)? The payment metadata above is available for matching.
+3. How should disputes (chargebacks) be handled, and does a lost dispute end course access?
+4. Should Stripe send payment and refund receipts, and from which business name?
+5. Who in the university's Stripe account creates the live restricted key and webhook endpoint and hands them to the portal developer, and how (a secure channel, not email)?
 
 ## Going live (later)
 

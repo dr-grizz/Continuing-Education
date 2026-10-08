@@ -167,6 +167,19 @@ A real screen-reader session, forced colors and cross-browser checks remain outs
 
 ## Latest implementation record
 
+October 8, 2026 (later): refunds hand off to an external Finance department; portal staff do not use Stripe.
+
+- **Context:** the Finance department is outside Continuing Education and does not use the portal, and the portal developer is not university IT. A refund request leaves the portal when it is sent to Finance; Stripe's `charge.refunded` brings the result back automatically.
+- **Transactions:**
+  - The **View in Stripe** buttons were removed; each Stripe payment ID is shown as reference text instead.
+  - **Copy for Finance** (on waiting requests) copies a ready-to-send request: payment ID, a Dashboard link for Finance, amount, learner, course, date paid, reason and requester.
+  - The page and dialog text now say Finance is not notified automatically.
+- **Finance guide:**
+  - Rewritten refund flow, with the handoff outside the portal.
+  - The API key and webhook secret go to whoever hosts the portal, kept in the hosting platform's secret settings.
+  - The Stripe role recommendations were removed (Finance manages its own users; portal staff need no Stripe access), and the questions updated.
+- **Verification:** from the keyboard as Support: recording a request moves focus to **Copy for Finance**, which copied the text and confirmed through a status message. The walkthrough request was cancelled afterwards.
+
 October 8, 2026: no partial refunds, paying again after a refund, and the Finance guide to the Stripe integration (branch `refund-reregistration`).
 
 - **Decisions (P5):** no partial refunds; one made in Stripe anyway is recorded and flagged (`partial_against_policy`), with access unchanged. Learners can register and pay again after a refund.
