@@ -10,7 +10,6 @@ import {
   DialogContent,
   DialogContentText,
   DialogTitle,
-  Link,
   MenuItem,
   Paper,
   Stack,
@@ -23,7 +22,6 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
-import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import { api, money } from "./api";
 import {
   SortableHeader,
@@ -74,9 +72,28 @@ const day = (value: string) =>
   });
 const wideOnly = { display: { xs: "none", md: "block" } };
 const phoneOnly = { display: { xs: "block", md: "none" } };
-// Sandbox payments open in Stripe's test-mode Dashboard.
+// For Finance's message only (portal staff do not use Stripe). Sandbox payments
+// open in Stripe's test-mode Dashboard.
 const stripeUrl = (paymentIntent: string) =>
   `https://dashboard.stripe.com/test/payments/${paymentIntent}`;
+// The text Continuing Education staff send to the Finance department (email or
+// ticket); the refund itself happens in Stripe, outside the portal.
+const financeRequest = (t: Transaction) =>
+  [
+    "Refund request: Continuing Education portal",
+    `Stripe payment: ${t.stripe_payment_intent_id ?? "(not a Stripe payment)"}`,
+    ...(t.stripe_payment_intent_id
+      ? [`Open in Stripe: ${stripeUrl(t.stripe_payment_intent_id)}`]
+      : []),
+    `Amount: ${money(t.amount_cents - t.refunded_cents)} (full refund)`,
+    `Learner: ${learnerOf(t)}`,
+    `Course: ${t.offering_title}`,
+    `Paid: ${day(t.created_at)}`,
+    `Reason: ${t.request_reason ?? ""}`,
+    `Requested by: ${t.requested_by_email ?? "Continuing Education staff"}`,
+    "",
+    "Please refund the full amount in the Stripe Dashboard. The portal updates automatically when Stripe confirms the refund.",
+  ].join("\n");
 
 export function StaffTransactions({
   canRequest,
@@ -133,6 +150,19 @@ export function StaffTransactions({
         .toLowerCase()
         .includes(query.trim().toLowerCase()),
   });
+  const [copyStatus, setCopyStatus] = useState("");
+  async function copyForFinance(row: Transaction) {
+    try {
+      await navigator.clipboard.writeText(financeRequest(row));
+      setCopyStatus(
+        `Copied the refund request for ${row.offering_title}. Paste it into your message to Finance.`,
+      );
+    } catch {
+      setCopyStatus(
+        "Copying is blocked in this browser. Open the payment in Stripe to send its details instead.",
+      );
+    }
+  }
   const statusChip = (row: Transaction) => {
     const status = statusOf(row);
     return (
@@ -151,6 +181,19 @@ export function StaffTransactions({
   };
   const providerLabel = (row: Transaction) =>
     row.provider === "stripe" ? "Stripe" : "Simulated";
+  // Staff never open the Stripe Dashboard; the payment ID is the reference
+  // Finance needs, and it is included in Copy for Finance.
+  const paymentReference = (row: Transaction) =>
+    row.stripe_payment_intent_id && (
+      <Typography
+        variant="caption"
+        color="text.secondary"
+        component="p"
+        sx={{ fontFamily: "monospace", overflowWrap: "anywhere" }}
+      >
+        {row.stripe_payment_intent_id}
+      </Typography>
+    );
   const request = (row: Transaction) =>
     row.request_status === "requested" && (
       <Typography variant="caption" color="text.secondary" component="p">
@@ -165,23 +208,20 @@ export function StaffTransactions({
         data-row={row.id}
         sx={{ gap: 1, flexWrap: "wrap" }}
       >
-        {row.stripe_payment_intent_id && (
-          <Button
-            href={stripeUrl(row.stripe_payment_intent_id)}
-            target="_blank"
-            rel="noopener noreferrer"
-            endIcon={<OpenInNewIcon />}
-            aria-label={`View ${learnerOf(row)}'s payment for ${row.offering_title} in Stripe (opens in a new tab)`}
-          >
-            View in Stripe
-          </Button>
-        )}
         {canRequest && row.provider === "stripe" && status === "paid" && (
           <Button
             onClick={() => setDialog({ mode: "request", row })}
             aria-label={`Request a refund for ${learnerOf(row)}, ${row.offering_title}`}
           >
             Request refund
+          </Button>
+        )}
+        {canRequest && status === "requested" && (
+          <Button
+            onClick={() => copyForFinance(row)}
+            aria-label={`Copy the refund request for ${learnerOf(row)}, ${row.offering_title}, to send to Finance`}
+          >
+            Copy for Finance
           </Button>
         )}
         {canRequest && status === "requested" && (
@@ -201,10 +241,13 @@ export function StaffTransactions({
         Transactions
       </Typography>
       <Alert severity="info" role="note" sx={{ mb: 2 }}>
-        Read-only. Refunds are issued by Finance in the Stripe Dashboard
-        {canRequest ? "; you can request one here" : ""}. When Stripe reports a
-        refund, its request is marked Refunded automatically. A full refund ends
-        the learner&apos;s course access.
+        Read-only. Refunds are issued by the university Finance department in
+        Stripe, outside the portal.{" "}
+        {canRequest
+          ? "Record a request here, then send it to Finance with Copy for Finance. "
+          : ""}
+        When Stripe reports the refund, the request is marked Refunded and the
+        learner&apos;s course access ends automatically.
       </Alert>
       <Stack direction={{ xs: "column", sm: "row" }} sx={{ gap: 2, mb: 2 }}>
         <TextField
@@ -246,6 +289,13 @@ export function StaffTransactions({
       >
         {view.count} of {view.total} transactions
       </Typography>
+      <Typography
+        variant="body2"
+        role="status"
+        sx={{ mb: copyStatus ? 1.5 : 0 }}
+      >
+        {copyStatus}
+      </Typography>
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>
           {error}
@@ -279,6 +329,7 @@ export function StaffTransactions({
               {money(row.amount_cents)} · {providerLabel(row)} ·{" "}
               {day(row.created_at)}
             </Typography>
+            {paymentReference(row)}
             {request(row)}
             <Box sx={{ mt: 1 }}>{actions(row)}</Box>
           </Paper>
@@ -322,7 +373,10 @@ export function StaffTransactions({
                     </Typography>
                   )}
                 </TableCell>
-                <TableCell>{providerLabel(row)}</TableCell>
+                <TableCell>
+                  {providerLabel(row)}
+                  {paymentReference(row)}
+                </TableCell>
                 <TableCell>{statusChip(row)}</TableCell>
                 <TableCell>{actions(row)}</TableCell>
               </TableRow>
@@ -393,7 +447,7 @@ function RefundDialog({
         });
       await onDone(
         mode === "request"
-          ? `Refund requested for ${row.offering_title}. Finance completes it in Stripe.`
+          ? `Refund request recorded for ${row.offering_title}. Next, send it to Finance with Copy for Finance.`
           : `Refund request cancelled for ${row.offering_title}.`,
       );
     } catch (e) {
@@ -427,23 +481,12 @@ function RefundDialog({
           <DialogContentText>
             {mode === "request" ? (
               <>
-                This asks Finance to refund the full amount. Nothing is refunded
-                here: Finance issues the refund in the Stripe Dashboard. Once
-                Stripe confirms it, this transaction shows Refunded and the
-                learner's course access ends.
-                {row.stripe_payment_intent_id && (
-                  <>
-                    {" "}
-                    <Link
-                      href={stripeUrl(row.stripe_payment_intent_id)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      underline="always"
-                    >
-                      Open this payment in Stripe (new tab)
-                    </Link>
-                  </>
-                )}
+                This records a request to refund the full amount. Nothing is
+                refunded here and Finance is not notified automatically: after
+                saving, use Copy for Finance and send the request to the Finance
+                department, who refund it in the Stripe Dashboard. Once Stripe
+                confirms it, this transaction shows Refunded and the learner's
+                course access ends.
               </>
             ) : (
               "Finance will no longer see this request as waiting. You can request a refund again later."

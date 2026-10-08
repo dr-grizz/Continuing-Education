@@ -10,7 +10,7 @@ Real authentication (university SSO with MFA for staff) is not available yet. Pr
 
 - **Staff directory:** a `staff_members` table holds email, display name, one or more roles (`staff_role` enum), an active flag and a version. It also reserves `auth_provider` (default `mock`) and `external_subject` for SSO.
   - Six synthetic demo staff are seeded on the reserved `.test` domain (`*@cuce.test`, for example `approver@cuce.test`): one per role, plus an administrator with every role. The domain can never reach a real mailbox.
-- **Roles:** the plan's five M5 roles (approver, catalog manager, support, Finance, IT/Canvas administrator), plus a proposed **staff administrator** role for managing staff and roles, and a **content editor** role for sales pages (decision F2). Adding an enum value takes its own migration (`4_content_editor_role`), because the value cannot be used in the transaction that adds it.
+- **Roles:** the plan's five M5 roles (approver, catalog manager, support, Finance, IT/Canvas administrator; **Finance was removed on October 8, 2026**, migration `013_remove_finance_role`, because the university Finance department is outside Continuing Education and works only in Stripe), plus a proposed **staff administrator** role for managing staff and roles, and a **content editor** role for sales pages (decision F2). Adding an enum value takes its own migration (`4_content_editor_role`), because the value cannot be used in the transaction that adds it.
   - Roles map to permission scopes in `src/server/roles.ts`. Endpoints check scopes, never role names.
   - Every staff member gets `staff:read` and `reports:read`. A member with several roles gets every scope they grant.
 
@@ -19,9 +19,9 @@ Real authentication (university SSO with MFA for staff) is not available yet. Pr
     | Approver | `approvals:decide` |
     | Catalog manager | `catalog:write` |
     | Support | `exceptions:resolve`, `prototype:simulate` |
-    | Finance | `reports:sales` (sales figures on the dashboard; refunds arrive in M5) |
+    | ~~Finance~~ (removed Oct 8, 2026) | `reports:sales` (sales figures on the dashboard). Its scopes, with `payments:read` and `refunds:request` added in M5, moved to the staff administrator |
     | IT/Canvas administrator | `exceptions:resolve`, `prototype:simulate` |
-    | Staff administrator | `staff:manage` |
+    | Staff administrator | `staff:manage`; since Oct 8, 2026 also `reports:sales`, `payments:read`, `refunds:request` |
     | Content editor (added Oct 7, 2026) | `content:write`: Explore tab picks (decision F12, shared with `catalog:write`); reserved for the planned sales page editor |
 
   - Role permissions are fixed in code. Staff administrators assign roles to people but cannot change what a role allows.

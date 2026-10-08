@@ -24,6 +24,7 @@ import { usePathname } from "next/navigation";
 import Image from "next/image";
 import MenuIcon from "@mui/icons-material/Menu";
 import { brand } from "../app/theme";
+import { StripeTestCardsButton } from "./stripe-test-cards";
 const navLinks = [
   ["/", "Courses"],
   ["/learning", "My learning"],
@@ -238,7 +239,8 @@ export default function Shell({ children }: { children: React.ReactNode }) {
             >
               {" "}
               · No real payments or Canvas enrollments.
-            </Box>
+            </Box>{" "}
+            · <StripeTestCardsButton />
           </Typography>
         </Container>
       </Box>

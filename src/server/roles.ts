@@ -12,10 +12,15 @@ export const roleScopes: Record<StaffRole, readonly string[]> = {
     "payments:read",
     "refunds:request",
   ],
-  // Finance issues refunds in the Stripe Dashboard; the portal only requests them.
-  finance: ["reports:sales", "payments:read", "refunds:request"],
   it_canvas_admin: ["exceptions:resolve", "prototype:simulate"],
-  staff_admin: ["staff:manage", "payments:read"],
+  // Also holds the former Finance role's permissions (removed October 8, 2026):
+  // the university Finance department works in Stripe, not in the portal.
+  staff_admin: [
+    "staff:manage",
+    "reports:sales",
+    "payments:read",
+    "refunds:request",
+  ],
   // Reserved for the planned sales page editor; no endpoint uses it yet.
   content_editor: ["content:write"],
 };
@@ -26,7 +31,6 @@ export const roleLabels: Record<StaffRole, string> = {
   approver: "Approver",
   catalog_manager: "Catalog manager",
   support: "Support",
-  finance: "Finance",
   it_canvas_admin: "IT/Canvas administrator",
   staff_admin: "Staff administrator",
   content_editor: "Content editor",
@@ -48,12 +52,10 @@ export const roleDescriptions: Record<StaffRole, string> = {
     "Creates, edits, publishes and unpublishes offerings, including prices and policies.",
   support:
     "Recovers failed provisioning, manages learner account access, views transactions and requests refunds, and runs the prototype provisioning simulation.",
-  finance:
-    "Views sales dashboards, transactions, reports and activity. Requests refunds and completes them in the Stripe Dashboard.",
   it_canvas_admin:
     "Recovers identity and Canvas failures, including recording manual enrollment.",
   staff_admin:
-    "Adds staff members, assigns roles and deactivates access; views transactions.",
+    "Adds staff members, assigns roles and deactivates access; sees sales figures and transactions and records refund requests for the Finance department.",
   content_editor:
     "Chooses the learner Explore tab picks and will edit customizable sales pages once the sales page editor exists.",
 };

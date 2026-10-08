@@ -320,12 +320,8 @@ export class PortalService {
             ].includes(row.status))
         )
           return row;
-        // A refunded registration keeps its order history; registering again
-        // needs staff help for now (one order and one job per registration).
-        if (row?.status === "refunded")
-          throw new ConflictException(
-            "This course was refunded and your access has ended. Contact the program office to register again.",
-          );
+        // A refunded registration may start again (decided October 8, 2026): it
+        // reserves or requests approval like a new one, and pays as a new order.
         if (!offering.enrollment_open)
           throw new ConflictException(
             `Enrollment closed on ${offering.enrollment_closes_label}.`,
@@ -381,10 +377,15 @@ export class PortalService {
           principal.learnerId,
         );
         if (!row) throw new NotFoundException("Registration not found.");
-        const existing = await tx.operations.findUnique({
-          where: { entitlement_id: entitlementId },
-        });
-        if (existing) return existing;
+        // Already paid in this cycle: return its enrollment job (idempotent). A
+        // refunded registration that reserved again pays as a new cycle.
+        if (["provisioning", "enrolled", "exception"].includes(row.status)) {
+          const latest = await tx.operations.findFirst({
+            where: { entitlement_id: entitlementId },
+            orderBy: { created_at: "desc" },
+          });
+          if (latest) return latest;
+        }
         if (
           row.status !== "reserved" ||
           !row.reserved_until ||
@@ -755,8 +756,8 @@ export class PortalService {
   }
   // charge.refunded from Stripe: Finance refunded in the Stripe Dashboard.
   // Records the refunded amount and closes any open portal request. A full
-  // refund ends course access (decision P5, October 7, 2026); a partial refund
-  // is recorded and flagged, with access unchanged.
+  // refund ends course access (decision P5). Partial refunds are not allowed by
+  // policy; one made in Stripe anyway is recorded and flagged, access unchanged.
   private async applyRefund(
     tx: Tx,
     charge: Stripe.Charge,
@@ -805,10 +806,17 @@ export class PortalService {
         refunded_cents: refunded,
         full,
         ...(closed.count ? {} : { without_portal_request: true }),
-        ...(full ? {} : { partial_access_unchanged: true }),
+        ...(full ? {} : { partial_against_policy: true }),
       },
     );
     if (!full) return;
+    // A late refund of an earlier payment must not end access bought again.
+    const [latest] = await sql<{ id: string }>(
+      tx,
+      "SELECT id FROM orders WHERE entitlement_id=$1::uuid ORDER BY created_at DESC LIMIT 1",
+      order.entitlement_id,
+    );
+    if (latest?.id !== order.id) return;
     const [registration] = await sql<{ status: string }>(
       tx,
       "SELECT status FROM entitlements WHERE id=$1::uuid FOR UPDATE",
@@ -998,7 +1006,7 @@ export class PortalService {
       prisma,
       `SELECT e.*,o.title,o.category,o.format,o.course_type,o.price_cents,o.approval_required,${scheduleText},
       ${enrollmentWindow},o.published,CASE WHEN e.status='enrolled' THEN o.canvas_course_url END AS canvas_course_url,
-      p.id AS operation_id,p.stage,p.status AS operation_status,p.attempts FROM entitlements e JOIN offerings o ON o.id=e.offering_id LEFT JOIN operations p ON p.entitlement_id=e.id WHERE e.learner_id=$1::uuid ORDER BY e.created_at DESC`,
+      p.id AS operation_id,p.stage,p.status AS operation_status,p.attempts FROM entitlements e JOIN offerings o ON o.id=e.offering_id LEFT JOIN LATERAL (SELECT * FROM operations q WHERE q.entitlement_id=e.id ORDER BY q.created_at DESC LIMIT 1) p ON true WHERE e.learner_id=$1::uuid ORDER BY e.created_at DESC`,
       principal.learnerId,
     );
   }
@@ -1371,10 +1379,15 @@ export class PortalService {
       include: {
         offerings: { select: { title: true } },
         learners: { select: { email: true } },
-        operations: true,
+        // The current enrollment job is the latest one.
+        operations: { orderBy: { created_at: "desc" }, take: 1 },
       },
-      orderBy: { operations: { failed_at: "asc" } },
     });
+    rows.sort(
+      (a, b) =>
+        (a.operations[0]?.failed_at?.getTime() ?? 0) -
+        (b.operations[0]?.failed_at?.getTime() ?? 0),
+    );
     const history = rows.length
       ? await prisma.audit_events.findMany({
           where: { object_id: { in: rows.map((row) => row.id) } },
@@ -1409,12 +1422,12 @@ export class PortalService {
       offering_id: row.offering_id,
       title: row.offerings.title,
       learner_email: row.learners.email,
-      operation_id: row.operations?.id ?? null,
-      stage: row.operations?.stage ?? null,
-      error: row.operations?.error ?? null,
-      attempts: row.operations?.attempts ?? 0,
-      failed_at: row.operations?.failed_at ?? null,
-      simulated_outcome: row.operations?.simulated_outcome ?? null,
+      operation_id: row.operations[0]?.id ?? null,
+      stage: row.operations[0]?.stage ?? null,
+      error: row.operations[0]?.error ?? null,
+      attempts: row.operations[0]?.attempts ?? 0,
+      failed_at: row.operations[0]?.failed_at ?? null,
+      simulated_outcome: row.operations[0]?.simulated_outcome ?? null,
       history: history
         .filter((event) => event.object_id === row.id)
         .map(({ object_id, ...event }) => ({
@@ -1436,9 +1449,15 @@ export class PortalService {
       key,
       { action: `exception.${action}`, id, reason },
       async (tx) => {
-        const [found] = await sql<{ id: string; stage: string }>(
+        const [found] = await sql<{
+          id: string;
+          operation_id: string;
+          stage: string;
+        }>(
           tx,
-          "SELECT e.id,p.stage FROM entitlements e JOIN operations p ON p.entitlement_id=e.id WHERE e.id=$1::uuid AND e.status='exception' FOR UPDATE OF e,p",
+          `SELECT e.id,p.id AS operation_id,p.stage FROM entitlements e
+           JOIN operations p ON p.id=(SELECT q.id FROM operations q WHERE q.entitlement_id=e.id ORDER BY q.created_at DESC LIMIT 1)
+           WHERE e.id=$1::uuid AND e.status='exception' FOR UPDATE OF e,p`,
           id,
         );
         if (!found)
@@ -1450,7 +1469,7 @@ export class PortalService {
             data: { status: "provisioning" },
           });
           await tx.operations.update({
-            where: { entitlement_id: id },
+            where: { id: found.operation_id },
             data: {
               status: "pending",
               attempts: 0,
@@ -1466,7 +1485,7 @@ export class PortalService {
             data: { status: "enrolled" },
           });
           await tx.operations.update({
-            where: { entitlement_id: id },
+            where: { id: found.operation_id },
             data: { status: "succeeded", stage: "manual", next_run: null },
           });
         }
@@ -1674,9 +1693,16 @@ export class PortalService {
             reserved_until: true,
             approval_expires_at: true,
             offerings: { select: { id: true, title: true, price_cents: true } },
-            orders: { select: { amount_cents: true, created_at: true } },
+            // Latest payment and job; earlier ones remain as history.
+            orders: {
+              select: { amount_cents: true, created_at: true },
+              orderBy: { created_at: "desc" },
+              take: 1,
+            },
             operations: {
               select: { status: true, stage: true, attempts: true },
+              orderBy: { created_at: "desc" },
+              take: 1,
             },
           },
         },
@@ -1714,10 +1740,10 @@ export class PortalService {
           offering_id: offering.id,
           title: offering.title,
           price_cents: offering.price_cents,
-          paid_cents: orders?.amount_cents ?? null,
-          paid_at: orders?.created_at ?? null,
-          operation_status: operations?.status ?? null,
-          operation_stage: operations?.stage ?? null,
+          paid_cents: orders[0]?.amount_cents ?? null,
+          paid_at: orders[0]?.created_at ?? null,
+          operation_status: operations[0]?.status ?? null,
+          operation_stage: operations[0]?.stage ?? null,
         }),
       ),
       activity: activity.map((event) => ({

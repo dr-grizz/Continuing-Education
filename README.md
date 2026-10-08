@@ -23,6 +23,8 @@ npm run dev
 - OpenAPI JSON: http://localhost:3001/api/openapi.json
 - PostgreSQL: localhost:5433, database `continuing_education`, user `portal`; local password is in ignored `.env`.
 
+**Other devices on your network** (phones, tablets, another computer): run `npm run dev:lan` instead of `npm run dev`. It prints the address to open, such as `http://10.0.0.5:3000`. Only the website listens on the network; the API, worker and database stay on this computer, so the API docs link works only here. Use a trusted network: staff sign-in is mock, with no passwords, so anyone who can reach the address can act as any staff member. Stripe Checkout returns learners to the network address. If macOS asks whether `node` may accept incoming connections, allow it.
+
 Stop application processes with Ctrl+C. `docker compose stop db` stops PostgreSQL without removing its persistent volume. Do not use `down -v` unless you intend to erase the prototype data. Setup and migration preserve existing environments/data; seed runs once.
 
 ## Database migrations
@@ -86,9 +88,8 @@ Stop application processes with Ctrl+C. `docker compose stop db` stops PostgreSQ
    - Avery Approver can decide approvals but not edit offerings.
    - Casey Catalog Manager manages offerings, collections and pathways.
    - Sam Support and Ivy (IT/Canvas) recover exceptions.
-   - Fran Finance views reports, including sales on the **Dashboard** tab (other staff see enrollment only), and **Transactions**, where Finance and Support request refunds that Finance then issues in the Stripe Dashboard.
    - Cory Content Editor chooses the Explore tab picks (with catalog managers) and will edit sales pages once that editor exists.
-   - The Demo Staff Administrator holds every role and manages people in the **Staff** and **Roles** tabs.
+   - The Demo Staff Administrator holds every role and manages people in the **Staff** and **Roles** tabs. Staff administrators also see sales on the **Dashboard** tab (other staff see enrollment only) and **Transactions**, where they and Sam Support record refund requests for the university Finance department, which issues refunds in Stripe. The portal has no Finance role (removed October 8, 2026): Finance works in Stripe, not in the portal.
 
    - In **Learners**, any staff member can inspect a learner's registrations and activity. Sam Support can deactivate or reactivate a learner, with a reason; a deactivated learner cannot sign in or act.
 
@@ -109,7 +110,7 @@ Payments are simulated unless a Stripe **test-mode** key is configured ([ADR 000
 
 3. Restart `npm run dev`. Reserved seats in My learning now show **Pay with Stripe**. Pay with test card `4242 4242 4242 4242` (any future date, any CVC); `4000 0000 0000 9995` is declined.
 
-Only the signed webhook marks a payment paid; the page Stripe returns to is informational. No tax is collected. Refunds are processed by Finance in the Stripe Dashboard; the portal does not issue them.
+For the university Finance department and whoever hosts the portal, [How the portal works with Stripe](docs/finance/stripe-integration.md) explains the payment and refund flows, the refund handoff to Finance, what is shared with Stripe, and what the portal needs from the university's Stripe account. Only the signed webhook marks a payment paid; the page Stripe returns to is informational. No tax is collected. Refunds are processed by Finance in the Stripe Dashboard; the portal does not issue them.
 
 ## Automation
 

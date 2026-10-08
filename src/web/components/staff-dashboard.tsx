@@ -704,7 +704,7 @@ export function StaffDashboard({
             {!canSales || !s ? (
               <Paper variant="outlined" sx={{ p: 3 }}>
                 <Typography color="text.secondary">
-                  Sales figures require the Finance role.
+                  Sales figures are shown to staff administrators.
                 </Typography>
               </Paper>
             ) : (
