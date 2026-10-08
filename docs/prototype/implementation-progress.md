@@ -167,6 +167,8 @@ A real screen-reader session, forced colors and cross-browser checks remain outs
 
 ## Latest implementation record
 
+October 8, 2026 (late, later): video sources are no longer limited. Any https player can be embedded, with a required title. YouTube, Vimeo and Kaltura links still become their standard players; other sites are shown in a sandboxed frame (no page redirects, form submissions or downloads). `http:`, script addresses and addresses with passwords are refused. Verified: `npm test` 24 groups passed (an https player from another site is kept as `other`; `http:` and `javascript:` refused); the editor accessibility checks passed; in the browser a Loom embed code was accepted and previewed in the sandboxed frame.
+
 October 8, 2026 (late): rich text sales pages (branch `sales-pages`), [ADR 0006](../adr/0006-rich-text-sales-pages.md).
 
 - **Editor:** Tiptap 3 with mui-tiptap. The sales page now has one rich text block, with the structured block list kept behind a switch.

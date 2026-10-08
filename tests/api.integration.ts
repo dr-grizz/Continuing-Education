@@ -2084,10 +2084,19 @@ async function main() {
         [
           {
             type: "videoEmbed",
-            attrs: { src: "https://evil.example.com/embed/1", title: "x" },
+            attrs: { src: "http://videos.example.com/embed/1", title: "x" },
           },
         ],
-        "videos from other sites",
+        "insecure (http) video addresses",
+      ],
+      [
+        [
+          {
+            type: "videoEmbed",
+            attrs: { src: "javascript:alert(1)", title: "x" },
+          },
+        ],
+        "script video addresses",
       ],
       [
         [
@@ -2130,6 +2139,13 @@ async function main() {
               title: "",
             },
           },
+          {
+            type: "videoEmbed",
+            attrs: {
+              src: '<iframe src="https://videos.example.org/player/42?autoplay=0" title="x"></iframe>',
+              title: "Campus tour",
+            },
+          },
         ]),
         contentId,
       )
@@ -2157,10 +2173,19 @@ async function main() {
       src: "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ",
       title: "",
     });
+    assert.deepEqual(
+      saved[4].attrs,
+      {
+        provider: "other",
+        src: "https://videos.example.org/player/42?autoplay=0",
+        title: "Campus tour",
+      },
+      "players from any https site are kept, marked as other",
+    );
     assert.equal(richDraft.status, "draft");
 
     console.log(
-      "PASS: sales pages: content editors draft, publish as revisions; rich text allowlist, uploaded images checked by bytes, YouTube/Vimeo/Kaltura only, restore and remove; consent required and kept from learners; structured blocks only; offering page shows status, counts and activity",
+      "PASS: sales pages: content editors draft, publish as revisions; rich text allowlist, uploaded images checked by bytes, https video players (YouTube/Vimeo/Kaltura normalized), restore and remove; consent required and kept from learners; structured blocks only; offering page shows status, counts and activity",
     );
 
     // Stripe sandbox Checkout: signed fake webhook events, no network calls.
