@@ -36,6 +36,20 @@ async function scan(page: Page, name: string) {
   );
   expect(summary, `${name} accessibility violations`).toEqual([]);
 }
+// Staff sections have their own addresses (/staff/offerings, ...).
+const staffSlugs: Record<string, string> = {
+  Dashboard: "",
+  Offerings: "offerings",
+  Collections: "collections",
+  "Explore page": "explore",
+  Approvals: "approvals",
+  Exceptions: "exceptions",
+  Activity: "activity",
+  Transactions: "transactions",
+  Learners: "learners",
+  Staff: "staff",
+  Roles: "roles",
+};
 test.describe("learner pages", () => {
   test("catalog", async ({ page }) => {
     await page.goto("/");
@@ -169,8 +183,8 @@ test.describe("staff workspace", () => {
         data: { email: "admin@cuce.test" },
       });
       expect(signIn.ok()).toBeTruthy();
-      await page.goto("/staff");
-      await page.getByRole("tab", { name: new RegExp(`^${tab}\\b`) }).click();
+      await page.goto(`/staff/${staffSlugs[tab]}`);
+      await expect(page.getByRole("heading", { level: 1 })).toHaveText(tab);
       await scan(page, `Staff ${tab} tab`);
     });
 });
@@ -190,8 +204,8 @@ test.describe("staff dialogs", () => {
       await page.request.post("/api/staff-session", {
         data: { email: "admin@cuce.test" },
       });
-      await page.goto("/staff");
-      await page.getByRole("tab", { name: new RegExp(`^${tab}\\b`) }).click();
+      await page.goto(`/staff/${staffSlugs[tab]}`);
+      await expect(page.getByRole("heading", { level: 1 })).toHaveText(tab);
       await page.getByRole("button", { name: button }).first().click();
       await expect(page.getByRole("dialog")).toBeVisible();
       await scan(page, `${name} dialog`);

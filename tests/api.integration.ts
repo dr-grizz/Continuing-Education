@@ -2068,6 +2068,66 @@ async function main() {
       assert.equal(closedRequest.resolved_by, "stripe-webhook");
       assert.equal(
         (
+          await db.query("SELECT status FROM entitlements WHERE id=$1", [
+            reservation.id,
+          ])
+        ).rows[0].status,
+        "refunded",
+        "a full refund ends course access",
+      );
+      assert.equal(
+        (
+          await db.query(
+            "SELECT count(*)::int AS n FROM operations WHERE entitlement_id=$1 AND status IN ('pending','running')",
+            [reservation.id],
+          )
+        ).rows[0].n,
+        0,
+        "no enrollment job continues after the refund",
+      );
+      await assert.rejects(
+        service.register(payer, randomUUID(), paidOffering),
+        /refunded/,
+        "a refunded registration does not restart on its own",
+      );
+      // A partial refund is recorded but leaves access unchanged.
+      const partial = await reserve(await learner(), await seed(false));
+      const partialSession = `cs_test_${randomUUID().replace(/-/g, "")}`;
+      const partialIntent = `pi_test_${randomUUID().slice(0, 8)}`;
+      await db.query(
+        "INSERT INTO checkout_sessions(id,entitlement_id,amount_cents,expires_at) VALUES ($1,$2,100,now()+interval '31 minutes')",
+        [partialSession, partial.id],
+      );
+      await postEvent(
+        stripeEvent("checkout.session.completed", {
+          ...paidSession,
+          id: partialSession,
+          metadata: { entitlement_id: partial.id },
+          payment_intent: partialIntent,
+        }),
+      );
+      await postEvent(
+        stripeEvent("charge.refunded", {
+          id: `ch_test_${randomUUID().slice(0, 8)}`,
+          object: "charge",
+          payment_intent: partialIntent,
+          amount_refunded: 50,
+        }),
+      );
+      const partialState = (
+        await db.query(
+          "SELECT e.status,o.refunded_cents FROM entitlements e JOIN orders o ON o.entitlement_id=e.id WHERE e.id=$1",
+          [partial.id],
+        )
+      ).rows[0];
+      assert.equal(partialState.refunded_cents, 50);
+      assert.notEqual(
+        partialState.status,
+        "refunded",
+        "a partial refund leaves access unchanged",
+      );
+      assert.equal(
+        (
           await http(
             refundPath,
             STAFF,
@@ -2079,7 +2139,7 @@ async function main() {
         "fully refunded payments cannot be requested again",
       );
       console.log(
-        "PASS: transactions are read-only for payments:read; refund requests are validated and closed by Stripe's charge.refunded",
+        "PASS: transactions are read-only for payments:read; refund requests are validated and closed by Stripe's charge.refunded; a full refund ends access, a partial one does not",
       );
 
       // A lapsed reservation keeps its seat while its Checkout session is unresolved.

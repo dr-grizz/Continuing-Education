@@ -147,6 +147,7 @@ Outlined `Paper`. Catalog cards add a hover and focus-within state: primary bord
 | `reserved` | Seat reserved | Shows the deadline time; Simulate payment |
 | `provisioning` | Preparing access | Three-step progress: Payment recorded → Identity prepared → Enrollment verified |
 | `enrolled` | Enrolled | **Open course in Canvas** when a Canvas URL is mapped: a real address opens in a new tab (accessible name "Open {course} in Canvas (opens in a new tab)"); a placeholder address (`example.com/.org/.net/.edu`, `.test`, `.example`, `.invalid`, `localhost`) opens a "Canvas course not connected yet" dialog showing the placeholder (`aria-haspopup="dialog"`, name "Open {course} in Canvas"; focus returns to the button on close); otherwise a note that the link will appear when staff connect the course |
+| `refunded` | Refunded, access ended | Info note (`role="note"`): the course was refunded and access has ended; contact the program office to register again. No actions. Listed with closed registrations. |
 | `expired` | Reservation expired | Reserve a seat while the approval (if any) is still valid; otherwise Request approval again |
 | `provisioning` (retrying) | Preparing access | "Taking longer than usual… retrying automatically; no action is needed" |
 | any unpaid status on an unpublished offering | No longer offered | "This course is no longer open for registration…"; no actions, and the title is not linked |
@@ -224,7 +225,11 @@ Mock sign-in. The Email field (`autoComplete="username"`) and Password field (`c
   - Without `approvals:decide`, Approvals shows "Approver role required" in place of the decision buttons.
   - Without `exceptions:resolve`, Exceptions shows "Support or IT/Canvas role required" instead of Review.
   - Without `prototype:simulate`, the simulation select is disabled with an explanation.
-- **Header and tabs:** the header keeps the API documentation link. Tabs are **Dashboard** (default), Offerings, **Collections**, **Explore page**, Approvals (count), Exceptions (count), Activity, **Learners**, **Staff** (staff administrators only) and **Roles**. The tab row scrolls on phones, with scroll arrows shown.
+- **Admin layout (October 7, 2026):** staff pages use the full window width (the shell drops its centered container and outer padding under `/staff`).
+  - **Sidebar** (`nav`, `aria-label="Staff sections"`): grouped links, each group a labelled list. Overview: Dashboard. Catalog: Offerings, Collections, Explore page. Learners: Approvals (count), Exceptions (count), Learners. Finance: Transactions (`payments:read`). Administration: Staff (`staff:manage`), Roles, Activity. Only permitted sections appear.
+  - The current link has `aria-current="page"` and the selected style, which uses `Highlight` in forced colors. On `md` and up the sidebar is sticky and collapses to a 72px icon rail (each link named, with a tooltip; remembered in `localStorage`). Below `md` it is a drawer opened by **Staff sections**, which closes on navigation.
+  - **Addresses:** each section is its own route via `staff/[[...section]]`: `/staff` (Dashboard), `/staff/offerings`, `/staff/collections`, `/staff/explore`, `/staff/approvals`, `/staff/exceptions`, `/staff/learners`, `/staff/transactions`, `/staff/staff` (with `?role=` for the Roles → Manage people filter), `/staff/roles` and `/staff/activity`. Unknown or not-permitted addresses are replaced by `/staff`. Back and forward work.
+  - **Header:** a "Staff workspace" overline, an `h1` with the section name, and a compact session panel (name, email, role chips, mock sign-in note, **Switch staff member**, **API docs**). Moving between sections focuses the `h1` and sets the document title to "{Section} · Staff".
 
 - **Collections:**
   - `h2` "Collections and pathways" with a one-line explanation and **New collection** (catalog managers).

@@ -150,7 +150,9 @@ export function StaffExplore({
           sx={{
             display: "grid",
             gap: 2,
-            gridTemplateColumns: { xs: "1fr", md: "repeat(3, minmax(0, 1fr))" },
+            // Panels wrap to fewer columns when narrow (sidebar, large text).
+            gridTemplateColumns:
+              "repeat(auto-fit, minmax(min(100%, 320px), 1fr))",
             alignItems: "start",
           }}
         >

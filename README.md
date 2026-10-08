@@ -37,7 +37,8 @@ Stop application processes with Ctrl+C. `docker compose stop db` stops PostgreSQ
 | `npm run db:generate` | Regenerate the typed client (also runs on `npm ci`). |
 | `npm run test:migrations` | Migration tests on disposable databases. |
 
-- **New empty database:** `npm run db:migrate` applies `prisma/migrations/0_baseline`, which creates the schema, checks, the price-history trigger and the synthetic seed.
+- **Migration names** use three-digit numbers (`000_baseline`, `001_status_enums`, …) so Prisma's alphabetical order matches the real order. `npm run db:migrate` renames history recorded under the earlier one- and two-digit names automatically.
+- **New empty database:** `npm run db:migrate` applies `prisma/migrations/000_baseline`, which creates the schema, checks, the price-history trigger and the synthetic seed.
 - **Existing database (legacy migrations 001–007):** take a backup (below), then run `npm run db:migrate`.
   - It applies any missing legacy migration, verifies 001–007, and records the baseline as applied without replaying it.
   - Records are untouched, and `schema_migrations` remains as history.

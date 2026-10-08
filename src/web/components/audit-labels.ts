@@ -37,6 +37,7 @@ export const auditLabels: Record<string, string> = {
   "payment.refunded": "Refund recorded (Stripe)",
   "payment.refund_unmatched": "Stripe refund needs review",
   "refund.requested": "Refund requested",
+  "access.ended": "Course access ended (refund)",
   "refund.request_cancelled": "Refund request cancelled",
 };
 export const actorLabels: Record<string, string> = {

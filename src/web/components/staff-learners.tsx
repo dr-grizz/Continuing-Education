@@ -72,6 +72,7 @@ const statusLabels: Record<string, string> = {
   awaiting_approval: "Awaiting approval",
   approved: "Approved",
   approval_expired: "Approval expired",
+  refunded: "Refunded, access ended",
   declined: "Declined",
   reserved: "Seat reserved",
   provisioning: "Preparing access",

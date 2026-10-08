@@ -167,6 +167,32 @@ A real screen-reader session, forced colors and cross-browser checks remain outs
 
 ## Latest implementation record
 
+October 7, 2026: a full refund ends course access (decision P5), and migrations renumbered (branch `staff-admin-layout`).
+
+- **Refunds:**
+  - On a full `charge.refunded`, the registration becomes **Refunded**, which frees the seat. Any unfinished enrollment job is stopped, and an `access.ended` audit entry notes that Canvas removal is manual until Canvas is connected.
+  - Partial refunds are recorded and flagged with access unchanged. A refunded registration cannot restart on its own; the learner is asked to contact the program office.
+  - Migration `010_refunded_status` adds the status, and `011_refunded_access_backfill` applies the rule to earlier refunds. It caught today's sandbox test refund.
+  - Learners see "Refunded, access ended" with an explanation; staff learner details and the Transactions page say the same.
+- **Migration names:** renumbered with three digits (`000_baseline` … `011_…`). Prisma applies migrations alphabetically, and `10_refunded_status` would have sorted before `1_status_enums`, failing on any fresh database such as CI's.
+  - `npm run db:migrate` renames history recorded under the old names automatically, before deploying. The local database was backed up, then renamed, with nothing re-applied.
+  - A new migration test covers the rename (10/10).
+- **Verification:** integration 23/23 (full refund ends access and stops jobs, no restart after refund, partial refund leaves access). Migration tests 10/10. In the browser: the refunded learner's My learning card. Record counts unchanged after test runs.
+
+October 7, 2026: admin-style staff layout (branch `staff-admin-layout`, stacked on `stripe-checkout`).
+
+- **Layout:** staff pages are full width, with a grouped left sidebar (Overview, Catalog, Learners, Finance, Administration) in place of the 12-tab row. The sidebar collapses to an icon rail on desktop and becomes a drawer on phones. A compact session panel replaces the large header.
+- **Addresses:** each section is its own address via `staff/[[...section]]` (for example `/staff/transactions`), so Back, bookmarks and shared links work. Not-permitted or unknown sections go to `/staff`. The Roles → Manage people filter is kept in `?role=`.
+- **Accessibility:**
+  - Links with `aria-current="page"` rather than tabs; groups are labelled lists.
+  - Focus moves to the section heading on navigation, and the document title names the section.
+  - The selected item uses `Highlight` in forced colors.
+  - The scans found group labels placed inside the lists, which was fixed, and Explore page panels overflowing at 200% text next to the sidebar; they now wrap to fewer columns.
+- **Verification:**
+  - In the browser, from the keyboard: sidebar navigation (address, title and focus), Back, the collapsed rail, an Approver redirected away from Transactions, and the phone drawer at 375px (no horizontal scrolling).
+  - Roles → Manage people opens `/staff/staff?role=finance` with the filter applied.
+  - Accessibility checks 131/131; they now open staff sections by address and check the current sidebar item in forced colors.
+
 October 7, 2026: missed-webhook reconciliation and staff Transactions with refund requests (branch `stripe-checkout`).
 
 - **Reconciliation:** every 30 seconds the worker checks Checkout sessions more than a minute past expiry with Stripe. Paid ones are recorded exactly as the webhook would (actor `stripe-reconciliation`); still-open ones are expired in Stripe. A seat is not released while one of its sessions is unresolved (cap: one day past expiry).

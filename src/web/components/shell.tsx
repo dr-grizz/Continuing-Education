@@ -31,6 +31,11 @@ const navLinks = [
 ];
 export default function Shell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  // The staff workspace is an admin layout: full width, with its own sidebar.
+  const staff = pathname === "/staff" || pathname.startsWith("/staff/");
+  const width = staff ? false : "lg";
+  const current = (href: string) =>
+    pathname === href || (href === "/staff" && staff);
   const auth = useDemoAuth();
   const router = useRouter();
   const [sessionError, setSessionError] = useState("");
@@ -74,7 +79,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
           "@media (forced-colors: active)": { forcedColorAdjust: "none" },
         }}
       >
-        <Container maxWidth="lg">
+        <Container maxWidth={width}>
           <Toolbar
             disableGutters
             sx={{ minHeight: { xs: 64, md: 80 }, gap: 2, py: 1 }}
@@ -113,12 +118,11 @@ export default function Shell({ children }: { children: React.ReactNode }) {
                   key={href}
                   href={href}
                   color="inherit"
-                  aria-current={pathname === href ? "page" : undefined}
+                  aria-current={current(href) ? "page" : undefined}
                   sx={{
-                    borderBottom:
-                      pathname === href
-                        ? `2px solid ${brand.gold}`
-                        : "2px solid transparent",
+                    borderBottom: current(href)
+                      ? `2px solid ${brand.gold}`
+                      : "2px solid transparent",
                     borderRadius: 0,
                   }}
                 >
@@ -176,8 +180,8 @@ export default function Shell({ children }: { children: React.ReactNode }) {
                   key={href}
                   component="a"
                   href={href}
-                  selected={pathname === href}
-                  aria-current={pathname === href ? "page" : undefined}
+                  selected={current(href)}
+                  aria-current={current(href) ? "page" : undefined}
                   sx={{ minHeight: 48 }}
                 >
                   {label}
@@ -225,7 +229,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
           }),
         })}
       >
-        <Container maxWidth="lg">
+        <Container maxWidth={width}>
           <Typography variant="body2" sx={{ py: { xs: 0.75, sm: 1 } }}>
             Local prototype · Sample data only
             <Box
@@ -242,8 +246,9 @@ export default function Shell({ children }: { children: React.ReactNode }) {
         component="main"
         id="main"
         tabIndex={-1}
-        maxWidth="lg"
-        sx={{ py: { xs: 3, md: 5 }, minHeight: "75vh" }}
+        maxWidth={width}
+        disableGutters={staff}
+        sx={{ py: staff ? 0 : { xs: 3, md: 5 }, minHeight: "75vh" }}
       >
         {pathname === "/learning" && !auth.ready ? (
           <CircularProgress aria-label="Loading demo session" />
@@ -267,7 +272,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
         component="footer"
         sx={{ borderTop: 1, borderColor: "divider", py: 3 }}
       >
-        <Container maxWidth="lg">
+        <Container maxWidth={width}>
           <Stack
             direction={{ xs: "column", sm: "row" }}
             sx={{

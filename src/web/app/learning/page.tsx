@@ -32,6 +32,7 @@ const labels: Record<string, string> = {
   awaiting_approval: "Awaiting approval",
   approved: "Approved — reserve a seat",
   approval_expired: "Approval expired",
+  refunded: "Refunded, access ended",
   declined: "Request declined",
   reserved: "Seat reserved",
   provisioning: "Preparing access",
@@ -239,7 +240,12 @@ export default function LearningPage() {
         (a.start_date ?? "").localeCompare(b.start_date ?? "") ||
         a.title.localeCompare(b.title),
     );
-  const closed = new Set(["declined", "expired", "approval_expired"]);
+  const closed = new Set([
+    "declined",
+    "expired",
+    "approval_expired",
+    "refunded",
+  ]);
   const registrations = rows
     .filter((row) => row.status !== "enrolled")
     .sort(
@@ -322,6 +328,12 @@ export default function LearningPage() {
             ? ", so payment isn’t available and your reserved seat will be released"
             : ""}
           . Contact the program office if you have questions.
+        </Alert>
+      )}
+      {row.status === "refunded" && (
+        <Alert severity="info" role="note">
+          This course was refunded and your access has ended. Contact the
+          program office if you want to register again.
         </Alert>
       )}
       {row.status === "awaiting_approval" && !withdrawn(row) && (

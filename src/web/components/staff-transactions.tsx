@@ -203,8 +203,8 @@ export function StaffTransactions({
       <Alert severity="info" role="note" sx={{ mb: 2 }}>
         Read-only. Refunds are issued by Finance in the Stripe Dashboard
         {canRequest ? "; you can request one here" : ""}. When Stripe reports a
-        refund, its request is marked Refunded automatically. A refund does not
-        change the learner&apos;s course access yet (policy P5 is open).
+        refund, its request is marked Refunded automatically. A full refund ends
+        the learner&apos;s course access.
       </Alert>
       <Stack direction={{ xs: "column", sm: "row" }} sx={{ gap: 2, mb: 2 }}>
         <TextField
@@ -428,8 +428,9 @@ function RefundDialog({
             {mode === "request" ? (
               <>
                 This asks Finance to refund the full amount. Nothing is refunded
-                here: Finance issues the refund in the Stripe Dashboard, and
-                this transaction shows Refunded once Stripe confirms it.
+                here: Finance issues the refund in the Stripe Dashboard. Once
+                Stripe confirms it, this transaction shows Refunded and the
+                learner's course access ends.
                 {row.stripe_payment_intent_id && (
                   <>
                     {" "}

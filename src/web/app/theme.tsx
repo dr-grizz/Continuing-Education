@@ -97,6 +97,19 @@ const theme = createTheme({
         },
       },
     },
+    MuiListItemButton: {
+      styleOverrides: {
+        root: {
+          "@media (forced-colors: active)": {
+            "&.Mui-selected": {
+              forcedColorAdjust: "none",
+              backgroundColor: "Highlight",
+              color: "HighlightText",
+            },
+          },
+        },
+      },
+    },
     MuiTabs: {
       styleOverrides: {
         indicator: {

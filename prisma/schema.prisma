@@ -199,6 +199,8 @@ enum EntitlementStatus {
   enrolled
   expired
   exception
+  /// Fully refunded in Stripe; course access ended (decision P5).
+  refunded
 
   @@map("entitlement_status")
 }
