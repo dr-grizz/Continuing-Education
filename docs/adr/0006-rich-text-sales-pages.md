@@ -25,13 +25,16 @@ Sales pages started as a list of structured blocks (hero image, text, outcomes, 
   - Stored in the `media_assets` table for the prototype and served at `/media/{id}` with `nosniff`.
   - Each image needs a description (alternative text) before publishing. The editor asks for it before uploading.
 - **Videos:**
-  - YouTube (privacy-enhanced youtube-nocookie.com player), Vimeo and Kaltura only, from a link or pasted embed code. Each needs a title, which becomes the player's accessible name.
+  - Any **https** player, from a link or pasted embed code. Each needs a title, which becomes the player's accessible name. Insecure (`http:`) and script addresses, and addresses carrying passwords, are refused.
+  - YouTube (privacy-enhanced youtube-nocookie.com player), Vimeo and Kaltura links become their standard players.
+  - Players from other sites (`provider: "other"`) are shown with `sandbox="allow-scripts allow-same-origin allow-presentation allow-popups"`: they play, but cannot redirect the page, submit forms or start downloads.
+  - Changed the same day: the first version allowed only YouTube, Vimeo and Kaltura. Program staff chose not to limit sources; only content editors can embed, and every change is audited.
   - The editor shows a labelled placeholder; the preview and course page show the player.
 - **Page title** (browser tab) sits at the top of the editor. The search description was dropped.
 
 ## Consequences
 
 - Image uploads raise the API's JSON body limit to 8 MB (base64 through the website's proxy).
-- Hosting needs object storage for images (Azure Blob Storage or Railway's buckets) in place of the database table, and a Content Security Policy that allows only the three video players in frames.
-- Kaltura is accepted from any `kaltura.com` host. Restrict it to the university's partner ID once known.
+- Hosting needs object storage for images (Azure Blob Storage or Railway's buckets) in place of the database table. A Content Security Policy can still limit scripts and images, but its `frame-src` must allow any https site.
+- An embedded page can show anything its site serves, including misleading content. Content editors are trusted to choose sources; the audit log records who changed each page.
 - Draft images are reachable by their random address before publishing. That's acceptable for marketing images; revisit if private images are ever needed.

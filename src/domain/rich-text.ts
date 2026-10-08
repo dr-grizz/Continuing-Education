@@ -6,7 +6,8 @@
 //   blockquote, horizontal rule, hard break, image, video embed
 // - marks: bold, italic, link (http, https and mailto only)
 // - images: files uploaded to the portal (/media/{id}) with alternative text
-// - videos: YouTube, Vimeo and Kaltura players only, each with a title
+// - videos: any https player, each with a title. YouTube, Vimeo and Kaltura
+//   links become their standard players; other sites are shown sandboxed.
 
 export type Mark =
   | { type: "bold" }
@@ -30,15 +31,34 @@ export const videoProviders = {
   youtube: "YouTube",
   vimeo: "Vimeo",
   kaltura: "Kaltura",
+  other: "Embedded",
 } as const;
 export type VideoProvider = keyof typeof videoProviders;
 
 /**
  * Turns a video page link, player link or pasted embed code into a player
- * address from an allowed site, or null. YouTube uses its privacy-enhanced
- * youtube-nocookie.com player.
+ * address, or null when it is not an https address. YouTube, Vimeo and
+ * Kaltura links become their standard players (YouTube's privacy-enhanced
+ * youtube-nocookie.com); any other https address is kept as given.
  */
 export function parseVideo(
+  input: string,
+): { provider: VideoProvider; src: string } | null {
+  const known = parseKnownVideo(input);
+  if (known) return known;
+  const pasted = input.trim().match(/<iframe[^>]*\ssrc=["']([^"']+)["']/i);
+  try {
+    const url = new URL(
+      (pasted ? pasted[1] : input.trim()).replace(/&amp;/g, "&"),
+    );
+    // No passwords in addresses; https only, so pages never mix in insecure content.
+    if (url.protocol !== "https:" || url.username || url.password) return null;
+    return { provider: "other", src: url.toString() };
+  } catch {
+    return null;
+  }
+}
+function parseKnownVideo(
   input: string,
 ): { provider: VideoProvider; src: string } | null {
   const pasted = input.trim().match(/<iframe[^>]*\ssrc=["']([^"']+)["']/i);
@@ -189,7 +209,7 @@ export function normalizeDoc(
       }
       case "videoEmbed": {
         const video = parseVideo(str(node.attrs?.src, 2000));
-        if (!video) fail("Videos must come from YouTube, Vimeo or Kaltura.");
+        if (!video) fail("Video addresses must start with https://.");
         return {
           type: "videoEmbed",
           attrs: { ...video, title: str(node.attrs?.title, 200) },

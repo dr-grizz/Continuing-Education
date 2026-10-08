@@ -8,7 +8,7 @@ import { videoProviders, type VideoProvider } from "../../domain/rich-text";
 // src/domain/rich-text.ts: anything else is refused when saving.
 
 /**
- * A YouTube, Vimeo or Kaltura player. The editor shows a labelled
+ * An embedded video player (YouTube, Vimeo, Kaltura or another https site). The editor shows a labelled
  * placeholder instead of the player, so the editing area stays quiet and
  * keyboard-friendly; the preview and course page show the player.
  */

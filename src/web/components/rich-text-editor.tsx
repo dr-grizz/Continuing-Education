@@ -37,15 +37,12 @@ import {
 } from "mui-tiptap";
 import { api } from "./api";
 import { richTextExtensions } from "./rich-text-extensions";
-import {
-  parseVideo,
-  videoProviders,
-  type RichDoc,
-} from "../../domain/rich-text";
+import { parseVideo, type RichDoc } from "../../domain/rich-text";
 
 // The sales page's rich text editor (Tiptap with mui-tiptap's toolbar). Images
 // are uploaded to the portal and need a description first; videos come from
-// YouTube, Vimeo or Kaltura and need a title.
+// any https address (YouTube, Vimeo and Kaltura links become their standard
+// players) and need a title.
 
 const imageTypes = ["image/png", "image/jpeg", "image/webp", "image/gif"];
 const MAX_IMAGE = 5 * 1024 * 1024;
@@ -137,7 +134,7 @@ export function SalesRichTextEditor({
     const parsed = parseVideo(video.link);
     if (!parsed) {
       setVideoError(
-        "Paste a YouTube, Vimeo or Kaltura link or embed code. Other sites are not allowed.",
+        "Paste a video link or embed code that starts with https://.",
       );
       document.getElementById("video-link")?.focus();
       return;
@@ -302,8 +299,9 @@ export function SalesRichTextEditor({
         <DialogContent>
           <Stack spacing={2} sx={{ pt: 1 }}>
             <DialogContentText>
-              Paste a link or embed code from{" "}
-              {Object.values(videoProviders).join(", ")}.
+              Paste a video link or embed code. YouTube, Vimeo and Kaltura links
+              become their standard players; other sites are shown in a
+              restricted frame.
             </DialogContentText>
             {videoError && (
               <Alert severity="error" role="alert">

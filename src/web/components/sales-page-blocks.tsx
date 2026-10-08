@@ -348,6 +348,13 @@ const renderNode =
               allow="fullscreen; picture-in-picture; encrypted-media"
               allowFullScreen
               referrerPolicy="strict-origin-when-cross-origin"
+              // Players from other sites may run scripts and play, but cannot
+              // redirect this page, submit forms or open downloads.
+              sandbox={
+                node.attrs?.provider === "other"
+                  ? "allow-scripts allow-same-origin allow-presentation allow-popups"
+                  : undefined
+              }
               style={{
                 position: "absolute",
                 inset: 0,
