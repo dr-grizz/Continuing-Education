@@ -305,6 +305,42 @@ for (const who of ["catalog@cuce.test", "approver@cuce.test"])
       await scan(page, `Offering page ${tab || "overview"} as ${who}`);
     }
   });
+test("unsaved changes: the staff sidebar asks before leaving", async ({
+  page,
+}) => {
+  await page.request.post("/api/staff-session", {
+    data: { email: "catalog@cuce.test" },
+  });
+  await page.goto(
+    "/staff/offerings/10000000-0000-4000-8000-000000000001/settings",
+  );
+  const field = page.getByRole("textbox", { name: "Canvas course URL" });
+  await field.fill("https://canvas.example.edu/courses/changed");
+  // On phones the sidebar is in a drawer behind the "Staff sections" button.
+  const sections = page.getByRole("button", { name: "Staff sections" });
+  const clickCollections = async () => {
+    if (await sections.isVisible()) await sections.click();
+    await page
+      .getByRole("navigation", { name: "Staff sections" })
+      .getByRole("link", { name: "Collections" })
+      .filter({ visible: true })
+      .click();
+  };
+  await clickCollections();
+  const dialog = page.getByRole("dialog", { name: "Leave without saving?" });
+  await expect(dialog).toBeVisible();
+  await scan(page, "Leave without saving dialog");
+  await dialog.getByRole("button", { name: "Stay" }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page).toHaveURL(/\/settings$/);
+  // Stay returns to the open drawer on phones; Escape closes it.
+  if (await page.locator(".MuiDrawer-paper").isVisible())
+    await page.keyboard.press("Escape");
+  await expect(field).toHaveValue("https://canvas.example.edu/courses/changed");
+  await clickCollections();
+  await dialog.getByRole("button", { name: "Discard changes" }).click();
+  await expect(page).toHaveURL(/\/staff\/collections$/);
+});
 test("sales page editor and preview", async ({ page }) => {
   await openEditorWithEveryBlock(page);
   await scan(page, "Sales page editor");

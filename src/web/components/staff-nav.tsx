@@ -32,12 +32,15 @@ export function StaffNav({
   collapsed = false,
   onToggle,
   onNavigate,
+  onLinkClick,
 }: {
   items: StaffNavItem[];
   current: string;
   collapsed?: boolean;
   onToggle?: () => void;
   onNavigate?: () => void;
+  /** Can cancel navigation with event.preventDefault() (unsaved changes). */
+  onLinkClick?: (event: React.MouseEvent, href: string) => void;
 }) {
   const groups = [...new Set(items.map((item) => item.group))];
   return (
@@ -105,7 +108,10 @@ export function StaffNav({
                       selected={selected}
                       aria-current={selected ? "page" : undefined}
                       aria-label={collapsed ? name : undefined}
-                      onClick={onNavigate}
+                      onClick={(event) => {
+                        onLinkClick?.(event, item.href);
+                        if (!event.defaultPrevented) onNavigate?.();
+                      }}
                       sx={{
                         mx: 1,
                         borderRadius: 1,

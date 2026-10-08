@@ -167,6 +167,13 @@ A real screen-reader session, forced colors and cross-browser checks remain outs
 
 ## Latest implementation record
 
+October 8, 2026 (late night): tidy-up (branch `theme-switch`).
+
+- **Unsaved changes, everywhere in the staff area:** the "Leave without saving?" question moved into a shared provider, so the staff sidebar (and its phone drawer) asks too, not just the offering page's own links.
+- **Test data:** removed three leftover learners on reserved test addresses (`verify-a-…@example.test` and the two Stripe sandbox learners) with `npm run db:remove-test-learner`. Remaining: the legacy sample learner and one personal demo account. No test offerings, staff, sales pages or refund requests were left.
+- **Pull request:** #13 (Settings page), stacked on #12.
+- **Verification:** accessibility 161 passed, including a new check that the sidebar asks, Stay keeps the edit and Discard leaves, on desktop, phone and WebKit. Keyboard walkthrough: Enter on a sidebar link opens the question; Escape stays and returns focus to the link.
+
 October 8, 2026 (night): Settings page with a color theme choice (branch `theme-switch`, from `sales-pages`).
 
 - **Settings** (`/settings`, a gear icon at the right of the header at every width): Appearance with a Color theme radio group (Match device, the default; Light; Dark), applied immediately and remembered in the browser; Account shows the demo session.
@@ -182,7 +189,7 @@ October 8, 2026 (evening): offering pages. Each offering now has its own staff p
 - **Offerings list:** titles open the offering page; a Sales page column and filter replace the separate Sales pages section, whose old addresses redirect. The **Edit** dialog was removed; **New offering** still uses a dialog and then opens the new draft's page.
 - **API:** `GET /staff/offerings/{id}` returns the offering, registration counts, sales page status and activity; the staff offering list includes each sales page's status. The separate sales page list endpoint was removed.
 - **Verification:** `npm test` 24 groups passed (the sales page group also checks the new endpoint). Accessibility 149 passed in light, dark, phone, WebKit, forced colors and reflow, with new scans of every offering tab as a catalog manager and as an approver (read-only), and reflow checks of the tabs. From the keyboard: opening an offering focuses its title; tab links focus the new tab's heading; the unsaved-changes question appears before leaving; Settings shows only its own errors. Migrations unchanged since the last run (10 passed).
-- **Known gap:** the staff sidebar does not ask about unsaved changes yet.
+- **Known gap (fixed later the same night):** the staff sidebar did not ask about unsaved changes.
 
 October 8, 2026 (later still): sales page editor (decision F2), branch `sales-pages`, stacked on `refund-reregistration`.
 
