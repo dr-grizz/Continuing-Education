@@ -2085,10 +2085,64 @@ async function main() {
         0,
         "no enrollment job continues after the refund",
       );
-      await assert.rejects(
-        service.register(payer, randomUUID(), paidOffering),
-        /refunded/,
-        "a refunded registration does not restart on its own",
+      // A refunded learner can register again and pay as a new order.
+      const again = await reserve(payer, paidOffering);
+      assert.equal(again.id, reservation.id, "the same registration restarts");
+      assert.equal(again.status, "reserved");
+      const againSession = `cs_test_${randomUUID().replace(/-/g, "")}`;
+      const againIntent = `pi_test_${randomUUID().slice(0, 8)}`;
+      await db.query(
+        "INSERT INTO checkout_sessions(id,entitlement_id,amount_cents,expires_at) VALUES ($1,$2,100,now()+interval '31 minutes')",
+        [againSession, reservation.id],
+      );
+      assert.equal(
+        (
+          await postEvent(
+            stripeEvent("checkout.session.completed", {
+              ...paidSession,
+              id: againSession,
+              payment_intent: againIntent,
+            }),
+          )
+        ).status,
+        200,
+      );
+      assert.equal(
+        (
+          await db.query(
+            "SELECT count(*)::int AS n FROM orders WHERE entitlement_id=$1",
+            [reservation.id],
+          )
+        ).rows[0].n,
+        2,
+        "the earlier refunded order stays as history",
+      );
+      assert.equal(
+        (
+          await db.query("SELECT status FROM entitlements WHERE id=$1", [
+            reservation.id,
+          ])
+        ).rows[0].status === "refunded",
+        false,
+        "paying again restores access",
+      );
+      // A late refund event for the earlier payment does not end the new access.
+      await postEvent(
+        stripeEvent("charge.refunded", {
+          id: `ch_test_${randomUUID().slice(0, 8)}`,
+          object: "charge",
+          payment_intent: paidSession.payment_intent,
+          amount_refunded: 100,
+        }),
+      );
+      assert.notEqual(
+        (
+          await db.query("SELECT status FROM entitlements WHERE id=$1", [
+            reservation.id,
+          ])
+        ).rows[0].status,
+        "refunded",
+        "a refund of an earlier payment leaves current access",
       );
       // A partial refund is recorded but leaves access unchanged.
       const partial = await reserve(await learner(), await seed(false));
@@ -2139,7 +2193,7 @@ async function main() {
         "fully refunded payments cannot be requested again",
       );
       console.log(
-        "PASS: transactions are read-only for payments:read; refund requests are validated and closed by Stripe's charge.refunded; a full refund ends access, a partial one does not",
+        "PASS: transactions are read-only for payments:read; refund requests are validated and closed by Stripe's charge.refunded; a full refund ends access, learners can pay again, partial refunds are flagged",
       );
 
       // A lapsed reservation keeps its seat while its Checkout session is unresolved.

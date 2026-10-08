@@ -40,7 +40,13 @@ const labels: Record<string, string> = {
   expired: "Reservation expired",
   exception: "Support review needed",
 };
-const renewable = ["approved", "expired", "approval_expired", "declined"];
+const renewable = [
+  "approved",
+  "expired",
+  "approval_expired",
+  "declined",
+  "refunded",
+];
 // Unpublished offerings accept no further steps before payment.
 const withdrawn = (row: Learning) =>
   row.published === false &&
@@ -64,13 +70,17 @@ function nextStep(row: Learning) {
   const message =
     row.status === "approved"
       ? `Your request is approved. Reserve a seat by ${deadline(row.approval_expires_at)}, when the approval expires.`
-      : row.status === "declined"
-        ? "Your request was declined. You can request approval again."
-        : row.status === "approval_expired"
-          ? "Your approval expired before a seat was reserved. Request approval again to continue."
-          : request
-            ? "Your seat reservation and approval have both expired. Request approval again to continue."
-            : "Your seat reservation expired. Check availability and try again.";
+      : row.status === "refunded"
+        ? request
+          ? "This course was refunded and your access has ended. To take it again, request approval; you will pay again once approved."
+          : "This course was refunded and your access has ended. To take it again, reserve a seat and pay again."
+        : row.status === "declined"
+          ? "Your request was declined. You can request approval again."
+          : row.status === "approval_expired"
+            ? "Your approval expired before a seat was reserved. Request approval again to continue."
+            : request
+              ? "Your seat reservation and approval have both expired. Request approval again to continue."
+              : "Your seat reservation expired. Check availability and try again.";
   return { request, message };
 }
 export default function LearningPage() {
@@ -328,12 +338,6 @@ export default function LearningPage() {
             ? ", so payment isn’t available and your reserved seat will be released"
             : ""}
           . Contact the program office if you have questions.
-        </Alert>
-      )}
-      {row.status === "refunded" && (
-        <Alert severity="info" role="note">
-          This course was refunded and your access has ended. Contact the
-          program office if you want to register again.
         </Alert>
       )}
       {row.status === "awaiting_approval" && !withdrawn(row) && (

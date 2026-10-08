@@ -50,8 +50,8 @@ model entitlements {
   quoted_price_cents  Int?
   learners            learners            @relation(fields: [learner_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "entitlements_learner_fk")
   offerings           offerings           @relation(fields: [offering_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  operations          operations?
-  orders              orders?
+  operations          operations[]
+  orders              orders[]
   checkout_sessions   checkout_sessions[]
 
   @@unique([learner_id, offering_id])
@@ -130,9 +130,10 @@ model offerings {
 }
 
 /// Durable background provisioning job, claimed by the worker with FOR UPDATE SKIP LOCKED.
+/// A registration can have several over time (paying again after a refund); the latest counts.
 model operations {
   id                String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  entitlement_id    String           @unique @db.Uuid
+  entitlement_id    String           @db.Uuid
   /// Job state (enum operation_status).
   status            OperationStatus  @default(pending)
   /// identity, canvas, complete, or manual (staff-recorded enrollment).
@@ -147,12 +148,15 @@ model operations {
   delay_applied     Boolean          @default(false)
   failed_at         DateTime?        @db.Timestamptz(6)
   entitlements      entitlements     @relation(fields: [entitlement_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([entitlement_id])
 }
 
-/// Simulated payment record (not financial evidence). amount_cents is the quoted price.
+/// Payment record (simulated, or Stripe sandbox). amount_cents is the quoted price. A registration
+/// can have several orders over time (paying again after a refund); the latest is current.
 model orders {
   id                         String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  entitlement_id             String            @unique @db.Uuid
+  entitlement_id             String            @db.Uuid
   amount_cents               Int
   payment_status             String            @default("simulated_paid")
   created_at                 DateTime          @default(now()) @db.Timestamptz(6)
@@ -165,6 +169,8 @@ model orders {
   refunded_at                DateTime?         @db.Timestamptz(6)
   refund_requests            refund_requests[]
   entitlements               entitlements      @relation(fields: [entitlement_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([entitlement_id])
 }
 
 /// Prototype-only settings, for example provisioning_outcome for simulated failures.

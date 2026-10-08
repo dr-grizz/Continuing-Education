@@ -65,7 +65,11 @@ async function main() {
           .map((entry) => Number.parseInt(entry, 10))
           .filter(Number.isFinite),
       ) + 1;
-    const target = path.join(directory, `${next}_${name}`);
+    // Three digits keep Prisma's alphabetical order equal to the real order.
+    const target = path.join(
+      directory,
+      `${String(next).padStart(3, "0")}_${name}`,
+    );
     if (existsSync(target)) throw new Error(`${target} already exists.`);
     mkdirSync(target);
     // Prisma does not wrap migrations in a transaction; keep the draft atomic.
