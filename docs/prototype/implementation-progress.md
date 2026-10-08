@@ -197,7 +197,7 @@ October 8, 2026 (later still): sales page editor (decision F2), branch `sales-pa
 - **Blocks:** hero image (library images, alternative text or marked decorative), text, learning outcomes (from the offering), instructor, testimonial (consent required to publish; the consent note never reaches learners), questions and answers. Text is plain, with paragraphs and bulleted lists; there is no HTML.
 - **Workflow:** save draft (version-checked), a **Before publishing** checklist, publish as a numbered append-only revision, copy an earlier revision back to the draft, or remove the published page. Every change is audited.
 - **Database:** migration `014_sales_pages` adds `sales_pages` and `sales_page_revisions`, with checks and an append-only trigger.
-- **Assumptions to confirm (F2):** course pages only (not collections or pathways yet); no separate approval before publishing; no image uploads; no readable page addresses (slugs). The search description is stored but not yet used in page metadata, because course pages render in the browser.
+- **Assumptions to confirm (F2):** course pages only (not collections or pathways yet); no separate approval before publishing; no image uploads; no readable page addresses (slugs). A search description was dropped on October 8, 2026: the page title alone is enough for now.
 - **Also fixed:** `npm run dev:lan` blocked development files for `127.0.0.1`, so pages there never became interactive; `127.0.0.1` is now allowed too.
 - **Verification:**
   - `npm test`: 24 groups passed, including the new sales page group (permissions, unknown block types refused, consent required, consent kept from learners, stale versions refused, restore, remove, append-only revisions, auditing). `npm run test:migrations`: 10 passed.

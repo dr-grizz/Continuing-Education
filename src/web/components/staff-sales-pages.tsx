@@ -113,7 +113,7 @@ const newBlock = (type: Block["type"]): Block => {
 function canonical(page: SalesPage): string {
   return JSON.stringify({
     blocks: page.blocks.map((b) => ({ ...newBlock(b.type), ...b })),
-    seo: { title: page.seo.title, description: page.seo.description },
+    seo: { title: page.seo.title },
   });
 }
 
@@ -132,7 +132,7 @@ export function SalesPageEditor({
 }) {
   const [detail, setDetail] = useState<Detail>(),
     [items, setItems] = useState<Item[]>([]),
-    [seo, setSeo] = useState({ title: "", description: "" }),
+    [seo, setSeo] = useState({ title: "" }),
     [error, setError] = useState(""),
     [failure, setFailure] = useState(""),
     [busy, setBusy] = useState(false),
@@ -362,6 +362,16 @@ export function SalesPageEditor({
           id="sales-page-panel-edit"
           aria-labelledby="sales-page-tab-edit"
         >
+          <TextField
+            id="sales-page-title"
+            label="Page title"
+            value={seo.title}
+            onChange={(e) => setSeo({ title: e.target.value })}
+            slotProps={{ htmlInput: { maxLength: 70 } }}
+            helperText={`Shown on the browser tab. Leave blank to use the course title. ${seo.title.length}/70`}
+            fullWidth
+            sx={{ mb: 3 }}
+          />
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             Text appears exactly as typed. Separate paragraphs with a blank
             line, and start lines with “- ” for a bulleted list. Prices, dates
@@ -454,39 +464,6 @@ export function SalesPageEditor({
               Add block
             </Button>
           </Stack>
-          <Paper
-            component="fieldset"
-            variant="outlined"
-            sx={{ p: 2, m: 0, mt: 3, minWidth: 0 }}
-          >
-            <Typography
-              component="legend"
-              variant="subtitle1"
-              sx={{ fontWeight: 600, px: 0.5 }}
-            >
-              Browser tab and search results
-            </Typography>
-            <Stack spacing={2} sx={{ mt: 1 }}>
-              <TextField
-                label="Page title"
-                value={seo.title}
-                onChange={(e) => setSeo({ ...seo, title: e.target.value })}
-                slotProps={{ htmlInput: { maxLength: 70 } }}
-                helperText={`Leave blank to use the course title. ${seo.title.length}/70`}
-              />
-              <TextField
-                label="Description"
-                value={seo.description}
-                onChange={(e) =>
-                  setSeo({ ...seo, description: e.target.value })
-                }
-                multiline
-                minRows={2}
-                slotProps={{ htmlInput: { maxLength: 160 } }}
-                helperText={`One or two sentences for search results and shared links. ${seo.description.length}/160`}
-              />
-            </Stack>
-          </Paper>
           {detail.problems.length > 0 && (
             <Alert severity="warning" sx={{ mt: 3 }}>
               <AlertTitle component="h4">Before publishing</AlertTitle>
