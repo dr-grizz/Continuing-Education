@@ -167,6 +167,28 @@ A real screen-reader session, forced colors and cross-browser checks remain outs
 
 ## Latest implementation record
 
+October 8, 2026: no partial refunds, paying again after a refund, and the Finance guide to the Stripe integration (branch `refund-reregistration`).
+
+- **Decisions (P5):** no partial refunds; one made in Stripe anyway is recorded and flagged (`partial_against_policy`), with access unchanged. Learners can register and pay again after a refund.
+- **Database:** migration `012_multiple_payments` lets a registration have several orders and enrollment jobs over time; the latest is current.
+  - Prisma's draft used `DROP INDEX` on what the baseline created as UNIQUE constraints. It failed safely inside its transaction, was rewritten to `DROP CONSTRAINT`, marked rolled back and re-applied.
+  - `db:migrate:draft` now names new migrations with three digits.
+- **Behaviour:**
+  - Refunded courses show **Reserve a seat** (or **Request approval again**) in My learning; paying again creates a new order.
+  - A late refund of an earlier payment does not end access bought again.
+  - My learning, the exceptions queue, recovery, staff learner details and payment idempotency use the latest job and order.
+- **Documentation:** [How the portal works with Stripe](../finance/stripe-integration.md) for Finance and IT:
+  - the payment and refund flows
+  - the API calls and the restricted-key permissions they need
+  - the webhook events
+  - the data shared with Stripe
+  - suggested Stripe Dashboard roles (Refund Analyst for refunding staff), taken from Stripe's role definitions
+  - questions for Finance
+- **Verification:**
+  - Integration 23/23: refund, re-register, pay again, two orders on record, and a late refund of the old payment leaving access. Migration tests 10/10.
+  - Sandbox: the refunded test learner reserved again from the keyboard, paid $149 with test card 4242 and was enrolled again, with two orders (one refunded) recorded.
+  - Note: reading the `stripe listen` terminal exposed the sandbox webhook signing secret in the session; the user was told.
+
 October 7, 2026: a full refund ends course access (decision P5), and migrations renumbered (branch `staff-admin-layout`).
 
 - **Refunds:**
