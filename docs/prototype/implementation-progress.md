@@ -167,6 +167,25 @@ A real screen-reader session, forced colors and cross-browser checks remain outs
 
 ## Latest implementation record
 
+October 8, 2026 (late): rich text sales pages (branch `sales-pages`), [ADR 0006](../adr/0006-rich-text-sales-pages.md).
+
+- **Editor:** Tiptap 3 with mui-tiptap. The sales page now has one rich text block, with the structured block list kept behind a switch.
+- **Allowed content:**
+  - Headings 2–4, paragraphs, lists, quotes, dividers, bold, italic and links.
+  - Images uploaded to the portal (new `media_assets` table, migration `015_media_assets`), each with a required description.
+  - YouTube, Vimeo and Kaltura videos, each with a required title.
+- **Safety:** the server rebuilds every document from an allowlist (`src/domain/rich-text.ts`), and learners see it through our own renderer, never HTML. Images are checked by their first bytes, and SVG is refused.
+- **Also:**
+  - The page title moved to the top of the editor, and the search description was dropped.
+  - Dropdown focus borders are 2px. The editor no longer draws a second focus rectangle.
+  - The prototype bar button now reads **Test Payment Info**.
+- **Verification:**
+  - `npm test`: 24 groups passed. The sales page group adds refused script links, foreign videos and foreign images, unknown content, upload permission, SVG and fake images refused, image serving headers, heading levels and video link normalization, and publish checks for missing image descriptions and video titles.
+  - `npm run test:migrations`: 10 passed.
+  - Accessibility: 153 passed, including the editor with a heading, paragraph and video, the image description dialog (focused field) and the preview.
+  - Browser: wrote a page with a heading, Vimeo video and two uploaded images, published it and checked the course page (player title, image descriptions). The walkthrough data was deleted.
+- **Not yet:** screen-reader review of the editor; object storage and a Content Security Policy for hosting.
+
 October 8, 2026 (evening, later): text field focus. The global 3px focus ring was drawn on the input itself and covered floating labels. Text fields and selects now show focus with their own border, thickened from 1px to 3px in the primary color (light blue in dark mode); everything else keeps the ring. Verified from the keyboard in light and dark mode; accessibility checks 149 passed, plus a new check that a focused text field has no ring and a 3px border.
 
 October 8, 2026 (evening): offering pages. Each offering now has its own staff page, and the sales page editor moved into it (branch `sales-pages`).
@@ -194,7 +213,7 @@ October 8, 2026 (later still): sales page editor (decision F2), branch `sales-pa
 October 8, 2026 (evening): the portal's Finance role was removed, and the prototype bar has Stripe test cards.
 
 - **Finance role removed:** the university Finance department works in Stripe, not in the portal. Migration `013_remove_finance_role` rebuilds the `staff_role` enum without `finance` and deletes the demo member Fran Finance. It stops, with instructions, if anyone else holds only that role, and removes the role from anyone holding it with others. The staff administrator now holds `reports:sales`, `payments:read` and `refunds:request`; Support keeps `payments:read` and `refunds:request`. The dashboard says sales figures are shown to staff administrators.
-- **Stripe test cards:** a **Test cards** button in the local prototype bar opens a dialog listing Stripe's published sandbox cards (success, authentication, generic decline, insufficient funds), each with a Copy button and a status message.
+- **Stripe test cards:** a **Test cards** button (renamed **Test Payment Info** later that day) in the local prototype bar opens a dialog listing Stripe's published sandbox cards (success, authentication, generic decline, insufficient funds), each with a Copy button and a status message.
 - **Verification:**
   - `npm test`: 23 groups passed. `npm run test:migrations`: 10 passed.
   - Accessibility scans (light, dark, phone, WebKit, forced colors, reflow): 135 passed, including a new scan of the test cards dialog. One catalog scan failed while the integration tests were changing data at the same time, and passed on rerun. Firefox runs in CI.

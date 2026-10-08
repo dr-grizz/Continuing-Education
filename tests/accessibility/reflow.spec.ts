@@ -24,34 +24,37 @@ const staffTabs = [
   "Staff",
   "Roles",
 ];
-// Opens the sales page editor for a sample course and adds one block of each
-// type, without saving, so the scans cover every block's fields.
-const blockTypes = [
-  "Hero image",
-  "Text",
-  "Learning outcomes",
-  "Instructor",
-  "Testimonial",
-  "Questions and answers",
-];
-async function openEditorWithEveryBlock(page: Page) {
+// Opens the sales page editor for a sample course and fills the rich text
+// editor with a heading, a paragraph and a video, without saving, so the scans
+// cover the editor, its toolbar and the preview.
+async function openEditorWithRichContent(page: Page) {
   await page.request.post("/api/staff-session", {
     data: { email: "content@cuce.test" },
   });
   await page.goto(
     "/staff/offerings/10000000-0000-4000-8000-000000000001/sales-page",
   );
-  await expect(
-    page.getByRole("heading", { level: 3, name: "Sales page" }),
-  ).toBeVisible();
-  for (const type of blockTypes) {
-    await page.getByRole("combobox", { name: "Block type" }).click();
-    await page.getByRole("option", { name: type, exact: true }).click();
-    await page.getByRole("button", { name: "Add block" }).click();
-  }
-  await expect(
-    page.getByRole("group", { name: /^Block 6 of 6/ }),
-  ).toBeVisible();
+  const editor = page.getByRole("textbox", { name: "Page content" });
+  await expect(editor).toBeVisible();
+  await editor.click();
+  await page.keyboard.type("Why take this course");
+  await page.getByRole("combobox", { name: "Styles" }).click();
+  await page.getByRole("option", { name: "Heading 2" }).click();
+  await editor.press("End");
+  await editor.press("Enter");
+  await page.keyboard.type("Turn everyday spreadsheets into clear answers.");
+  await editor.press("Enter");
+  await page.getByRole("button", { name: "Add a video" }).click();
+  const dialog = page.getByRole("dialog", { name: "Add a video" });
+  await dialog
+    .getByRole("textbox", { name: "Video link or embed code" })
+    .fill("https://vimeo.com/76979871");
+  await dialog
+    .getByRole("textbox", { name: "Video title" })
+    .fill("Course introduction");
+  await dialog.getByRole("button", { name: "Add video" }).click();
+  await expect(dialog).toBeHidden();
+  await expect(editor.locator("[data-video-embed]")).toHaveCount(1);
 }
 const staffSlugs: Record<string, string> = {
   Dashboard: "",
@@ -164,7 +167,7 @@ for (const [name, apply] of conditions)
       expect(problems, `${name}: horizontal scrolling`).toEqual([]);
     });
     test("sales page editor and preview", async ({ page }) => {
-      await openEditorWithEveryBlock(page);
+      await openEditorWithRichContent(page);
       await apply(page);
       const problems: string[] = [];
       const editor = await overflow(page);

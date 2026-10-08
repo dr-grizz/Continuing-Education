@@ -342,6 +342,17 @@ export class SalesPageDto {
   @IsObject()
   page!: Record<string, unknown>;
 }
+// Images for sales pages, sent as base64 JSON through the website's API proxy.
+export class MediaUploadDto {
+  @ApiProperty() @IsString() @MinLength(1) @MaxLength(200) fileName!: string;
+  @ApiProperty({ enum: ["image/png", "image/jpeg", "image/webp", "image/gif"] })
+  @IsIn(["image/png", "image/jpeg", "image/webp", "image/gif"])
+  contentType!: string;
+  @ApiProperty({ description: "Base64 file contents, up to 5 MB decoded" })
+  @IsString()
+  @MaxLength(7_000_000)
+  data!: string;
+}
 export class SalesPageRestoreDto {
   @ApiProperty() @IsInt() @Min(1) version!: number;
   @ApiProperty({ description: "Published revision to copy into the draft" })

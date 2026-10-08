@@ -456,3 +456,16 @@ model sales_page_revisions {
 
   @@unique([offering_id, revision])
 }
+
+/// Images uploaded for sales pages (October 8, 2026). Stored in the database for
+/// the prototype; hosting will move the bytes to object storage. Served at
+/// /media/{id}. CHECK media_assets_content_type_check and _size_check.
+model media_assets {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  content_type String
+  file_name    String
+  size         Int
+  bytes        Bytes
+  created_by   String
+  created_at   DateTime @default(now()) @db.Timestamptz(6)
+}

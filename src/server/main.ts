@@ -12,12 +12,15 @@ import {
   Query,
   RawBodyRequest,
   Req,
+  Res,
+  StreamableFile,
   ServiceUnavailableException,
   BadRequestException,
   UseGuards,
   ValidationPipe,
 } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
+import type { NestExpressApplication } from "@nestjs/platform-express";
 import {
   ApiBearerAuth,
   ApiHeader,
@@ -34,6 +37,7 @@ import {
   ExploreDto,
   SalesPageDto,
   SalesPageRestoreDto,
+  MediaUploadDto,
   CollectionEditDto,
   FollowDto,
   SavedCourseDto,
@@ -86,6 +90,19 @@ class CatalogController {
   })
   explore() {
     return this.portal.explore();
+  }
+  @Get("media/:id")
+  @ApiOperation({ summary: "An uploaded sales page image (public)" })
+  async media(
+    @Param("id", ParseUUIDPipe) id: string,
+    @Res({ passthrough: true }) res: any,
+  ) {
+    const file = await this.portal.media(id);
+    res.set({
+      "Cache-Control": "public, max-age=31536000, immutable",
+      "X-Content-Type-Options": "nosniff",
+    });
+    return new StreamableFile(file.bytes, { type: file.content_type });
   }
   @Get("collections")
   @ApiOperation({
@@ -362,6 +379,20 @@ class WorkflowController {
       dto.version,
       dto.page,
     );
+  }
+  @Post("staff/media")
+  @HttpCode(201)
+  @ApiOperation({
+    summary:
+      "Upload a sales page image (PNG, JPEG, WebP or GIF, up to 5 MB; content:write)",
+  })
+  uploadMedia(
+    @Req() req: any,
+    @Headers("idempotency-key") key: string,
+    @Body() dto: MediaUploadDto,
+  ) {
+    requireScope(req, "content:write");
+    return this.portal.uploadMedia(req.principal, key, dto);
   }
   @Post("staff/sales-pages/:id/publish")
   @HttpCode(200)
@@ -752,7 +783,11 @@ async function main() {
   ])
     if (!process.env[name]) throw new Error("Run npm run setup first.");
   // rawBody keeps the exact bytes Stripe signed, for webhook verification.
-  const app = await NestFactory.create(AppModule, { rawBody: true });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    rawBody: true,
+  });
+  // Sales page images arrive as base64 JSON (up to 5 MB decoded).
+  app.useBodyParser("json", { limit: "8mb" });
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,

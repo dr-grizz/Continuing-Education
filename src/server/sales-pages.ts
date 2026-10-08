@@ -1,4 +1,5 @@
 import { BadRequestException } from "@nestjs/common";
+import { normalizeDoc, RichDoc, richTextProblems } from "../domain/rich-text";
 // Sales page blocks (decision F2). Pages are structured data, never HTML: text is
 // rendered as plain text, so nothing a content editor types can run as markup.
 // Prices, dates and seats always come from the offering, never from page text.
@@ -44,7 +45,11 @@ export type FaqBlock = {
   heading: string;
   items: { question: string; answer: string }[];
 };
+/** Rich text (Tiptap JSON), checked by src/domain/rich-text.ts. The editor
+ * currently offers only this block; the others stay available behind it. */
+export type RichTextBlock = { type: "rich_text"; doc: RichDoc };
 export type Block =
+  | RichTextBlock
   | HeroBlock
   | TextBlock
   | OutcomesBlock
@@ -63,6 +68,7 @@ export const emptySalesPage = (): SalesPage => ({
 });
 
 export const blockLabels: Record<Block["type"], string> = {
+  rich_text: "Rich text",
   hero: "Hero image",
   text: "Text",
   outcomes: "Learning outcomes",
@@ -115,6 +121,12 @@ export function parseSalesPage(input: unknown): SalesPage {
     const where = `Block ${index + 1}`;
     const b = record(raw, where);
     switch (b.type) {
+      case "rich_text": {
+        const result = normalizeDoc(b.doc);
+        if (result.error)
+          throw new BadRequestException(`${where}: ${result.error}`);
+        return { type: "rich_text", doc: result.doc! };
+      }
       case "hero": {
         const image = b.image;
         if (!heroImages.includes(image as HeroBlock["image"]))
@@ -185,7 +197,7 @@ export function parseSalesPage(input: unknown): SalesPage {
 /** What must be fixed before a draft can be published; empty when it is ready. */
 export function publishProblems(page: SalesPage): string[] {
   const problems: string[] = [];
-  if (!page.blocks.length) problems.push("Add at least one block.");
+  if (!page.blocks.length) problems.push("Add some content.");
   const blank = (value: string) => !value.trim();
   page.blocks.forEach((b, index) => {
     const where = `Block ${index + 1} (${blockLabels[b.type]})`;
@@ -193,6 +205,9 @@ export function publishProblems(page: SalesPage): string[] {
       if (blank(value)) problems.push(`${where}: add ${what}.`);
     };
     switch (b.type) {
+      case "rich_text":
+        problems.push(...richTextProblems(b.doc, where));
+        break;
       case "hero":
         if (index !== 0) problems.push(`${where}: move it to the top.`);
         if (!b.decorative) need(b.alt, "alternative text");

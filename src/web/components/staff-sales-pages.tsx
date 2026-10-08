@@ -36,6 +36,13 @@ import {
 } from "./sales-page-blocks";
 import { LoadingCards } from "./loading";
 import { visuallyHidden } from "./visually-hidden";
+import { SalesRichTextEditor } from "./rich-text-editor";
+import {
+  docIsEmpty,
+  emptyDoc,
+  normalizeDoc,
+  type RichDoc,
+} from "../../domain/rich-text";
 
 // Sales page editor (decision F2), in each offering's Sales page tab. Content
 // editors build the course's page from structured blocks, preview it, and
@@ -76,8 +83,16 @@ const when = (value: string) =>
     timeStyle: "short",
   });
 
+// The editor offers one rich text block for now. The other block types stay
+// in the page model, server checks and renderer; set this to true to bring
+// back the block list (hero image, text, outcomes, instructor, testimonial,
+// questions and answers).
+const BLOCK_EDITING = false;
+
 const newBlock = (type: Block["type"]): Block => {
   switch (type) {
+    case "rich_text":
+      return { type, doc: emptyDoc() };
     case "hero":
       return {
         type,
@@ -109,10 +124,17 @@ const newBlock = (type: Block["type"]): Block => {
       };
   }
 };
-// Fixed key order, so saved and edited pages compare exactly.
+// Fixed key order and the server's rich text clean-up, so saved and edited
+// pages compare exactly. An empty rich text block counts as no block.
 function canonical(page: SalesPage): string {
   return JSON.stringify({
-    blocks: page.blocks.map((b) => ({ ...newBlock(b.type), ...b })),
+    blocks: page.blocks
+      .filter((b) => !(b.type === "rich_text" && docIsEmpty(b.doc)))
+      .map((b) =>
+        b.type === "rich_text"
+          ? { type: b.type, doc: normalizeDoc(b.doc).doc ?? b.doc }
+          : { ...newBlock(b.type), ...b },
+      ),
     seo: { title: page.seo.title },
   });
 }
@@ -155,15 +177,30 @@ export function SalesPageEditor({
   const keyed = (blocks: Block[]) =>
     blocks.map((block) => ({ key: `b${nextKey.current++}`, block }));
 
-  function apply(data: Detail) {
+  // `keepEditor` keeps the rich text editor (and its cursor) after a save;
+  // restoring a revision replaces its content, so it starts fresh.
+  function apply(data: Detail, keepEditor = false) {
     setDetail(data);
-    setItems(keyed(data.draft.blocks));
+    const blocks =
+      BLOCK_EDITING || data.draft.blocks.some((b) => b.type === "rich_text")
+        ? data.draft.blocks
+        : [...data.draft.blocks, newBlock("rich_text")];
+    setItems((previous) => {
+      const rich = keepEditor
+        ? previous.find((i) => i.block.type === "rich_text")?.key
+        : undefined;
+      return blocks.map((block) => ({
+        key:
+          block.type === "rich_text" && rich ? rich : `b${nextKey.current++}`,
+        block,
+      }));
+    });
     setSeo(data.draft.seo);
   }
-  const load = () =>
+  const load = (keepEditor = false) =>
     api<Detail>(`staff/sales-pages/${id}`, { role: "staff" })
       .then((data) => {
-        apply(data);
+        apply(data, keepEditor);
         setError("");
         return data;
       })
@@ -197,6 +234,11 @@ export function SalesPageEditor({
   if (!detail) return <LoadingCards label="Loading sales page" count={1} />;
 
   const page: SalesPage = { blocks: items.map((i) => i.block), seo };
+  // One rich text block, unless block editing is on or the draft holds other
+  // block types (then the block list shows them all).
+  const richItem = items.find((i) => i.block.type === "rich_text");
+  const richOnly =
+    !BLOCK_EDITING && items.every((i) => i.block.type === "rich_text");
   const dirty = canonical(page) !== canonical(detail.draft);
   const ready = !dirty && detail.problems.length === 0;
   const label = (index: number) =>
@@ -236,13 +278,17 @@ export function SalesPageEditor({
       `${blockLabels[addType]} block added as block ${items.length + 1}.`,
     );
   }
-  async function run(action: () => Promise<unknown>, success: string) {
+  async function run(
+    action: () => Promise<unknown>,
+    success: string,
+    keepEditor = true,
+  ) {
     if (busy) return;
     setBusy(true);
     setFailure("");
     try {
       await action();
-      await load();
+      await load(keepEditor);
       onChanged(success);
     } catch (e) {
       setFailure((e as Error).message);
@@ -298,6 +344,7 @@ export function SalesPageEditor({
             body: { version: detail!.version, revision: current.revision },
           }),
         `Revision ${current.revision} copied to the draft. Publish it to make it live.`,
+        false,
       );
   }
 
@@ -372,98 +419,128 @@ export function SalesPageEditor({
             fullWidth
             sx={{ mb: 3 }}
           />
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Text appears exactly as typed. Separate paragraphs with a blank
-            line, and start lines with “- ” for a bulleted list. Prices, dates
-            and registration are added from the course automatically.
-          </Typography>
-          {items.length === 0 && (
-            <Typography color="text.secondary" sx={{ mb: 2 }}>
-              No blocks yet. Add one below; until a page is published, learners
-              see the default course page.
-            </Typography>
-          )}
-          <Stack spacing={2}>
-            {items.map((item, index) => (
-              <Paper
-                key={item.key}
-                component="fieldset"
-                variant="outlined"
-                ref={register(`${item.key}-block`)}
-                tabIndex={-1}
-                sx={{ p: 2, m: 0, minWidth: 0 }}
+          {richOnly && richItem ? (
+            <>
+              <Typography
+                variant="body2"
+                color="text.secondary"
+                sx={{ mb: 1.5 }}
               >
-                {/* The legend must be the fieldset's first child to name the group. */}
-                <Typography
-                  component="legend"
-                  variant="subtitle1"
-                  sx={{ fontWeight: 600, float: "left", p: 0, mt: 1, mr: 1 }}
-                >
-                  Block {index + 1} of {items.length}:{" "}
-                  {blockLabels[item.block.type]}
+                Use the toolbar for headings, lists, links, images and videos.
+                Prices, dates and registration are added from the course
+                automatically.
+              </Typography>
+              <SalesRichTextEditor
+                key={richItem.key}
+                content={(richItem.block as { doc: RichDoc }).doc}
+                onChange={(doc) =>
+                  update(richItem.key, { type: "rich_text", doc })
+                }
+                onError={setFailure}
+              />
+            </>
+          ) : (
+            <>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Text appears exactly as typed. Separate paragraphs with a blank
+                line, and start lines with “- ” for a bulleted list. Prices,
+                dates and registration are added from the course automatically.
+              </Typography>
+              {items.length === 0 && (
+                <Typography color="text.secondary" sx={{ mb: 2 }}>
+                  No blocks yet. Add one below; until a page is published,
+                  learners see the default course page.
                 </Typography>
-                <Box sx={{ display: "flex", gap: 0.5, float: "right" }}>
-                  <IconButton
-                    ref={register(`${item.key}-up`)}
-                    aria-label={`Move ${label(index)} up`}
-                    disabled={index === 0}
-                    onClick={() => move(index, -1)}
+              )}
+              <Stack spacing={2}>
+                {items.map((item, index) => (
+                  <Paper
+                    key={item.key}
+                    component="fieldset"
+                    variant="outlined"
+                    ref={register(`${item.key}-block`)}
+                    tabIndex={-1}
+                    sx={{ p: 2, m: 0, minWidth: 0 }}
                   >
-                    <ArrowUpwardIcon />
-                  </IconButton>
-                  <IconButton
-                    ref={register(`${item.key}-down`)}
-                    aria-label={`Move ${label(index)} down`}
-                    disabled={index === items.length - 1}
-                    onClick={() => move(index, 1)}
-                  >
-                    <ArrowDownwardIcon />
-                  </IconButton>
-                  <IconButton
-                    aria-label={`Remove ${label(index)}`}
-                    onClick={() => remove(index)}
-                  >
-                    <DeleteOutlineIcon />
-                  </IconButton>
-                </Box>
-                <Box sx={{ clear: "both", pt: 1 }}>
-                  <BlockFields
-                    id={item.key}
-                    block={item.block}
-                    outcomes={detail.offering.outcomes}
-                    onChange={(block) => update(item.key, block)}
-                  />
-                </Box>
-              </Paper>
-            ))}
-          </Stack>
-          <Stack
-            direction="row"
-            sx={{ mt: 2, gap: 1, flexWrap: "wrap", alignItems: "center" }}
-          >
-            <TextField
-              select
-              size="small"
-              label="Block type"
-              value={addType}
-              onChange={(e) => setAddType(e.target.value as Block["type"])}
-              slotProps={{ select: { id: "sales-page-add" } }}
-              sx={{ minWidth: 220 }}
-            >
-              {(Object.keys(blockLabels) as Block["type"][]).map((type) => (
-                <MenuItem key={type} value={type}>
-                  {blockLabels[type]}
-                </MenuItem>
-              ))}
-            </TextField>
-            <Button
-              variant="outlined"
-              onClick={add}
-              disabled={items.length >= 20}
-            >
-              Add block
-            </Button>
-          </Stack>
+                    {/* The legend must be the fieldset's first child to name the group. */}
+                    <Typography
+                      component="legend"
+                      variant="subtitle1"
+                      sx={{
+                        fontWeight: 600,
+                        float: "left",
+                        p: 0,
+                        mt: 1,
+                        mr: 1,
+                      }}
+                    >
+                      Block {index + 1} of {items.length}:{" "}
+                      {blockLabels[item.block.type]}
+                    </Typography>
+                    <Box sx={{ display: "flex", gap: 0.5, float: "right" }}>
+                      <IconButton
+                        ref={register(`${item.key}-up`)}
+                        aria-label={`Move ${label(index)} up`}
+                        disabled={index === 0}
+                        onClick={() => move(index, -1)}
+                      >
+                        <ArrowUpwardIcon />
+                      </IconButton>
+                      <IconButton
+                        ref={register(`${item.key}-down`)}
+                        aria-label={`Move ${label(index)} down`}
+                        disabled={index === items.length - 1}
+                        onClick={() => move(index, 1)}
+                      >
+                        <ArrowDownwardIcon />
+                      </IconButton>
+                      <IconButton
+                        aria-label={`Remove ${label(index)}`}
+                        onClick={() => remove(index)}
+                      >
+                        <DeleteOutlineIcon />
+                      </IconButton>
+                    </Box>
+                    <Box sx={{ clear: "both", pt: 1 }}>
+                      <BlockFields
+                        id={item.key}
+                        block={item.block}
+                        outcomes={detail.offering.outcomes}
+                        onChange={(block) => update(item.key, block)}
+                      />
+                    </Box>
+                  </Paper>
+                ))}
+              </Stack>
+              <Stack
+                direction="row"
+                sx={{ mt: 2, gap: 1, flexWrap: "wrap", alignItems: "center" }}
+              >
+                <TextField
+                  select
+                  size="small"
+                  label="Block type"
+                  value={addType}
+                  onChange={(e) => setAddType(e.target.value as Block["type"])}
+                  slotProps={{ select: { id: "sales-page-add" } }}
+                  sx={{ minWidth: 220 }}
+                >
+                  {(Object.keys(blockLabels) as Block["type"][]).map((type) => (
+                    <MenuItem key={type} value={type}>
+                      {blockLabels[type]}
+                    </MenuItem>
+                  ))}
+                </TextField>
+                <Button
+                  variant="outlined"
+                  onClick={add}
+                  disabled={items.length >= 20}
+                >
+                  Add block
+                </Button>
+              </Stack>
+            </>
+          )}
           {detail.problems.length > 0 && (
             <Alert severity="warning" sx={{ mt: 3 }}>
               <AlertTitle component="h4">Before publishing</AlertTitle>
@@ -661,6 +738,14 @@ function BlockFields({
     />
   );
   switch (block.type) {
+    case "rich_text":
+      return (
+        <SalesRichTextEditor
+          content={block.doc}
+          onChange={(doc) => onChange({ type: "rich_text", doc })}
+          onError={() => undefined}
+        />
+      );
     case "hero":
       return (
         <Stack spacing={2}>
