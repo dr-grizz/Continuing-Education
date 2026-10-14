@@ -1,0 +1,321 @@
+%% Local PostgreSQL schema through 019_unlimited_seats, October 14, 2026.
+%% Scalar fields and enforced relation cardinalities derived from prisma/schema.prisma.
+%% SQL-only checks/triggers and indexes are documented in migrations; Prisma history is omitted.
+%% Composite PK columns form one key; composite unique fields are not individually unique.
+%% Staff grant/schedule/run/snapshot identifiers have no enforced FK unless a relation is drawn.
+%% Offering capacity NULL means explicit Unlimited only when unlimited_seats=true; otherwise an incomplete imported draft.
+%% Course preview bodies live outside PostgreSQL; run metadata and explicit imports persist.
+erDiagram
+    direction LR
+    learners ||--o{ entitlements : learners
+    offerings ||--o{ entitlements : offerings
+    offerings ||--o{ offering_prices : offerings
+    entitlements ||--o{ operations : entitlements
+    entitlements ||--o{ orders : entitlements
+    staff_members ||--o{ staff_sessions : staff_members
+    collections ||--o{ collection_items : collections
+    offerings ||--o{ collection_items : offerings
+    learners ||--o{ saved_courses : learners
+    offerings ||--o{ saved_courses : offerings
+    learners ||--o{ pathway_follows : learners
+    collections ||--o{ pathway_follows : collections
+    offerings ||--o| stripe_products : offerings
+    offerings ||--o{ stripe_prices : offerings
+    entitlements ||--o{ checkout_sessions : entitlements
+    orders ||--o{ refund_requests : orders
+    offerings ||--o| sales_pages : offering
+    offerings ||--o{ sales_page_revisions : offering
+    offerings ||--o| canvas_offering_mappings : offering
+
+    audit_events {
+        bigint id PK
+        text actor
+        text action
+        uuid object_id "Nullable"
+        jsonb details
+        timestamptz created_at
+    }
+
+    commands {
+        text actor PK
+        text key PK
+        text fingerprint
+        jsonb response
+    }
+
+    entitlements {
+        uuid id PK
+        uuid learner_id FK "Composite unique; see schema"
+        uuid offering_id FK "Composite unique; see schema"
+        entitlement_status status
+        timestamptz reserved_until "Nullable"
+        timestamptz created_at
+        timestamptz approval_expires_at "Nullable"
+        integer quoted_price_cents "Nullable"
+    }
+
+    learners {
+        uuid id PK
+        text email UK "Nullable"
+        timestamptz created_at
+        boolean active
+        timestamptz deactivated_at "Nullable"
+        integer version
+    }
+
+    offering_prices {
+        bigint id PK
+        uuid offering_id FK
+        integer price_cents
+        timestamptz effective_at
+        text actor
+        text reason "Nullable"
+    }
+
+    offerings {
+        uuid id PK
+        text title
+        text category
+        text summary
+        text description
+        jsonb outcomes
+        text format
+        date start_date "Nullable"
+        date end_date "Nullable"
+        integer price_cents "Nullable"
+        boolean unlimited_seats
+        integer capacity "Nullable"
+        boolean approval_required
+        boolean published
+        integer version
+        timestamptz created_at
+        course_type course_type "Nullable"
+        integer approval_valid_days
+        integer enrollment_close_days
+        text canvas_course_url "Nullable"
+        timestamptz unpublished_at "Nullable"
+        integer featured_rank "Nullable"
+        boolean imported_from_canvas
+    }
+
+    operations {
+        uuid id PK
+        uuid entitlement_id FK
+        operation_status status
+        text stage
+        timestamptz next_run "Nullable"
+        text error "Nullable"
+        timestamptz created_at "Nullable"
+        simulated_outcome simulated_outcome
+        integer attempts
+        boolean delay_applied
+        timestamptz failed_at "Nullable"
+    }
+
+    orders {
+        uuid id PK
+        uuid entitlement_id FK
+        integer amount_cents
+        text payment_status
+        timestamptz created_at
+        payment_provider provider
+        text stripe_checkout_session_id UK "Nullable"
+        text stripe_payment_intent_id UK "Nullable"
+        integer refunded_cents
+        timestamptz refunded_at "Nullable"
+    }
+
+    prototype_settings {
+        text key PK
+        text value
+        timestamptz updated_at
+    }
+
+    schema_migrations {
+        text version PK
+        timestamptz applied_at "Nullable"
+    }
+
+    staff_members {
+        uuid id PK
+        text email UK
+        text display_name
+        staff_role_array roles
+        boolean active
+        text auth_provider "Composite unique; see schema"
+        text external_subject "Nullable; Composite unique; see schema"
+        integer version
+        timestamptz created_at
+    }
+
+    staff_oauth_states {
+        text state_hash PK
+        text browser_hash
+        text configuration_hash
+        timestamptz expires_at
+        timestamptz created_at
+    }
+
+    staff_sessions {
+        text token_hash PK
+        uuid staff_id FK
+        text auth_provider
+        text external_subject
+        timestamptz expires_at
+        timestamptz created_at
+    }
+
+    collections {
+        uuid id PK
+        collection_kind kind
+        text slug UK
+        text title
+        text summary
+        boolean published
+        integer version
+        timestamptz created_at
+        timestamptz updated_at
+        integer featured_rank "Nullable"
+    }
+
+    collection_items {
+        uuid collection_id PK,FK "Composite unique; see schema"
+        uuid offering_id PK,FK
+        integer position "Composite unique; see schema"
+    }
+
+    saved_courses {
+        uuid learner_id PK,FK
+        uuid offering_id PK,FK
+        timestamptz created_at
+    }
+
+    pathway_follows {
+        uuid learner_id PK,FK
+        uuid collection_id PK,FK
+        timestamptz created_at
+    }
+
+    stripe_products {
+        uuid offering_id PK,FK
+        text stripe_product_id UK
+        timestamptz created_at
+    }
+
+    stripe_prices {
+        text stripe_price_id PK
+        uuid offering_id FK "Composite unique; see schema"
+        integer price_cents "Composite unique; see schema"
+        timestamptz created_at
+    }
+
+    checkout_sessions {
+        text id PK
+        uuid entitlement_id FK
+        integer amount_cents
+        checkout_status status
+        text url "Nullable"
+        timestamptz expires_at
+        timestamptz created_at
+        timestamptz completed_at "Nullable"
+    }
+
+    stripe_events {
+        text id PK
+        text type
+        timestamptz received_at
+    }
+
+    refund_requests {
+        uuid id PK
+        uuid order_id FK
+        integer amount_cents
+        text reason
+        refund_request_status status
+        text requested_by
+        timestamptz created_at
+        timestamptz resolved_at "Nullable"
+        text resolved_by "Nullable"
+        text resolution_note "Nullable"
+        text stripe_refund_id "Nullable"
+    }
+
+    sales_pages {
+        uuid offering_id PK,FK
+        jsonb draft
+        jsonb published "Nullable"
+        integer published_revision "Nullable"
+        integer version
+        timestamptz updated_at
+        timestamptz published_at "Nullable"
+    }
+
+    sales_page_revisions {
+        uuid id PK
+        uuid offering_id FK "Composite unique; see schema"
+        integer revision "Composite unique; see schema"
+        jsonb page
+        text published_by
+        timestamptz published_at
+    }
+
+    media_assets {
+        uuid id PK
+        text content_type
+        text file_name
+        integer size
+        bytea bytes
+        text created_by
+        timestamptz created_at
+    }
+
+    staff_canvas_grants {
+        uuid staff_id PK
+        text provider
+        text subject
+        text configuration_hash
+        text encrypted_tokens
+        timestamptz expires_at
+        timestamptz updated_at
+    }
+
+    canvas_course_schedule {
+        text id PK
+        uuid owner_staff_id "Nullable"
+        boolean enabled
+        integer interval_minutes
+        timestamptz next_run_at "Nullable"
+        integer version
+    }
+
+    canvas_course_runs {
+        uuid id PK
+        uuid staff_id "Composite unique; see schema"
+        text request_key "Composite unique; see schema"
+        text trigger
+        text configuration_hash
+        text status
+        text lease "Nullable"
+        timestamptz lease_expires_at "Nullable"
+        integer attempts
+        timestamptz created_at
+        timestamptz finished_at "Nullable"
+        integer course_count
+        text error "Nullable"
+    }
+
+    canvas_course_snapshots {
+        text configuration_hash PK
+        uuid run_id
+        timestamptz observed_at
+        jsonb courses
+    }
+
+    canvas_offering_mappings {
+        text installation_url PK
+        text course_id PK
+        uuid offering_id UK,FK
+        jsonb source
+        timestamptz created_at
+        timestamptz updated_at
+    }

@@ -1,0 +1,25 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "portal",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
+      "port": 3050,
+      "url": "http://127.0.0.1:3050"
+    },
+    {
+      "name": "portal-lan",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev:lan"
+      ],
+      "port": 3050,
+      "url": "http://127.0.0.1:3050"
+    }
+  ]
+}

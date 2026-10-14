@@ -1,0 +1,22 @@
+node_modules/
+.env
+src/web/.env.local
+.next/
+dist/
+*.tsbuildinfo
+test-results/
+playwright-report/
+.DS_Store
+prototype.log
+backups/
+src/generated/
+.tmp-migration-tests/
+.tmp-drift.config.ts
+.tmp-draft-*
+
+# Playwright accessibility scan output
+test-results/
+playwright-report/
+
+# Generated UI verification screenshots
+artifacts/

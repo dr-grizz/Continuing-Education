@@ -1,0 +1,563 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  // The server and worker compile to CommonJS (tsconfig.server.json).
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// Database rules that Prisma cannot model live in hand-written migration SQL
+// (see prisma/migrations/0_baseline). They are documented below with `///` so they
+// appear in generated types; changing one requires editing migration SQL by hand.
+// `npm run test:migrations` fails if fresh and adopted databases drift apart.
+// Do not re-run `prisma db pull` over this file without restoring these comments.
+
+/// Append-only audit trail. object_id is a polymorphic reference (offering, entitlement), not a foreign key.
+model audit_events {
+  id         BigInt   @id @default(autoincrement())
+  actor      String
+  action     String
+  object_id  String?  @db.Uuid
+  details    Json     @default("{}")
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+}
+
+/// Idempotency records: one response per (actor, Idempotency-Key).
+model commands {
+  actor       String
+  key         String
+  fingerprint String
+  response    Json
+
+  @@id([actor, key])
+}
+
+/// A learner's registration for an offering. One per (learner_id, offering_id).
+model entitlements {
+  id                  String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  learner_id          String              @db.Uuid
+  offering_id         String              @db.Uuid
+  /// Registration state (enum entitlement_status).
+  status              EntitlementStatus
+  reserved_until      DateTime?           @db.Timestamptz(6)
+  created_at          DateTime            @default(now()) @db.Timestamptz(6)
+  /// Set when approved: now() + offerings.approval_valid_days.
+  approval_expires_at DateTime?           @db.Timestamptz(6)
+  /// Price at reservation; payment charges this. CHECK entitlements_quoted_price_cents_check: >= 0.
+  quoted_price_cents  Int?
+  learners            learners            @relation(fields: [learner_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "entitlements_learner_fk")
+  offerings           offerings           @relation(fields: [offering_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  operations          operations[]
+  orders              orders[]
+  checkout_sessions   checkout_sessions[]
+
+  @@unique([learner_id, offering_id])
+}
+
+/// Demo learner. The email-less row 00000000-0000-4000-8000-000000000001 is the legacy sample learner.
+model learners {
+  id              String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// CHECK learners_email_check: lowercase, trimmed, 3-254 characters. Null only for the legacy learner.
+  email           String?           @unique
+  created_at      DateTime          @default(now()) @db.Timestamptz(6)
+  /// Deactivated learners cannot sign in or act; existing enrollments continue.
+  active          Boolean           @default(true)
+  /// Set while deactivated. CHECK learners_access_check: set exactly when active is false.
+  deactivated_at  DateTime?         @db.Timestamptz(6)
+  version         Int               @default(1)
+  entitlements    entitlements[]
+  saved_courses   saved_courses[]
+  pathway_follows pathway_follows[]
+}
+
+/// Price history. TRIGGER offering_prices_no_update (function offering_prices_append_only)
+/// rejects every UPDATE, so rows are append-only; they are deleted only by cascade with their offering.
+model offering_prices {
+  id           BigInt    @id @default(autoincrement())
+  offering_id  String    @db.Uuid
+  /// CHECK offering_prices_price_cents_check: >= 0.
+  price_cents  Int
+  effective_at DateTime  @default(now()) @db.Timestamptz(6)
+  actor        String
+  reason       String?
+  offerings    offerings @relation(fields: [offering_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([offering_id, id], map: "offering_prices_offering")
+}
+
+/// Saleable offering. CHECK offerings_schedule_check: cohort requires start_date and end_date;
+/// self_paced requires both to be null. CHECK offerings_check: end_date >= start_date.
+model offerings {
+  id                    String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  title                 String
+  category              String
+  summary               String
+  description           String
+  outcomes              Json                      @default("[]")
+  format                String
+  start_date            DateTime?                 @db.Date
+  end_date              DateTime?                 @db.Date
+  /// Current price; history in offering_prices. CHECK offerings_price_cents_check: >= 0.
+  price_cents           Int?
+  /// CHECK offerings_capacity_check: > 0.
+  unlimited_seats       Boolean                   @default(false)
+  capacity              Int?
+  approval_required     Boolean                   @default(false)
+  published             Boolean                   @default(false)
+  version               Int                       @default(1)
+  created_at            DateTime                  @default(now()) @db.Timestamptz(6)
+  /// cohort is shown as Scheduled; self_paced as Self-paced (enum course_type).
+  course_type           CourseType?               @default(cohort)
+  /// CHECK offerings_approval_valid_days_check: 1-365.
+  approval_valid_days   Int                       @default(7)
+  /// Scheduled courses close enrollment this many days after start_date. CHECK offerings_enrollment_close_days_check: 0-365.
+  enrollment_close_days Int                       @default(7)
+  /// CHECK offerings_canvas_course_url_check: null or matches ^https://[^[:space:]]+$.
+  canvas_course_url     String?
+  /// Set when unpublished, cleared when published again; distinguishes Unpublished from Draft.
+  unpublished_at        DateTime?                 @db.Timestamptz(6)
+  /// Position (1-5) among featured courses on the learner Explore tab; null when not featured.
+  /// CHECK offerings_featured_rank_check. Cleared on unpublish.
+  featured_rank         Int?
+  imported_from_canvas  Boolean                   @default(false)
+  canvas_mapping        canvas_offering_mappings?
+  entitlements          entitlements[]
+  offering_prices       offering_prices[]
+  collection_items      collection_items[]
+  saved_courses         saved_courses[]
+  stripe_product        stripe_products?
+  stripe_prices         stripe_prices[]
+  sales_page            sales_pages?
+  sales_page_revisions  sales_page_revisions[]
+}
+
+/// Durable background provisioning job, claimed by the worker with FOR UPDATE SKIP LOCKED.
+/// A registration can have several over time (paying again after a refund); the latest counts.
+model operations {
+  id                String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  entitlement_id    String           @db.Uuid
+  /// Job state (enum operation_status).
+  status            OperationStatus  @default(pending)
+  /// identity, canvas, complete, or manual (staff-recorded enrollment).
+  stage             String           @default("identity")
+  next_run          DateTime?        @default(now()) @db.Timestamptz(6)
+  error             String?
+  created_at        DateTime?        @default(now()) @db.Timestamptz(6)
+  /// Prototype only; chosen at payment from prototype_settings (enum simulated_outcome).
+  simulated_outcome SimulatedOutcome @default(normal)
+  /// Automatic attempts at the current stage. CHECK operations_attempts_check: >= 0.
+  attempts          Int              @default(0)
+  delay_applied     Boolean          @default(false)
+  failed_at         DateTime?        @db.Timestamptz(6)
+  entitlements      entitlements     @relation(fields: [entitlement_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([entitlement_id])
+}
+
+/// Payment record (simulated, or Stripe sandbox). amount_cents is the quoted price. A registration
+/// can have several orders over time (paying again after a refund); the latest is current.
+model orders {
+  id                         String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  entitlement_id             String            @db.Uuid
+  amount_cents               Int
+  payment_status             String            @default("simulated_paid")
+  created_at                 DateTime          @default(now()) @db.Timestamptz(6)
+  /// simulated (prototype command) or stripe (confirmed by a signed Checkout webhook).
+  provider                   PaymentProvider   @default(simulated)
+  stripe_checkout_session_id String?           @unique
+  stripe_payment_intent_id   String?           @unique
+  /// Amount refunded in Stripe (from charge.refunded). CHECK orders_refunded_check: 0 to amount_cents.
+  refunded_cents             Int               @default(0)
+  refunded_at                DateTime?         @db.Timestamptz(6)
+  refund_requests            refund_requests[]
+  entitlements               entitlements      @relation(fields: [entitlement_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([entitlement_id])
+}
+
+/// Prototype-only settings, for example provisioning_outcome for simulated failures.
+model prototype_settings {
+  key        String   @id
+  value      String
+  updated_at DateTime @default(now()) @db.Timestamptz(6)
+}
+
+/// Read-only history of legacy migrations 001-007. Prisma Migrate history is in _prisma_migrations.
+model schema_migrations {
+  version    String    @id
+  applied_at DateTime? @default(now()) @db.Timestamptz(6)
+}
+
+/// Offering schedule type. Replaced offerings_course_type_check (migration 1_status_enums).
+enum CourseType {
+  cohort
+  self_paced
+
+  @@map("course_type")
+}
+
+/// Registration lifecycle. Replaced entitlements_status_check.
+enum EntitlementStatus {
+  awaiting_approval
+  approved
+  approval_expired
+  declined
+  reserved
+  provisioning
+  enrolled
+  expired
+  exception
+  /// Fully refunded in Stripe; course access ended (decision P5).
+  refunded
+
+  @@map("entitlement_status")
+}
+
+/// Background job state. Replaced operations_status_check.
+enum OperationStatus {
+  pending
+  running
+  succeeded
+  failed
+
+  @@map("operation_status")
+}
+
+/// Prototype provisioning simulation. Replaced operations_simulated_outcome_check.
+enum SimulatedOutcome {
+  normal
+  delayed
+  transient
+  identity_failure
+  canvas_failure
+
+  @@map("simulated_outcome")
+}
+
+/// Staff role, mapped to permission scopes in src/server/roles.ts. Approver, catalog manager,
+/// support and IT/Canvas administrator are from the plan's M5 roles (Finance was removed on
+/// October 8, 2026: the Finance department works in Stripe); staff_admin (manage staff and roles) is a prototype proposal;
+/// content_editor (sales pages) was added October 7, 2026.
+enum StaffRole {
+  approver
+  catalog_manager
+  support
+  it_canvas_admin
+  staff_admin
+  /// Edits customizable sales pages (planned feature; reserved scope content:write).
+  content_editor
+
+  @@map("staff_role")
+}
+
+/// Staff directory. Prototype sign-in is mock (pick a member, no password); an SSO add-on
+/// later sets auth_provider/external_subject and resolves verified identities to a row.
+/// CHECK staff_members_email_check: lowercase, trimmed, 3-254 characters.
+model staff_members {
+  id               String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email            String           @unique
+  display_name     String
+  /// One or more roles; their scopes are combined. CHECK staff_members_roles_check: at least one.
+  roles            StaffRole[]
+  /// Inactive members cannot sign in or act.
+  active           Boolean          @default(true)
+  /// "mock" for local selection or "canvas:<origin>" for configured Canvas OAuth.
+  auth_provider    String           @default("mock")
+  /// Verified numeric Canvas user ID as text; null for mock members.
+  external_subject String?
+  version          Int              @default(1)
+  created_at       DateTime         @default(now()) @db.Timestamptz(6)
+  staff_sessions   staff_sessions[]
+
+  @@unique([auth_provider, external_subject])
+}
+
+/// Short-lived, single-use OAuth state bound to an independent browser nonce.
+/// Only SHA-256 digests are stored; the authorization code is never persisted.
+model staff_oauth_states {
+  state_hash         String   @id @db.Char(64)
+  browser_hash       String   @db.Char(64)
+  configuration_hash String   @db.Char(64)
+  expires_at         DateTime @db.Timestamptz(6)
+  created_at         DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([expires_at])
+}
+
+/// Opaque portal session, unrelated to Canvas API access tokens.
+model staff_sessions {
+  token_hash       String        @id @db.Char(64)
+  staff_id         String        @db.Uuid
+  auth_provider    String
+  external_subject String
+  expires_at       DateTime      @db.Timestamptz(6)
+  created_at       DateTime      @default(now()) @db.Timestamptz(6)
+  staff_members    staff_members @relation(fields: [staff_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "staff_sessions_staff_id_fkey")
+
+  @@index([staff_id])
+  @@index([expires_at])
+}
+
+/// Staff-curated list of offerings (decision F3). A pathway is a collection with a
+/// recommended order; following it is free and registers nothing (F4, proposed).
+/// CHECK collections_slug_check: lowercase words joined by hyphens, at most 80 characters.
+/// CHECK collections_title_check: 3-120 characters. CHECK collections_summary_check: 10-500 characters.
+model collections {
+  id               String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  kind             CollectionKind
+  /// Public URL segment, fixed at creation.
+  slug             String             @unique
+  title            String
+  summary          String
+  published        Boolean            @default(false)
+  version          Int                @default(1)
+  created_at       DateTime           @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime           @default(now()) @db.Timestamptz(6)
+  /// Position (1-3) among featured collections or pathways (per kind) on the Explore tab;
+  /// null when not featured. CHECK collections_featured_rank_check. Cleared on unpublish.
+  featured_rank    Int?
+  collection_items collection_items[]
+  pathway_follows  pathway_follows[]
+}
+
+/// Ordered membership of an offering in a collection. CHECK collection_items_position_check: position > 0.
+model collection_items {
+  collection_id String      @db.Uuid
+  offering_id   String      @db.Uuid
+  position      Int
+  collections   collections @relation(fields: [collection_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  offerings     offerings   @relation(fields: [offering_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([collection_id, offering_id])
+  @@unique([collection_id, position])
+}
+
+/// A learner's private saved-courses list (decision F3).
+model saved_courses {
+  learner_id  String    @db.Uuid
+  offering_id String    @db.Uuid
+  created_at  DateTime  @default(now()) @db.Timestamptz(6)
+  learners    learners  @relation(fields: [learner_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  offerings   offerings @relation(fields: [offering_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([learner_id, offering_id])
+}
+
+/// A learner following a pathway. The service only allows kind = pathway. No progress
+/// is tracked until the Canvas connection (decision F11).
+model pathway_follows {
+  learner_id    String      @db.Uuid
+  collection_id String      @db.Uuid
+  created_at    DateTime    @default(now()) @db.Timestamptz(6)
+  learners      learners    @relation(fields: [learner_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  collections   collections @relation(fields: [collection_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([learner_id, collection_id])
+}
+
+/// Collection type: an unordered themed list, or a pathway with a recommended order.
+enum CollectionKind {
+  collection
+  pathway
+
+  @@map("collection_kind")
+}
+
+/// The Stripe Product for an offering (decision: one Product per course).
+model stripe_products {
+  offering_id       String    @id @db.Uuid
+  stripe_product_id String    @unique
+  created_at        DateTime  @default(now()) @db.Timestamptz(6)
+  offerings         offerings @relation(fields: [offering_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+/// Stripe Prices by offering and amount; a price change creates a new Price.
+model stripe_prices {
+  stripe_price_id String    @id
+  offering_id     String    @db.Uuid
+  price_cents     Int
+  created_at      DateTime  @default(now()) @db.Timestamptz(6)
+  offerings       offerings @relation(fields: [offering_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([offering_id, price_cents])
+}
+
+/// Stripe-hosted Checkout sessions for a reservation. Only the signed webhook
+/// changes status; the browser return page is never authoritative.
+/// CHECK checkout_sessions_amount_check: amount_cents >= 0.
+model checkout_sessions {
+  /// Stripe Checkout Session ID (cs_test_...).
+  id             String         @id
+  entitlement_id String         @db.Uuid
+  amount_cents   Int
+  status         CheckoutStatus @default(open)
+  url            String?
+  expires_at     DateTime       @db.Timestamptz(6)
+  created_at     DateTime       @default(now()) @db.Timestamptz(6)
+  completed_at   DateTime?      @db.Timestamptz(6)
+  entitlements   entitlements   @relation(fields: [entitlement_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([entitlement_id])
+}
+
+/// Stripe webhook events already handled; a repeated delivery is ignored.
+model stripe_events {
+  id          String   @id
+  type        String
+  received_at DateTime @default(now()) @db.Timestamptz(6)
+}
+
+/// How an order was paid.
+enum PaymentProvider {
+  simulated
+  stripe
+
+  @@map("payment_provider")
+}
+
+/// Stripe Checkout session lifecycle, as reported by webhooks.
+enum CheckoutStatus {
+  open
+  complete
+  expired
+
+  @@map("checkout_status")
+}
+
+/// A staff request to refund an order. The portal never refunds: Finance issues
+/// the refund in the Stripe Dashboard, and charge.refunded marks it refunded.
+/// CHECK refund_requests_reason_check: 10-500 characters.
+model refund_requests {
+  id               String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  order_id         String              @db.Uuid
+  amount_cents     Int
+  reason           String
+  status           RefundRequestStatus @default(requested)
+  requested_by     String
+  created_at       DateTime            @default(now()) @db.Timestamptz(6)
+  resolved_at      DateTime?           @db.Timestamptz(6)
+  resolved_by      String?
+  resolution_note  String?
+  stripe_refund_id String?
+  orders           orders              @relation(fields: [order_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([order_id])
+}
+
+/// Refund request lifecycle: requested, then refunded (by Stripe) or cancelled (by staff).
+enum RefundRequestStatus {
+  requested
+  refunded
+  cancelled
+
+  @@map("refund_request_status")
+}
+
+/// Sales page for an offering (decision F2): structured blocks, never HTML. Content editors
+/// edit the draft; publishing copies it to `published` and appends a revision. Prices and
+/// dates always come from the offering. Removing the published page restores the default
+/// course page. Pages: { blocks: [...], seo: { title, description } }, validated in the API.
+model sales_pages {
+  offering_id        String    @id @db.Uuid
+  draft              Json
+  /// Null when no page is published.
+  published          Json?
+  /// Latest published revision number; null before the first publish.
+  published_revision Int?
+  /// Version check for edits, publish and unpublish.
+  version            Int       @default(1)
+  updated_at         DateTime  @default(now()) @db.Timestamptz(6)
+  published_at       DateTime? @db.Timestamptz(6)
+  offering           offerings @relation(fields: [offering_id], references: [id], onDelete: Cascade)
+}
+
+/// Every published version of a sales page. Append-only (trigger sales_page_revisions_no_update).
+model sales_page_revisions {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  offering_id  String    @db.Uuid
+  revision     Int
+  page         Json
+  published_by String
+  published_at DateTime  @default(now()) @db.Timestamptz(6)
+  offering     offerings @relation(fields: [offering_id], references: [id], onDelete: Cascade)
+
+  @@unique([offering_id, revision])
+}
+
+/// Images uploaded for sales pages (October 8, 2026). Stored in the database for
+/// the prototype; hosting will move the bytes to object storage. Served at
+/// /media/{id}. CHECK media_assets_content_type_check and _size_check.
+model media_assets {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  content_type String
+  file_name    String
+  size         Int
+  bytes        Bytes
+  created_by   String
+  created_at   DateTime @default(now()) @db.Timestamptz(6)
+}
+
+/// OAuth API grants belong to the verified staff identity; encrypted with a separate key.
+model staff_canvas_grants {
+  staff_id           String   @id @db.Uuid
+  provider           String
+  subject            String
+  configuration_hash String
+  encrypted_tokens   String
+  expires_at         DateTime @db.Timestamptz(6)
+  updated_at         DateTime @default(now()) @db.Timestamptz(6)
+}
+
+/// One explicitly selected staff authorization for unattended course reads.
+model canvas_course_schedule {
+  id               String    @id
+  owner_staff_id   String?   @db.Uuid
+  enabled          Boolean   @default(false)
+  interval_minutes Int       @default(60)
+  next_run_at      DateTime? @db.Timestamptz(6)
+  version          Int       @default(1)
+}
+
+/// Durable, fenced jobs. Only a complete successful read replaces the inventory.
+model canvas_course_runs {
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  staff_id           String    @db.Uuid
+  request_key        String
+  trigger            String
+  configuration_hash String
+  status             String    @default("pending")
+  lease              String?
+  lease_expires_at   DateTime? @db.Timestamptz(6)
+  attempts           Int       @default(0)
+  created_at         DateTime  @default(now()) @db.Timestamptz(6)
+  finished_at        DateTime? @db.Timestamptz(6)
+  course_count       Int       @default(0)
+  error              String?
+
+  @@unique([staff_id, request_key])
+  @@index([status, created_at])
+}
+
+/// Last fully read source snapshot; independent from saleable portal offerings.
+model canvas_course_snapshots {
+  configuration_hash String   @id
+  run_id             String   @db.Uuid
+  observed_at        DateTime @db.Timestamptz(6)
+  courses            Json
+}
+
+/// Default import mapping. Stable across account-scope/OAuth configuration changes.
+model canvas_offering_mappings {
+  installation_url String
+  course_id        String
+  offering_id      String    @unique @db.Uuid
+  source           Json
+  created_at       DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime  @default(now()) @db.Timestamptz(6)
+  offering         offerings @relation(fields: [offering_id], references: [id], onDelete: Restrict, onUpdate: NoAction)
+
+  @@id([installation_url, course_id])
+}

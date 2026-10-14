@@ -1,0 +1,32 @@
+Accessibility review — October 1, 2026
+Scope: live catalog/spotlight/topic filter, shared shell/theme; course-detail price markup reviewed in source.
+Method: browser accessibility tree, read-only rendered DOM checks, keyboard interaction, contrast calculations, and 320 CSS-pixel reflow. No automated axe scan or real screen-reader session was performed. This is not a WCAG conformance certification.
+
+Fixed:
+- Secondary gold text: #9a7424 was 4.29:1 on white and 4.04:1 on page background. #80601e now gives 5.47:1 on the page background (above 4.5:1 normal-text minimum).
+- Search placeholders use #52616d at full opacity instead of faint default opacity.
+- Outlined form controls have darker boundaries.
+- Keyboard focus uses a 3px current-color outline, overriding Material UI resets; verified navy outline on search and white outline on spotlight navigation.
+- Skip-link target main is programmatically focusable; Enter moved focus to main.
+- Topic checkboxes are decorative/hidden from accessibility tree; options retain labels and selected states. All topics has a selected state and its full visible label.
+- Catalog course links include their course title in the accessible name.
+- Catalog and course-detail prices are paragraphs, not artificial headings.
+- Spotlight arrow and dot button targets are 44x44 CSS pixels.
+
+Verified live:
+- Skip link is the first keyboard stop and becomes visible on focus.
+- Space opens topic filter; arrow keys and Enter select Technology and Leadership; Escape closes and restores focus; three matching courses remain.
+- Enter on Next featured course updates title, price/date, selected indicator and course link.
+- Topic/search inputs have labels; logo has descriptive alt text; decorative course photos have empty alt text.
+- Document language is en; main/navigation/footer landmarks exist.
+- No horizontal page overflow at 320 CSS pixels; spotlight controls retain 44x44 targets.
+- TypeScript checks pass.
+
+Remaining validation:
+- Full automated scan and VoiceOver/NVDA testing, especially polite announcements during slide/filter changes.
+- End-to-end learner registration and staff form/dialog/error workflows were not audited in this pass.
+- Zoom, forced-colors, and cross-browser/assistive-technology coverage remain to be tested.
+
+Reference criteria:
+https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html
+https://www.w3.org/WAI/WCAG22/Understanding/focus-visible.html
