@@ -27,8 +27,8 @@ Course title and price (Product and Price), the learner's email for Stripe recei
 `.env` (never committed, never pasted into chat):
 
 - `STRIPE_SECRET_KEY`: test secret key, or a restricted key with write access to Checkout Sessions, Products and Prices.
-- `STRIPE_WEBHOOK_SECRET`: from `stripe listen --forward-to http://127.0.0.1:3001/api/v1/webhooks/stripe`, or from a Dashboard webhook endpoint.
-- `WEB_URL` (optional): where Stripe returns learners; defaults to `http://127.0.0.1:3000`.
+- `STRIPE_WEBHOOK_SECRET`: from `stripe listen --all-snapshot --forward-to http://127.0.0.1:3051/api/v1/webhooks/stripe`, or from a Dashboard webhook endpoint.
+- `WEB_URL` (optional): where Stripe returns learners; defaults to `http://127.0.0.1:3050`.
 
 ## Consequences
 

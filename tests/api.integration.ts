@@ -33,7 +33,7 @@ async function http(
     token === process.env.STAFF_API_TOKEN && staffAs !== null
       ? (staffAs ?? adminStaffId)
       : undefined;
-  return fetch(`http://127.0.0.1:3001/api/v1/${path}`, {
+  return fetch(`http://127.0.0.1:3051/api/v1/${path}`, {
     method: body ? "POST" : "GET",
     headers: {
       "Content-Type": "application/json",
@@ -153,6 +153,169 @@ async function main() {
       priceCents: 100,
       approvalRequired: false,
     };
+    // Unlimited is an explicit capacity mode, never inferred from a missing value.
+    const unlimitedBody = {
+      ...baseOffering,
+      courseType: "self_paced",
+      unlimitedSeats: true,
+      capacity: null,
+    };
+    for (const invalid of [
+      { unlimitedSeats: false, capacity: null },
+      { unlimitedSeats: false, capacity: undefined },
+      { unlimitedSeats: true, capacity: 10 },
+      { unlimitedSeats: true, capacity: "unlimited" },
+      { unlimitedSeats: "true", capacity: null },
+    ])
+      assert.equal(
+        (
+          await http("offerings", process.env.STAFF_API_TOKEN, {
+            ...unlimitedBody,
+            ...invalid,
+          })
+        ).status,
+        400,
+      );
+    const unlimitedResponse = await http(
+      "offerings",
+      process.env.STAFF_API_TOKEN,
+      unlimitedBody,
+    );
+    assert.equal(unlimitedResponse.status, 201);
+    const unlimited = await unlimitedResponse.json();
+    ids.push(unlimited.id);
+    assert.equal(unlimited.unlimited_seats, true);
+    assert.equal(unlimited.capacity, null);
+    assert.equal(
+      (
+        await http(
+          `offerings/${unlimited.id}/publish`,
+          process.env.STAFF_API_TOKEN,
+          { version: unlimited.version },
+        )
+      ).status,
+      201,
+    );
+    const publicUnlimited = await (
+      await http(`offerings/${unlimited.id}`)
+    ).json();
+    assert.equal(publicUnlimited.unlimited_seats, true);
+    assert.equal(publicUnlimited.seats_available, null);
+    const unlimitedLearners = await Promise.all(
+      Array.from({ length: 12 }, () => learner()),
+    );
+    const reservations = await Promise.all(
+      unlimitedLearners.map((who) =>
+        service.register(who, randomUUID(), unlimited.id),
+      ),
+    );
+    assert.ok(reservations.every((row: any) => row.status === "reserved"));
+    const retryKey = randomUUID();
+    const unlimitedRetried = await Promise.all(
+      [1, 2].map(() =>
+        service.register(unlimitedLearners[0], retryKey, unlimited.id),
+      ),
+    );
+    assert.equal(
+      (unlimitedRetried[0] as any).id,
+      (unlimitedRetried[1] as any).id,
+    );
+    assert.equal(
+      (
+        await db.query(
+          "SELECT count(*)::int AS count FROM entitlements WHERE offering_id=$1",
+          [unlimited.id],
+        )
+      ).rows[0].count,
+      12,
+    );
+    const unlimitedDashboard = await (
+      await http(
+        `staff/dashboard?days=30&offeringId=${unlimited.id}`,
+        process.env.STAFF_API_TOKEN,
+      )
+    ).json();
+    assert.equal(unlimitedDashboard.enrollment.unlimited_offerings, 1);
+    assert.equal(unlimitedDashboard.enrollment.unlimited_seats_in_use, 12);
+    assert.equal(unlimitedDashboard.enrollment.limited_seats_in_use, 0);
+    assert.equal(
+      unlimitedDashboard.enrollment.by_offering[0].unlimited_seats,
+      true,
+    );
+    const currentUnlimited = await (
+      await http(`staff/offerings/${unlimited.id}`, process.env.STAFF_API_TOKEN)
+    ).json();
+    const version = currentUnlimited.offering.version;
+    const limitBody = {
+      ...unlimitedBody,
+      unlimitedSeats: false,
+      capacity: 1,
+      version,
+      reason: "Set a deliberate seat limit for this offering.",
+    };
+    assert.equal(
+      (
+        await http(
+          `offerings/${unlimited.id}/edit`,
+          process.env.STAFF_API_TOKEN,
+          limitBody,
+        )
+      ).status,
+      409,
+      "cannot cap below occupied seats",
+    );
+    const cappedResponse = await http(
+      `offerings/${unlimited.id}/edit`,
+      process.env.STAFF_API_TOKEN,
+      { ...limitBody, capacity: 12 },
+    );
+    assert.equal(cappedResponse.status, 200);
+    const capped = await cappedResponse.json();
+    assert.equal(capped.unlimited_seats, false);
+    const extra = await learner();
+    await assert.rejects(
+      service.register(extra, randomUUID(), unlimited.id),
+      /no available seats/,
+    );
+    assert.equal(
+      (
+        await http(
+          `offerings/${unlimited.id}/edit`,
+          process.env.STAFF_API_TOKEN,
+          {
+            ...unlimitedBody,
+            version: capped.version,
+            reason: "Remove the seat limit for additional registrations.",
+          },
+        )
+      ).status,
+      200,
+    );
+    assert.equal(
+      ((await service.register(extra, randomUUID(), unlimited.id)) as any)
+        .status,
+      "reserved",
+    );
+    await assert.rejects(
+      db.query("UPDATE offerings SET capacity=10 WHERE id=$1", [unlimited.id]),
+      /capacity_mode_check/,
+    );
+    await assert.rejects(
+      db.query("UPDATE offerings SET unlimited_seats=false WHERE id=$1", [
+        unlimited.id,
+      ]),
+      /capacity_mode_check|publication_ready|incomplete_import_check/,
+    );
+    const unlimitedAudits = (
+      await db.query(
+        "SELECT details FROM audit_events WHERE object_id=$1 AND action='offering.edited' ORDER BY id DESC",
+        [unlimited.id],
+      )
+    ).rows;
+    assert.ok(JSON.stringify(unlimitedAudits).includes("unlimited_seats"));
+    console.log(
+      "PASS: explicit unlimited seats validate/publish/register concurrently; retries deduplicate; public/staff dashboards distinguish unlimited; finite limits protect occupied seats; capacity mode changes are audited and database enforced",
+    );
     const anytimeResponse = await http(
       "offerings",
       process.env.STAFF_API_TOKEN,
@@ -196,7 +359,7 @@ async function main() {
     assert.equal(users[0].id, users[1].id);
     assert.equal(users[0].email, email);
     userIds.push(users[0].id);
-    const webSignIn = await fetch("http://127.0.0.1:3000/api/demo-session", {
+    const webSignIn = await fetch("http://127.0.0.1:3050/api/demo-session", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email: email.toUpperCase() }),
@@ -206,15 +369,15 @@ async function main() {
     const sessionCookie = webSignIn.headers.get("set-cookie")!;
     assert.match(sessionCookie, /HttpOnly/i);
     const cookie = sessionCookie.split(";")[0];
-    const restored = await fetch("http://127.0.0.1:3000/api/demo-session", {
+    const restored = await fetch("http://127.0.0.1:3050/api/demo-session", {
       headers: { Cookie: cookie },
     });
     assert.equal(((await restored.json()) as any).email, email);
     assert.equal(
-      (await fetch("http://127.0.0.1:3000/api/me/learning")).status,
+      (await fetch("http://127.0.0.1:3050/api/me/learning")).status,
       401,
     );
-    const signedOut = await fetch("http://127.0.0.1:3000/api/demo-session", {
+    const signedOut = await fetch("http://127.0.0.1:3050/api/demo-session", {
       method: "DELETE",
       headers: { Cookie: cookie },
     });
@@ -241,7 +404,7 @@ async function main() {
       service.payment(other, randomUUID(), own.id),
       /not found/,
     );
-    const selected = await fetch("http://127.0.0.1:3001/api/v1/me/learning", {
+    const selected = await fetch("http://127.0.0.1:3051/api/v1/me/learning", {
       headers: {
         Authorization: `Bearer ${process.env.LEARNER_API_TOKEN}`,
         "X-Prototype-Learner-Id": user.learnerId,
@@ -249,7 +412,7 @@ async function main() {
     });
     assert.equal(selected.status, 200);
     assert.equal(((await selected.json()) as any[])[0].id, own.id);
-    const invalid = await fetch("http://127.0.0.1:3001/api/v1/me", {
+    const invalid = await fetch("http://127.0.0.1:3051/api/v1/me", {
       headers: {
         Authorization: `Bearer ${process.env.LEARNER_API_TOKEN}`,
         "X-Prototype-Learner-Id": randomUUID(),
@@ -1268,7 +1431,7 @@ async function main() {
       ).status,
       200,
     );
-    const asLearner = await fetch("http://127.0.0.1:3001/api/v1/me/learning", {
+    const asLearner = await fetch("http://127.0.0.1:3051/api/v1/me/learning", {
       headers: {
         Authorization: `Bearer ${process.env.LEARNER_API_TOKEN}`,
         "X-Prototype-Learner-Id": managedLearner.id,
@@ -1404,7 +1567,7 @@ async function main() {
     const learnerCall = (path: string, learnerId: string, body?: unknown) => {
       const key = randomUUID();
       httpKeys.push(key);
-      return fetch(`http://127.0.0.1:3001/api/v1/${path}`, {
+      return fetch(`http://127.0.0.1:3051/api/v1/${path}`, {
         method: body ? "POST" : "GET",
         headers: {
           "Content-Type": "application/json",
@@ -2052,7 +2215,7 @@ async function main() {
     mediaIds.push(uploaded.id);
     assert.equal(uploaded.url, `/media/${uploaded.id}`);
     const served = await fetch(
-      `http://127.0.0.1:3001/api/v1/media/${uploaded.id}`,
+      `http://127.0.0.1:3051/api/v1/media/${uploaded.id}`,
     );
     assert.equal(served.headers.get("content-type"), "image/png");
     assert.equal(served.headers.get("x-content-type-options"), "nosniff");
@@ -2206,7 +2369,7 @@ async function main() {
       const signer = new Stripe("sk_test_signing_only");
       const postEvent = (event: object, secret = webhookSecret) => {
         const payload = JSON.stringify(event);
-        return fetch("http://127.0.0.1:3001/api/v1/webhooks/stripe", {
+        return fetch("http://127.0.0.1:3051/api/v1/webhooks/stripe", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",

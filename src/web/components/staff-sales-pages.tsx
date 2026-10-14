@@ -846,7 +846,7 @@ function BlockFields({
           )}
           <Typography variant="body2" color="text.secondary">
             Lists the course&apos;s {outcomes.length} learning outcomes from the
-            offering. Catalog managers change them in Offerings.
+            offering. Course managers change them in Offerings.
           </Typography>
         </Stack>
       );

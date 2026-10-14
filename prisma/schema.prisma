@@ -91,36 +91,39 @@ model offering_prices {
 /// Saleable offering. CHECK offerings_schedule_check: cohort requires start_date and end_date;
 /// self_paced requires both to be null. CHECK offerings_check: end_date >= start_date.
 model offerings {
-  id                    String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  id                    String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   title                 String
   category              String
   summary               String
   description           String
-  outcomes              Json                   @default("[]")
+  outcomes              Json                      @default("[]")
   format                String
-  start_date            DateTime?              @db.Date
-  end_date              DateTime?              @db.Date
+  start_date            DateTime?                 @db.Date
+  end_date              DateTime?                 @db.Date
   /// Current price; history in offering_prices. CHECK offerings_price_cents_check: >= 0.
-  price_cents           Int
+  price_cents           Int?
   /// CHECK offerings_capacity_check: > 0.
-  capacity              Int
-  approval_required     Boolean                @default(false)
-  published             Boolean                @default(false)
-  version               Int                    @default(1)
-  created_at            DateTime               @default(now()) @db.Timestamptz(6)
+  unlimited_seats       Boolean                   @default(false)
+  capacity              Int?
+  approval_required     Boolean                   @default(false)
+  published             Boolean                   @default(false)
+  version               Int                       @default(1)
+  created_at            DateTime                  @default(now()) @db.Timestamptz(6)
   /// cohort is shown as Scheduled; self_paced as Self-paced (enum course_type).
-  course_type           CourseType             @default(cohort)
+  course_type           CourseType?               @default(cohort)
   /// CHECK offerings_approval_valid_days_check: 1-365.
-  approval_valid_days   Int                    @default(7)
+  approval_valid_days   Int                       @default(7)
   /// Scheduled courses close enrollment this many days after start_date. CHECK offerings_enrollment_close_days_check: 0-365.
-  enrollment_close_days Int                    @default(7)
+  enrollment_close_days Int                       @default(7)
   /// CHECK offerings_canvas_course_url_check: null or matches ^https://[^[:space:]]+$.
   canvas_course_url     String?
   /// Set when unpublished, cleared when published again; distinguishes Unpublished from Draft.
-  unpublished_at        DateTime?              @db.Timestamptz(6)
+  unpublished_at        DateTime?                 @db.Timestamptz(6)
   /// Position (1-5) among featured courses on the learner Explore tab; null when not featured.
   /// CHECK offerings_featured_rank_check. Cleared on unpublish.
   featured_rank         Int?
+  imported_from_canvas  Boolean                   @default(false)
+  canvas_mapping        canvas_offering_mappings?
   entitlements          entitlements[]
   offering_prices       offering_prices[]
   collection_items      collection_items[]
@@ -254,21 +257,48 @@ enum StaffRole {
 /// later sets auth_provider/external_subject and resolves verified identities to a row.
 /// CHECK staff_members_email_check: lowercase, trimmed, 3-254 characters.
 model staff_members {
-  id               String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  email            String      @unique
+  id               String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email            String           @unique
   display_name     String
   /// One or more roles; their scopes are combined. CHECK staff_members_roles_check: at least one.
   roles            StaffRole[]
   /// Inactive members cannot sign in or act.
-  active           Boolean     @default(true)
-  /// "mock" today; an SSO add-on records its provider here.
-  auth_provider    String      @default("mock")
-  /// Provider subject (for example an SSO "sub"); null for mock members.
+  active           Boolean          @default(true)
+  /// "mock" for local selection or "canvas:<origin>" for configured Canvas OAuth.
+  auth_provider    String           @default("mock")
+  /// Verified numeric Canvas user ID as text; null for mock members.
   external_subject String?
-  version          Int         @default(1)
-  created_at       DateTime    @default(now()) @db.Timestamptz(6)
+  version          Int              @default(1)
+  created_at       DateTime         @default(now()) @db.Timestamptz(6)
+  staff_sessions   staff_sessions[]
 
   @@unique([auth_provider, external_subject])
+}
+
+/// Short-lived, single-use OAuth state bound to an independent browser nonce.
+/// Only SHA-256 digests are stored; the authorization code is never persisted.
+model staff_oauth_states {
+  state_hash         String   @id @db.Char(64)
+  browser_hash       String   @db.Char(64)
+  configuration_hash String   @db.Char(64)
+  expires_at         DateTime @db.Timestamptz(6)
+  created_at         DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([expires_at])
+}
+
+/// Opaque portal session, unrelated to Canvas API access tokens.
+model staff_sessions {
+  token_hash       String        @id @db.Char(64)
+  staff_id         String        @db.Uuid
+  auth_provider    String
+  external_subject String
+  expires_at       DateTime      @db.Timestamptz(6)
+  created_at       DateTime      @default(now()) @db.Timestamptz(6)
+  staff_members    staff_members @relation(fields: [staff_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "staff_sessions_staff_id_fkey")
+
+  @@index([staff_id])
+  @@index([expires_at])
 }
 
 /// Staff-curated list of offerings (decision F3). A pathway is a collection with a
@@ -468,4 +498,66 @@ model media_assets {
   bytes        Bytes
   created_by   String
   created_at   DateTime @default(now()) @db.Timestamptz(6)
+}
+
+/// OAuth API grants belong to the verified staff identity; encrypted with a separate key.
+model staff_canvas_grants {
+  staff_id           String   @id @db.Uuid
+  provider           String
+  subject            String
+  configuration_hash String
+  encrypted_tokens   String
+  expires_at         DateTime @db.Timestamptz(6)
+  updated_at         DateTime @default(now()) @db.Timestamptz(6)
+}
+
+/// One explicitly selected staff authorization for unattended course reads.
+model canvas_course_schedule {
+  id               String    @id
+  owner_staff_id   String?   @db.Uuid
+  enabled          Boolean   @default(false)
+  interval_minutes Int       @default(60)
+  next_run_at      DateTime? @db.Timestamptz(6)
+  version          Int       @default(1)
+}
+
+/// Durable, fenced jobs. Only a complete successful read replaces the inventory.
+model canvas_course_runs {
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  staff_id           String    @db.Uuid
+  request_key        String
+  trigger            String
+  configuration_hash String
+  status             String    @default("pending")
+  lease              String?
+  lease_expires_at   DateTime? @db.Timestamptz(6)
+  attempts           Int       @default(0)
+  created_at         DateTime  @default(now()) @db.Timestamptz(6)
+  finished_at        DateTime? @db.Timestamptz(6)
+  course_count       Int       @default(0)
+  error              String?
+
+  @@unique([staff_id, request_key])
+  @@index([status, created_at])
+}
+
+/// Last fully read source snapshot; independent from saleable portal offerings.
+model canvas_course_snapshots {
+  configuration_hash String   @id
+  run_id             String   @db.Uuid
+  observed_at        DateTime @db.Timestamptz(6)
+  courses            Json
+}
+
+/// Default import mapping. Stable across account-scope/OAuth configuration changes.
+model canvas_offering_mappings {
+  installation_url String
+  course_id        String
+  offering_id      String    @unique @db.Uuid
+  source           Json
+  created_at       DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime  @default(now()) @db.Timestamptz(6)
+  offering         offerings @relation(fields: [offering_id], references: [id], onDelete: Restrict, onUpdate: NoAction)
+
+  @@id([installation_url, course_id])
 }

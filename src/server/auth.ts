@@ -14,14 +14,17 @@ export type Principal = {
 import { DEMO_LEARNER } from "../domain/db";
 import { prisma } from "../domain/prisma";
 import { scopesFor } from "./roles";
+import { CanvasStaffAuthService } from "./canvas-staff-auth";
+import { staffAuthMode } from "./staff-auth-config";
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-// Prototype authentication: three local bearer tokens identify the calling system.
-// People are selected by header and are mock identities, not proof of who they are:
-// learners by X-Prototype-Learner-Id, staff by X-Prototype-Staff-Id (see ADR 0004).
+// Three local broker tokens identify the calling system. Learners and mock-mode
+// staff are selected by prototype headers (ADR 0004). Canvas-mode staff require
+// a verified opaque session; prototype staff headers are rejected.
 @Injectable()
 export class PrototypeGuard implements CanActivate {
+  constructor(private readonly canvasAuth: CanvasStaffAuthService) {}
   async canActivate(context: ExecutionContext) {
     const req = context.switchToHttp().getRequest();
     const token = req.headers.authorization?.replace(/^Bearer /, "");
@@ -46,6 +49,17 @@ export class PrototypeGuard implements CanActivate {
         "A local prototype bearer token is required.",
       );
     req.principal = { ...match[1] };
+    if (
+      req.principal.scopes.includes("staff:session") &&
+      staffAuthMode() === "canvas"
+    ) {
+      if (req.headers["x-prototype-staff-id"])
+        throw new UnauthorizedException("Mock staff identities are disabled.");
+      req.principal = await this.canvasAuth.principal(
+        req.headers["x-staff-session"],
+      );
+      return true;
+    }
     const learnerId = req.headers["x-prototype-learner-id"];
     if (learnerId && req.principal.scopes.includes("learner")) {
       if (typeof learnerId !== "string" || !uuid.test(learnerId))

@@ -229,7 +229,9 @@ export default function Course({
             <Box>
               <Typography variant="subtitle2">Availability</Typography>
               <Typography variant="body2">
-                {course.seats_available} of {course.capacity} seats available
+                {course.unlimited_seats
+                  ? "Unlimited seats"
+                  : `${course.seats_available} of ${course.capacity} seats available`}
               </Typography>
             </Box>
             {course.approval_required && (
@@ -262,7 +264,11 @@ export default function Course({
               <Button
                 variant="contained"
                 disabled={
-                  busy || course.seats_available <= 0 || !course.enrollment_open
+                  busy ||
+                  (!course.unlimited_seats &&
+                    (course.seats_available === null ||
+                      course.seats_available <= 0)) ||
+                  !course.enrollment_open
                 }
                 onClick={register}
               >

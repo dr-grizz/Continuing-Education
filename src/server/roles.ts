@@ -1,10 +1,10 @@
 import { StaffRole } from "../generated/prisma/enums";
 
-// Staff role → permission scopes. Endpoints check scopes, never role names, so a later
-// SSO add-on only has to resolve a signed-in person to a staff member and their roles.
+// Staff role → permission scopes. Canvas OAuth resolves the approved staff identity;
+// endpoints apply current portal scopes independently of Canvas API permissions.
 export const roleScopes: Record<StaffRole, readonly string[]> = {
   approver: ["approvals:decide"],
-  catalog_manager: ["catalog:write"],
+  catalog_manager: ["catalog:write", "canvas:read", "canvas:sync"],
   support: [
     "exceptions:resolve",
     "prototype:simulate",
@@ -12,10 +12,19 @@ export const roleScopes: Record<StaffRole, readonly string[]> = {
     "payments:read",
     "refunds:request",
   ],
-  it_canvas_admin: ["exceptions:resolve", "prototype:simulate"],
+  it_canvas_admin: [
+    "exceptions:resolve",
+    "prototype:simulate",
+    "canvas:read",
+    "canvas:sync",
+    "canvas:manage",
+  ],
   // Also holds the former Finance role's permissions (removed October 8, 2026):
   // the university Finance department works in Stripe, not in the portal.
   staff_admin: [
+    "canvas:read",
+    "canvas:sync",
+    "canvas:manage",
     "staff:manage",
     "reports:sales",
     "payments:read",
@@ -29,7 +38,7 @@ export const baseStaffScopes = ["staff:read", "reports:read"] as const;
 
 export const roleLabels: Record<StaffRole, string> = {
   approver: "Approver",
-  catalog_manager: "Catalog manager",
+  catalog_manager: "Course manager",
   support: "Support",
   it_canvas_admin: "IT/Canvas administrator",
   staff_admin: "Staff administrator",
@@ -60,6 +69,12 @@ export const roleDescriptions: Record<StaffRole, string> = {
     "Edits, previews and publishes course sales pages, and chooses the learner Explore tab picks. Cannot change prices, dates or course publication.",
 };
 export const scopeDescriptions: Record<string, string> = {
+  "canvas:read":
+    "View Canvas course connection status and the last successful course preview",
+  "canvas:sync":
+    "Read published Canvas courses using your own OAuth authorization",
+  "canvas:manage":
+    "Enable or pause scheduled Canvas course reads under your authorization",
   "staff:read":
     "View the staff workspace: offerings, approvals, exceptions, activity",
   "reports:read": "Read reports and the audit log",

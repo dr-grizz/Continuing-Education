@@ -1,4 +1,5 @@
 "use client";
+import { missingOfferingInfo } from "../../domain/offering-readiness";
 import NextLink from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -179,10 +180,17 @@ export function StaffOfferingPage({
       >
         <Chip label={statusOf(o)} variant="outlined" color={statusColor(o)} />
         <Typography variant="body2" color="text.secondary">
-          {o.category} · Sales page:{" "}
+          {o.category || "Topic not set"} · Sales page:{" "}
           {salesPageStatusText[o.sales_page_status].toLowerCase()}
         </Typography>
       </Stack>
+      {missingOfferingInfo(o).length > 0 && (
+        <Alert severity="warning" role="note" sx={{ mt: 2 }}>
+          Draft missing required information:{" "}
+          {missingOfferingInfo(o).join(", ")}. Complete these fields in Details
+          before publishing. Registration and payment are unavailable.
+        </Alert>
+      )}
       <Box
         component="nav"
         aria-label="Offering sections"
@@ -267,7 +275,7 @@ export function StaffOfferingPage({
           ) : (
             <>
               <Alert severity="info" role="note" sx={{ mb: 2 }}>
-                View only: catalog managers change offerings.
+                View only: course managers change offerings.
               </Alert>
               <Facts
                 rows={
@@ -278,7 +286,14 @@ export function StaffOfferingPage({
                         ["Format", courseFormatLabel(o)],
                         ["Schedule", courseSchedule(o)],
                         ["Price", money(o.price_cents)],
-                        ["Seat capacity", String(o.capacity)],
+                        [
+                          "Seat capacity",
+                          o.unlimited_seats
+                            ? "Unlimited"
+                            : o.capacity === null
+                              ? "Not set"
+                              : String(o.capacity),
+                        ],
                       ]
                     : [
                         [
@@ -371,7 +386,7 @@ function Facts({ rows }: { rows: [string, string][] }) {
             variant="body2"
             sx={{ m: 0, overflowWrap: "anywhere", whiteSpace: "pre-line" }}
           >
-            {value}
+            {value || "Not set"}
           </Typography>
         </Box>
       ))}
@@ -411,6 +426,7 @@ function Overview({
             <Button
               variant="contained"
               onClick={onPublish}
+              disabled={missingOfferingInfo(o).length > 0}
               aria-disabled={busy || undefined}
             >
               {busy ? "Publishing…" : "Publish"}
@@ -423,7 +439,14 @@ function Overview({
           ["Price", money(o.price_cents)],
           ["Schedule", courseSchedule(o)],
           ["Format", courseFormatLabel(o)],
-          ["Seats", `${o.seats_in_use} of ${o.capacity} in use`],
+          [
+            "Seats",
+            o.unlimited_seats
+              ? `Unlimited seats · ${o.seats_in_use} in use`
+              : o.capacity === null
+                ? "Not set"
+                : `${o.seats_in_use} of ${o.capacity} in use`,
+          ],
           [
             "Approval",
             o.approval_required ? "Required before payment" : "Not required",

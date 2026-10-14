@@ -17,7 +17,7 @@ async function session(request: NextRequest) {
     if (id && request.method === "GET") headers["X-Prototype-Learner-Id"] = id;
     const body = request.method === "POST" ? await request.json() : undefined;
     const upstream = await fetch(
-      `${process.env.API_URL || "http://127.0.0.1:3001"}/api/v1/${body ? "prototype/users" : "me"}`,
+      `${process.env.API_URL || "http://127.0.0.1:3051"}/api/v1/${body ? "prototype/users" : "me"}`,
       {
         method: body ? "POST" : "GET",
         headers,

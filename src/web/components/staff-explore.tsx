@@ -120,10 +120,9 @@ export function StaffExplore({
           Explore page
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-          Choose what learners see first on the catalog&apos;s Explore tab, in
-          order. Empty spots fill automatically: open courses starting soonest,
-          then the newest self-paced courses, and the newest collections and
-          pathways.{" "}
+          Choose what learners see first on the Explore tab, in order. Empty
+          spots fill automatically: open courses starting soonest, then the
+          newest self-paced courses, and the newest collections and pathways.{" "}
           <Link href="/" underline="always">
             View the Explore tab
           </Link>
@@ -131,7 +130,7 @@ export function StaffExplore({
       </Box>
       {!canManage && (
         <Alert severity="info" role="note" sx={{ mb: 2 }}>
-          Your role can view the picks. Catalog managers and content editors
+          Your role can view the picks. Course managers and content editors
           change them.
         </Alert>
       )}

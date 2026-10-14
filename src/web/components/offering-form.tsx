@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   Alert,
   Box,
+  Checkbox,
   Button,
   Dialog,
   DialogActions,
@@ -16,9 +17,19 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
+import { missingOfferingInfo } from "../../domain/offering-readiness";
 import { api, date, money, Offering } from "./api";
 
-export type StaffOffering = Offering & {
+export type StaffOffering = Omit<
+  Offering,
+  "course_type" | "price_cents" | "capacity" | "seats_available"
+> & {
+  course_type: Offering["course_type"] | null;
+  price_cents: number | null;
+  capacity: number | null;
+  seats_available: number | null;
+  imported_from_canvas?: boolean;
+  missing_required_info?: string[];
   active_registrations: number;
   seats_in_use: number;
   sales_page_status: "none" | "draft" | "published" | "changes";
@@ -29,18 +40,19 @@ type Values = {
   summary: string;
   description: string;
   format: string;
-  courseType: "cohort" | "self_paced";
+  courseType: "cohort" | "self_paced" | "";
   startDate: string;
   endDate: string;
   price: string;
   capacity: string;
+  unlimitedSeats: boolean;
   approvalRequired: boolean;
   approvalValidDays: string;
   enrollmentCloseDays: string;
   canvasCourseUrl: string;
   reason: string;
 };
-type Field = Exclude<keyof Values, "approvalRequired">;
+type Field = Exclude<keyof Values, "approvalRequired" | "unlimitedSeats">;
 const labels: Record<Field, string> = {
   title: "Course title",
   category: "Topic",
@@ -68,6 +80,7 @@ const blank: Values = {
   endDate: "2026-12-11",
   price: "149",
   capacity: "20",
+  unlimitedSeats: false,
   approvalRequired: false,
   approvalValidDays: "7",
   enrollmentCloseDays: "7",
@@ -80,11 +93,12 @@ const fromOffering = (o: StaffOffering): Values => ({
   summary: o.summary,
   description: o.description,
   format: o.format,
-  courseType: o.course_type,
-  startDate: o.start_date ?? blank.startDate,
-  endDate: o.end_date ?? blank.endDate,
-  price: String(o.price_cents / 100),
-  capacity: String(o.capacity),
+  courseType: o.course_type ?? "",
+  startDate: o.start_date ?? (o.imported_from_canvas ? "" : blank.startDate),
+  endDate: o.end_date ?? (o.imported_from_canvas ? "" : blank.endDate),
+  price: o.price_cents === null ? "" : String(o.price_cents / 100),
+  capacity: o.capacity === null ? "" : String(o.capacity),
+  unlimitedSeats: o.unlimited_seats ?? false,
   approvalRequired: o.approval_required,
   approvalValidDays: String(o.approval_valid_days),
   enrollmentCloseDays: String(o.enrollment_close_days),
@@ -167,6 +181,7 @@ export function OfferingForm({
         .catch(() => setPrices([]));
   }, [open, offering]);
 
+  const missing = offering ? missingOfferingInfo(offering) : [];
   const dirty =
     inline &&
     !!offering &&
@@ -180,6 +195,8 @@ export function OfferingForm({
   }, [failure]);
   function validate() {
     const found: Partial<Record<Field, string>> = {};
+    if (!values.courseType) found.courseType = "Choose a course type.";
+    if (!values.category) found.category = "Choose a topic.";
     if (!length(values.title, 3, 120))
       found.title = "Enter 3 to 120 characters.";
     if (!length(values.summary, 10, 240))
@@ -198,9 +215,13 @@ export function OfferingForm({
     }
     if (!/^\d+(\.\d{1,2})?$/.test(values.price) || Number(values.price) > 10000)
       found.price = "Enter an amount from 0 to 10,000, with up to 2 decimals.";
-    if (!whole(values.capacity, 1, 10000))
+    if (!values.unlimitedSeats && !whole(values.capacity, 1, 10000))
       found.capacity = "Enter a whole number from 1 to 10,000.";
-    else if (offering && Number(values.capacity) < offering.seats_in_use)
+    else if (
+      !values.unlimitedSeats &&
+      offering &&
+      Number(values.capacity) < offering.seats_in_use
+    )
       found.capacity = `At least ${offering.seats_in_use} seats are in use.`;
     if (values.approvalRequired && !whole(values.approvalValidDays, 1, 365))
       found.approvalValidDays = "Enter a whole number from 1 to 365.";
@@ -237,7 +258,8 @@ export function OfferingForm({
         ? { startDate: values.startDate, endDate: values.endDate }
         : {}),
       priceCents: Math.round(Number(values.price) * 100),
-      capacity: Number(values.capacity),
+      capacity: values.unlimitedSeats ? null : Number(values.capacity),
+      unlimitedSeats: values.unlimitedSeats,
       approvalRequired: values.approvalRequired,
       approvalValidDays: Number(values.approvalValidDays),
       enrollmentCloseDays: Number(values.enrollmentCloseDays),
@@ -248,7 +270,21 @@ export function OfferingForm({
     setBusy(true);
     try {
       let saved: { id: string } | undefined;
-      if (offering)
+      // Incomplete imported drafts can save settings without validating Details.
+      // Complete offerings keep the existing audited edit/reason workflow.
+      if (offering && section === "settings" && missing.length > 0)
+        saved = await api<{ id: string }>(`offerings/${offering.id}/settings`, {
+          role: "staff",
+          body: {
+            version: offering.version,
+            approvalValidDays: body.approvalValidDays,
+            enrollmentCloseDays: body.enrollmentCloseDays,
+            ...(body.canvasCourseUrl
+              ? { canvasCourseUrl: body.canvasCourseUrl }
+              : {}),
+          },
+        });
+      else if (offering)
         saved = await api<{ id: string }>(`offerings/${offering.id}/edit`, {
           role: "staff",
           body: {
@@ -324,6 +360,7 @@ export function OfferingForm({
                   <Link
                     href={`#offering-${name}`}
                     color="inherit"
+                    sx={{ display: "inline-block", minHeight: 24, py: 0.5 }}
                     onClick={(event) => {
                       event.preventDefault();
                       document.getElementById(`offering-${name}`)?.focus();
@@ -337,10 +374,34 @@ export function OfferingForm({
           )}
         </Alert>
       )}
+      {!inline && missing.length > 0 && (
+        <Alert severity="warning" role="note">
+          This draft is missing required information: {missing.join(", ")}.
+          Complete the required fields before publishing or opening
+          registration.
+        </Alert>
+      )}
       {show("title") && (
         <>
           <TextField {...field("title")} required />
-          <TextField {...field("category")} select required>
+          <TextField
+            {...field("category")}
+            select
+            required
+            slotProps={
+              offering?.imported_from_canvas
+                ? {
+                    select: { displayEmpty: true },
+                    inputLabel: { shrink: true },
+                  }
+                : undefined
+            }
+          >
+            {offering?.imported_from_canvas && (
+              <MenuItem value="" disabled>
+                Not set — choose a topic
+              </MenuItem>
+            )}
             {["Technology", "Leadership", "Healthcare", "Ministry"].map(
               (topic) => (
                 <MenuItem key={topic} value={topic}>
@@ -359,7 +420,20 @@ export function OfferingForm({
             select
             required
             disabled={published}
+            slotProps={
+              offering?.imported_from_canvas
+                ? {
+                    select: { displayEmpty: true },
+                    inputLabel: { shrink: true },
+                  }
+                : undefined
+            }
           >
+            {offering?.imported_from_canvas && (
+              <MenuItem value="" disabled>
+                Not set — choose a course type
+              </MenuItem>
+            )}
             <MenuItem value="self_paced">Self-paced — start anytime</MenuItem>
             <MenuItem value="cohort">Scheduled — fixed dates</MenuItem>
           </TextField>
@@ -402,6 +476,10 @@ export function OfferingForm({
             />
           )}
         </>
+      ) : values.courseType === "" ? (
+        <Typography variant="body2">
+          Choose a course type to set the schedule.
+        </Typography>
       ) : (
         <Typography variant="body2" color="text.secondary">
           {section === "settings"
@@ -421,16 +499,34 @@ export function OfferingForm({
             required
             inputMode="decimal"
           />
-          <TextField
-            {...field(
-              "capacity",
-              offering?.seats_in_use
-                ? `${offering.seats_in_use} seats in use.`
-                : undefined,
-            )}
-            required
-            inputMode="numeric"
-          />
+          <Stack spacing={0.5} sx={{ width: "100%", minWidth: 0 }}>
+            <TextField
+              {...field(
+                "capacity",
+                values.unlimitedSeats
+                  ? "No seat limit for this offering."
+                  : offering?.seats_in_use
+                    ? `${offering.seats_in_use} seats in use.`
+                    : undefined,
+              )}
+              value={values.unlimitedSeats ? "" : values.capacity}
+              required={!values.unlimitedSeats}
+              disabled={values.unlimitedSeats}
+              inputMode="numeric"
+            />
+            <FormControlLabel
+              label="Unlimited seats"
+              control={
+                <Checkbox
+                  checked={values.unlimitedSeats}
+                  onChange={(_, checked) => {
+                    setValues({ ...values, unlimitedSeats: checked });
+                    setErrors({ ...errors, capacity: undefined });
+                  }}
+                />
+              }
+            />
+          </Stack>
         </Stack>
       )}
       {show("price") && prices.length > 0 && (
@@ -477,10 +573,15 @@ export function OfferingForm({
         <TextField
           {...field(
             "canvasCourseUrl",
-            "Optional. Learners see an “Open course in Canvas” link once enrollment completes.",
+            offering?.imported_from_canvas
+              ? "Linked by Canvas sync. This course mapping is protected."
+              : "Optional. Learners see an “Open course in Canvas” link once enrollment completes.",
           )}
           type="url"
           placeholder="https://canvas.example.edu/courses/123"
+          slotProps={{
+            input: { readOnly: Boolean(offering?.imported_from_canvas) },
+          }}
         />
       )}
       {published && (
@@ -592,8 +693,8 @@ export function UnpublishDialog({
         <DialogContent>
           <Stack spacing={2}>
             <Typography>
-              <strong>{offering.title}</strong> will leave the catalog. No new
-              registrations, approval requests or payments will be accepted.
+              <strong>{offering.title}</strong> will leave the course list. No
+              new registrations, approval requests or payments will be accepted.
             </Typography>
             {offering.active_registrations > 0 ? (
               <Alert severity="warning" role="note">

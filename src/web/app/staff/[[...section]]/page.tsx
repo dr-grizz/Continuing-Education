@@ -1,4 +1,5 @@
 "use client";
+import { missingOfferingInfo } from "../../../../domain/offering-readiness";
 import { use, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -6,6 +7,7 @@ import {
   Box,
   Button,
   Chip,
+  Collapse,
   Drawer,
   MenuItem,
   Snackbar,
@@ -55,6 +57,7 @@ import {
 import { StaffRoles, StaffUsers } from "../../../components/staff-admin";
 import { StaffCollections } from "../../../components/staff-collections";
 import { StaffExplore } from "../../../components/staff-explore";
+import { CanvasCourses } from "../../../components/canvas-courses";
 import {
   salesPageShortText,
   salesPageStatusText,
@@ -113,7 +116,9 @@ const eventDetail = (entry: AuditEntry) =>
     .join(" ");
 // Draft = never published; Unpublished = removed from the catalog after publishing.
 type OfferingStatus = "draft" | "published" | "unpublished";
-const offeringStatus = (c: Offering): OfferingStatus =>
+const offeringStatus = (
+  c: Pick<Offering, "published" | "unpublished_at">,
+): OfferingStatus =>
   c.published ? "published" : c.unpublished_at ? "unpublished" : "draft";
 const statusOrder: OfferingStatus[] = ["draft", "unpublished", "published"];
 const statusLabels: Record<OfferingStatus, string> = {
@@ -139,7 +144,14 @@ export default function Staff({
   const session = useStaffSession();
   if (!session.ready)
     return <LoadingCards label="Loading staff session" count={1} />;
-  if (!session.member) return <StaffSignIn onSignIn={session.signIn} />;
+  if (!session.member)
+    return (
+      <StaffSignIn
+        onSignIn={session.signIn}
+        auth={session.auth}
+        sessionError={session.sessionError}
+      />
+    );
   // Remount per staff member so switching people never keeps their data or tab.
   return (
     <UnsavedChangesProvider>
@@ -155,6 +167,7 @@ export default function Staff({
 }
 type Session = ReturnType<typeof useStaffSession>;
 type TabName =
+  | "canvas"
   | "dashboard"
   | "offerings"
   | "collections"
@@ -187,21 +200,21 @@ const sections: {
     tab: "offerings",
     slug: "offerings",
     label: "Offerings",
-    group: "Catalog",
+    group: "Courses",
     icon: <MenuBookIcon />,
   },
   {
     tab: "collections",
     slug: "collections",
     label: "Collections",
-    group: "Catalog",
+    group: "Courses",
     icon: <CollectionsBookmarkIcon />,
   },
   {
     tab: "explore",
     slug: "explore",
     label: "Explore page",
-    group: "Catalog",
+    group: "Courses",
     icon: <ExploreIcon />,
   },
   {
@@ -249,6 +262,14 @@ const sections: {
     icon: <AdminPanelSettingsIcon />,
   },
   {
+    tab: "canvas",
+    slug: "canvas",
+    label: "Canvas courses",
+    group: "Courses",
+    icon: <SchoolIcon />,
+    scope: "canvas:read",
+  },
+  {
     tab: "activity",
     slug: "activity",
     label: "Activity",
@@ -269,6 +290,17 @@ function OfferingLink({ offering }: { offering: StaffOffering }) {
       sx={{ overflowWrap: "break-word" }}
     >
       {offering.title}
+      {missingOfferingInfo(offering).length > 0 && (
+        <Typography
+          component="span"
+          variant="caption"
+          color="text.secondary"
+          sx={{ display: "block" }}
+        >
+          Missing required information:{" "}
+          {missingOfferingInfo(offering).join(", ")}
+        </Typography>
+      )}
     </Link>
   );
 }
@@ -293,6 +325,7 @@ function StaffWorkspace({
   const tab = currentSection.tab;
   const setTab = (next: TabName) =>
     router.push(sectionHref(sections.find((s) => s.tab === next)?.slug ?? ""));
+  const [sessionExpanded, setSessionExpanded] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false),
     [collapsed, setCollapsed] = useState(false);
   const heading = useRef<HTMLHeadingElement>(null);
@@ -303,7 +336,7 @@ function StaffWorkspace({
     if (tab === "offerings" && !item)
       focusOnArrival(offeringsHeading.current, "offerings");
   });
-  // The Staff section's role filter lives in the address (?role=finance), so
+  // The Staff section's role filter lives in the address (?role=approver), so
   // Roles → "Manage people" links survive navigation and can be shared.
   useEffect(() => {
     const role = new URLSearchParams(window.location.search).get("role");
@@ -403,8 +436,16 @@ function StaffWorkspace({
       start: (a, b) =>
         byText(a.start_date ?? "", b.start_date ?? "") ||
         byText(a.title, b.title),
-      price: (a, b) => a.price_cents - b.price_cents,
-      seats: (a, b) => a.seats_available - b.seats_available,
+      price: (a, b) =>
+        (a.price_cents ?? Number.MAX_SAFE_INTEGER) -
+        (b.price_cents ?? Number.MAX_SAFE_INTEGER),
+      seats: (a, b) =>
+        (a.unlimited_seats
+          ? Number.MAX_SAFE_INTEGER
+          : (a.seats_available ?? -1)) -
+        (b.unlimited_seats
+          ? Number.MAX_SAFE_INTEGER
+          : (b.seats_available ?? -1)),
       status: (a, b) =>
         statusOrder.indexOf(offeringStatus(a)) -
         statusOrder.indexOf(offeringStatus(b)),
@@ -439,7 +480,7 @@ function StaffWorkspace({
         .toLowerCase()
         .includes(activityQuery.toLowerCase()),
   });
-  const publish = (c: Offering) =>
+  const publish = (c: StaffOffering) =>
     action(
       `offerings/${c.id}/publish`,
       { version: c.version },
@@ -454,8 +495,12 @@ function StaffWorkspace({
         : "Request declined.",
     );
   useEffect(() => {
+    if (tab === "canvas") {
+      setLoaded(true);
+      return;
+    }
     refresh().catch((e) => setError(e.message));
-  }, []);
+  }, [tab === "canvas"]);
   async function action(path: string, body: unknown, text: string) {
     setBusy(true);
     setError("");
@@ -483,7 +528,7 @@ function StaffWorkspace({
           </Button>
         ) : (
           <Button
-            disabled={busy}
+            disabled={busy || missingOfferingInfo(c).length > 0}
             onClick={() => publish(c)}
             aria-label={`Publish ${c.title}`}
           >
@@ -592,55 +637,68 @@ function StaffWorkspace({
             variant="outlined"
             component="section"
             aria-label="Staff session"
-            sx={{ p: 1.5, maxWidth: { lg: 640 } }}
+            sx={{ px: 1.5, py: 0.75, maxWidth: { lg: 560 } }}
           >
             <Stack
-              direction={{ xs: "column", sm: "row" }}
-              sx={{ gap: 1.5, alignItems: { sm: "center" } }}
+              direction="row"
+              sx={{ gap: 1, flexWrap: "wrap", alignItems: "center" }}
             >
-              <Box sx={{ minWidth: 0 }}>
+              <Typography
+                variant="body2"
+                sx={{ overflowWrap: "anywhere", flex: 1 }}
+              >
+                Signed in as <strong>{member.display_name}</strong>
+              </Typography>
+              <Button
+                size="small"
+                aria-expanded={sessionExpanded}
+                aria-controls="staff-session-details"
+                onClick={() => setSessionExpanded(!sessionExpanded)}
+              >
+                {sessionExpanded ? "Hide staff details" : "Staff details"}
+              </Button>
+              <Button size="small" onClick={session.signOut}>
+                {session.auth?.mode === "canvas"
+                  ? "Sign out"
+                  : "Switch staff member"}
+              </Button>
+            </Stack>
+            <Collapse
+              in={sessionExpanded}
+              id="staff-session-details"
+              unmountOnExit
+            >
+              <Stack spacing={1} sx={{ pt: 1, pb: 0.5 }}>
                 <Typography variant="body2" sx={{ overflowWrap: "anywhere" }}>
-                  Signed in as <strong>{member.display_name}</strong>{" "}
-                  <Typography
-                    component="span"
-                    variant="body2"
-                    color="text.secondary"
-                  >
-                    ({member.email})
-                  </Typography>
+                  {member.email}
                 </Typography>
-                <Box sx={{ mt: 0.75 }}>
-                  <RoleChips roles={member.roles} />
-                </Box>
+                <RoleChips roles={member.roles} />
                 <Typography
                   variant="caption"
-                  color="text.secondary"
                   component="p"
-                  sx={{ mt: 0.75 }}
+                  color="text.secondary"
                 >
-                  Mock sign-in: your roles decide what you can do. University
-                  SSO replaces it later.
+                  {session.auth?.mode === "canvas"
+                    ? "Signed in through Canvas. Your portal roles decide what you can do."
+                    : "Mock sign-in: your roles decide what you can do."}
                 </Typography>
-              </Box>
-              <Stack
-                direction="row"
-                sx={{ gap: 1, flexShrink: 0, flexWrap: "wrap" }}
-              >
-                <Button variant="outlined" onClick={session.signOut}>
-                  Switch staff member
-                </Button>
                 <Button
-                  href="http://localhost:3001/api/docs"
+                  size="small"
+                  href="http://localhost:3051/api/docs"
                   target="_blank"
                   rel="noreferrer"
+                  sx={{ alignSelf: "flex-start" }}
                 >
                   API docs
                 </Button>
               </Stack>
-            </Stack>
+            </Collapse>
           </Paper>
+          {session.sessionError && (
+            <Alert severity="error">{session.sessionError}</Alert>
+          )}
         </Stack>
-        {error && !formOpen && (
+        {error && !formOpen && tab !== "canvas" && (
           <Alert severity="error" sx={{ mt: 2 }}>
             {error}
           </Alert>
@@ -653,13 +711,15 @@ function StaffWorkspace({
         >
           <Alert
             severity="success"
-            variant="filled"
+            variant="outlined"
+            sx={{ bgcolor: "background.paper" }}
             onClose={() => setMessage("")}
           >
             {message}
           </Alert>
         </Snackbar>
         {!loaded && !error && <LoadingCards label="Loading staff workspace" />}
+        {tab === "canvas" && <CanvasCourses can={can} />}
         {tab === "offerings" && item && (
           <StaffOfferingPage
             key={item}
@@ -704,8 +764,8 @@ function StaffWorkspace({
             {!canCatalog && (
               <Alert severity="info" role="note" sx={{ mb: 2 }}>
                 View only: creating, editing and publishing offerings requires
-                the Catalog manager role. Open an offering to see its details
-                and sales page.
+                the Course manager role. Open an offering to see its details and
+                sales page.
               </Alert>
             )}
             <Stack
@@ -796,8 +856,10 @@ function StaffWorkspace({
                     {c.enrollment_closes_on
                       ? ` · enrollment ${c.enrollment_open ? "closes" : "closed"} ${date(c.enrollment_closes_on)}`
                       : ""}{" "}
-                    · {money(c.price_cents)} · {c.seats_available} /{" "}
-                    {c.capacity} seats
+                    · {money(c.price_cents)} ·{" "}
+                    {c.unlimited_seats
+                      ? "Unlimited seats"
+                      : `${c.seats_available ?? "Not set"} / ${c.capacity ?? "Not set"} seats`}
                   </Typography>
                   <Stack direction="row" sx={{ gap: 1, mt: 1.5 }}>
                     {rowActions(c)}
@@ -865,7 +927,9 @@ function StaffWorkspace({
                       </TableCell>
                       <TableCell>{money(c.price_cents)}</TableCell>
                       <TableCell>
-                        {c.seats_available} / {c.capacity}
+                        {c.unlimited_seats
+                          ? "Unlimited"
+                          : `${c.seats_available ?? "Not set"} / ${c.capacity ?? "Not set"}`}
                       </TableCell>
                       <TableCell>
                         <Chip
@@ -917,7 +981,7 @@ function StaffWorkspace({
                   color="text.secondary"
                   sx={{ mt: 1 }}
                 >
-                  Try requesting Healthcare Communication from the catalog.
+                  Try requesting Healthcare Communication from the course list.
                 </Typography>
               </Paper>
             ) : (

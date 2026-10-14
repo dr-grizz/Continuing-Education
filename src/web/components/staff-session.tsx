@@ -1,5 +1,13 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import type { StaffRole } from "../../generated/prisma/enums";
+export type { StaffRole } from "../../generated/prisma/enums";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useState,
+} from "react";
 import {
   Alert,
   Button,
@@ -12,19 +20,10 @@ import {
   Typography,
 } from "@mui/material";
 
-export type StaffRole =
-  | "approver"
-  | "catalog_manager"
-  | "support"
-  | "finance"
-  | "it_canvas_admin"
-  | "staff_admin"
-  | "content_editor";
 export const roleLabels: Record<StaffRole, string> = {
   approver: "Approver",
-  catalog_manager: "Catalog manager",
+  catalog_manager: "Course manager",
   support: "Support",
-  finance: "Finance",
   it_canvas_admin: "IT/Canvas administrator",
   staff_admin: "Staff administrator",
   content_editor: "Content editor",
@@ -43,16 +42,29 @@ type DirectoryEntry = Pick<
   "id" | "email" | "display_name" | "roles"
 >;
 
-// Mock staff session (ADR 0004). `can` checks scopes from the API; the API enforces
+// `can` checks scopes from the API; the API enforces
 // them again on every request, so hiding a control is convenience, not security.
-export function useStaffSession() {
+function useStaffSessionState() {
   const [member, setMember] = useState<StaffMember | null>(null);
   const [ready, setReady] = useState(false);
+  const [auth, setAuth] = useState<{
+    mode: "mock" | "canvas";
+    configured: boolean;
+  } | null>(null);
+  const [sessionError, setSessionError] = useState("");
   const refresh = useCallback(async () => {
     try {
       const response = await fetch("/api/staff-session", { cache: "no-store" });
       const data = await response.json();
       setMember(response.ok ? data.member : null);
+      setAuth(response.ok ? data.auth : null);
+      setSessionError(
+        response.ok ? "" : "Staff sign-in is unavailable. Try again.",
+      );
+    } catch {
+      setMember(null);
+      setAuth(null);
+      setSessionError("Staff sign-in is unavailable. Try again.");
     } finally {
       setReady(true);
     }
@@ -63,6 +75,8 @@ export function useStaffSession() {
   return {
     member,
     ready,
+    auth,
+    sessionError,
     refresh,
     can: (scope: string) => Boolean(member?.scopes.includes(scope)),
     async signIn(email: string) {
@@ -76,10 +90,38 @@ export function useStaffSession() {
       await refresh();
     },
     async signOut() {
-      await fetch("/api/staff-session", { method: "DELETE" });
+      const response = await fetch("/api/staff-session", { method: "DELETE" });
+      if (!response.ok) {
+        setSessionError("Unable to sign out. Try again.");
+        return;
+      }
+      setSessionError("");
       setMember(null);
     },
   };
+}
+
+const StaffSessionContext = createContext<ReturnType<
+  typeof useStaffSessionState
+> | null>(null);
+
+export function StaffSessionProvider({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  const session = useStaffSessionState();
+  return (
+    <StaffSessionContext.Provider value={session}>
+      {children}
+    </StaffSessionContext.Provider>
+  );
+}
+
+export function useStaffSession() {
+  const session = useContext(StaffSessionContext);
+  if (!session) throw new Error("StaffSessionProvider is required.");
+  return session;
 }
 
 export function RoleChips({ roles }: { roles: StaffRole[] }) {
@@ -92,17 +134,22 @@ export function RoleChips({ roles }: { roles: StaffRole[] }) {
   );
 }
 
-// Mock sign-in: pick a demo staff member. Replaced by SSO in a later add-on.
+// The API chooses the mode; unavailable Canvas configuration never enables mock selection.
 export function StaffSignIn({
   onSignIn,
+  auth,
+  sessionError,
 }: {
   onSignIn: (email: string) => Promise<void>;
+  auth: { mode: "mock" | "canvas"; configured: boolean } | null;
+  sessionError: string;
 }) {
   const [directory, setDirectory] = useState<DirectoryEntry[]>([]);
   const [email, setEmail] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   useEffect(() => {
+    if (auth?.mode !== "mock") return;
     fetch("/api/staff-session?directory=1", { cache: "no-store" })
       .then(async (response) => {
         const data = await response.json();
@@ -110,7 +157,53 @@ export function StaffSignIn({
         setDirectory(data);
       })
       .catch((e) => setError((e as Error).message || "Unable to load staff."));
-  }, []);
+  }, [auth?.mode]);
+  if (auth?.mode !== "mock") {
+    const messages: Record<string, string> = {
+      configuration:
+        "Canvas sign-in is not configured yet. Contact the portal administrator.",
+      unavailable: "Unable to complete Canvas sign-in. Try again.",
+      unauthorized:
+        "Your Canvas account has not been authorized for this staff portal. Contact the portal administrator.",
+      denied: "Canvas sign-in was cancelled or denied. You can try again.",
+      invalid: "Sign-in expired or could not be verified. Try again.",
+    };
+    const failure =
+      typeof window === "undefined"
+        ? ""
+        : new URLSearchParams(window.location.search).get("authError");
+    const message =
+      sessionError ||
+      (failure ? messages[failure] || messages.invalid : "") ||
+      (!auth?.configured ? messages.configuration : "");
+    return (
+      <Paper
+        variant="outlined"
+        sx={{ p: { xs: 2.5, sm: 4 }, maxWidth: 640, mx: "auto" }}
+      >
+        <Typography variant="h4" component="h1">
+          Staff sign-in
+        </Typography>
+        <Typography sx={{ my: 2 }}>
+          Sign in through Canvas using your university account. The portal
+          administrator controls staff access and roles.
+        </Typography>
+        {message && (
+          <Alert
+            severity={sessionError || failure ? "error" : "info"}
+            sx={{ mb: 2 }}
+          >
+            {message}
+          </Alert>
+        )}
+        {auth?.configured && (
+          <Button href="/api/auth/canvas/start" variant="contained">
+            Sign in with Canvas
+          </Button>
+        )}
+      </Paper>
+    );
+  }
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     if (busy) return;

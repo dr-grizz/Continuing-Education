@@ -11,7 +11,7 @@ if (secretKey && !/^(sk|rk)_test_/.test(secretKey))
 export const stripeEnabled = Boolean(secretKey);
 export const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET?.trim() || "";
 /** Where Stripe sends learners back after Checkout. */
-export const webUrl = (process.env.WEB_URL || "http://127.0.0.1:3000").replace(
+export const webUrl = (process.env.WEB_URL || "http://127.0.0.1:3050").replace(
   /\/$/,
   "",
 );

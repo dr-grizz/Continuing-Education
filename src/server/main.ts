@@ -1,4 +1,6 @@
 import "reflect-metadata";
+import { CanvasCoursesService } from "./canvas-courses";
+import { CanvasCoursesController } from "./canvas-courses-controller";
 import {
   Body,
   Controller,
@@ -61,6 +63,9 @@ import {
 } from "./dto";
 import { PortalService } from "./service";
 import { stripe, webhookSecret } from "./stripe";
+import { StaffAuthController, StaffBrokerGuard } from "./staff-auth-controller";
+import { CanvasStaffAuthService } from "./canvas-staff-auth";
+import { staffAuthMode } from "./staff-auth-config";
 @ApiTags("Catalog")
 @Controller("api/v1")
 class CatalogController {
@@ -131,7 +136,13 @@ class CatalogController {
   name: "X-Prototype-Staff-Id",
   required: false,
   description:
-    "Select an active demo staff member with the staff token; their roles decide the allowed scopes. Mock identity only.",
+    "Mock mode only: select an active demo staff member with the staff token. Rejected in Canvas mode.",
+})
+@ApiHeader({
+  name: "X-Staff-Session",
+  required: false,
+  description:
+    "Canvas mode: opaque portal session, supplied only by the trusted web backend with the staff broker token. Current portal roles decide access.",
 })
 @ApiHeader({
   name: "Idempotency-Key",
@@ -630,7 +641,7 @@ class WorkflowController {
   @HttpCode(200)
   @ApiOperation({
     summary:
-      "PROTOTYPE ONLY: mock staff sign-in by email (no password); SSO replaces this later",
+      "MOCK MODE ONLY: mock staff sign-in by email (no password); disabled in Canvas mode",
   })
   staffSession(@Req() req: any, @Body() dto: StaffSessionDto) {
     requireScope(req, "staff:session");
@@ -765,11 +776,24 @@ class WebhookController {
   }
 }
 @Module({
-  controllers: [CatalogController, WorkflowController, WebhookController],
-  providers: [PortalService, PrototypeGuard],
+  controllers: [
+    CanvasCoursesController,
+    CatalogController,
+    WorkflowController,
+    WebhookController,
+    StaffAuthController,
+  ],
+  providers: [
+    CanvasCoursesService,
+    PortalService,
+    PrototypeGuard,
+    StaffBrokerGuard,
+    CanvasStaffAuthService,
+  ],
 })
 class AppModule {}
 async function main() {
+  staffAuthMode();
   // Refuse to start until npm run db:migrate has recorded the Prisma baseline.
   const migrated = await sql(
     prisma,
@@ -798,7 +822,7 @@ async function main() {
   const config = new DocumentBuilder()
     .setTitle("Continuing Education prototype API")
     .setDescription(
-      "Local synthetic data only. Authentication is a prototype token adapter, not production SSO. Payment uses the Stripe sandbox when configured, otherwise a simulation; enrollment is simulated.",
+      "Local prototype. Staff authentication supports configured identity-only Canvas OAuth with portal roles, or mock identities in mock mode. Learner identity and enrollment are simulated. Payment uses the Stripe sandbox when configured, otherwise a simulation.",
     )
     .setVersion("1.0")
     .addBearerAuth()
@@ -807,8 +831,8 @@ async function main() {
   SwaggerModule.setup("api/docs", app, document, {
     jsonDocumentUrl: "api/openapi.json",
   });
-  await app.listen(3001, "127.0.0.1");
-  console.log("API: http://localhost:3001/api/docs");
+  await app.listen(3051, "127.0.0.1");
+  console.log("API: http://localhost:3051/api/docs");
 }
 main().catch((error) => {
   console.error(error);

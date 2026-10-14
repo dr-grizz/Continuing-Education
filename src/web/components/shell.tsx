@@ -19,6 +19,7 @@ import {
 } from "@mui/material";
 import { useState } from "react";
 import { useDemoAuth } from "./demo-auth";
+import { useStaffSession } from "./staff-session";
 import { useRouter } from "next/navigation";
 import { usePathname } from "next/navigation";
 import Image from "next/image";
@@ -29,7 +30,7 @@ import { StripeTestCardsButton } from "./stripe-test-cards";
 const navLinks = [
   ["/", "Courses"],
   ["/learning", "My learning"],
-  ["/staff", "Staff"],
+  ["/staff", "Admin"],
 ];
 export default function Shell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -39,6 +40,10 @@ export default function Shell({ children }: { children: React.ReactNode }) {
   const current = (href: string) =>
     pathname === href || (href === "/staff" && staff);
   const auth = useDemoAuth();
+  const staffSession = useStaffSession();
+  const showSignIn =
+    auth.ready && staffSession.ready && !auth.email && !staffSession.member;
+  const showSignOut = auth.ready && Boolean(auth.email);
   const router = useRouter();
   const [sessionError, setSessionError] = useState("");
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
@@ -131,16 +136,16 @@ export default function Shell({ children }: { children: React.ReactNode }) {
                   {label}
                 </Button>
               ))}
-              {auth.ready &&
-                (auth.email ? (
-                  <Button color="inherit" onClick={signOut}>
-                    Sign out
-                  </Button>
-                ) : (
-                  <Button color="inherit" href="/sign-in">
-                    Sign in
-                  </Button>
-                ))}
+              {showSignOut && (
+                <Button color="inherit" onClick={signOut}>
+                  Sign out
+                </Button>
+              )}
+              {showSignIn && (
+                <Button color="inherit" href="/sign-in">
+                  Sign in
+                </Button>
+              )}
             </Stack>
             {/* Settings sits at the right of the bar at every width; the
                 gold underline marks it as the current page, like the links. */}
@@ -208,21 +213,17 @@ export default function Shell({ children }: { children: React.ReactNode }) {
                   {label}
                 </MenuItem>
               ))}
-              {auth.ready && <Divider />}
-              {auth.ready &&
-                (auth.email ? (
-                  <MenuItem onClick={signOut} sx={{ minHeight: 48 }}>
-                    Sign out
-                  </MenuItem>
-                ) : (
-                  <MenuItem
-                    component="a"
-                    href="/sign-in"
-                    sx={{ minHeight: 48 }}
-                  >
-                    Sign in
-                  </MenuItem>
-                ))}
+              {(showSignIn || showSignOut) && <Divider />}
+              {showSignOut && (
+                <MenuItem onClick={signOut} sx={{ minHeight: 48 }}>
+                  Sign out
+                </MenuItem>
+              )}
+              {showSignIn && (
+                <MenuItem component="a" href="/sign-in" sx={{ minHeight: 48 }}>
+                  Sign in
+                </MenuItem>
+              )}
             </Menu>
           </Toolbar>
           {auth.email && (
@@ -306,7 +307,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
               Continuing Education · Non-credit learning
             </Typography>
             <Link
-              href="http://localhost:3001/api/docs"
+              href="http://localhost:3051/api/docs"
               target="_blank"
               rel="noreferrer"
               variant="body2"

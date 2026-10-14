@@ -16,7 +16,7 @@ if (!address) {
   console.error("No private network address found. Is Wi-Fi connected?");
   process.exit(1);
 }
-const url = `http://${address}:3000`;
+const url = `http://${address}:3050`;
 console.log(`Website on the local network: ${url}`);
 const child = spawn(
   "npx",
@@ -25,7 +25,7 @@ const child = spawn(
     "-k",
     "-n",
     "web,api,worker",
-    "next dev src/web --hostname 0.0.0.0 --port 3000",
+    "next dev src/web --hostname 0.0.0.0 --port 3050",
     "npm run dev:api",
     "npm run dev:worker",
   ],

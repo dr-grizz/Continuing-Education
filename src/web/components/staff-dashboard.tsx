@@ -38,12 +38,16 @@ type Dashboard = {
     not_continuing: number;
     seats_capacity: number;
     seats_in_use: number;
+    limited_seats_in_use?: number;
+    unlimited_offerings?: number;
+    unlimited_seats_in_use?: number;
     trend: Point[];
     by_offering: {
       id: string;
       title: string;
       published: boolean;
-      capacity: number;
+      capacity: number | null;
+      unlimited_seats?: boolean;
       seats_in_use: number;
       registrations: number;
       enrolled: number;
@@ -431,7 +435,7 @@ export function StaffDashboard({
   offerings,
   canSales,
 }: {
-  offerings: Offering[];
+  offerings: Pick<Offering, "id" | "title">[];
   canSales: boolean;
 }) {
   const [days, setDays] = useState("30");
@@ -543,27 +547,44 @@ export function StaffDashboard({
                 <Typography
                   component="p"
                   sx={{
-                    fontSize: 30,
+                    fontSize:
+                      !e.seats_capacity && e.unlimited_offerings ? 24 : 30,
                     fontWeight: 600,
                     lineHeight: 1.2,
                     mt: 0.5,
                   }}
                 >
                   {e.seats_capacity
-                    ? Math.round((e.seats_in_use / e.seats_capacity) * 100)
-                    : 0}
-                  %
+                    ? `${Math.round(((e.limited_seats_in_use ?? e.seats_in_use) / e.seats_capacity) * 100)}%`
+                    : e.unlimited_offerings
+                      ? "Unlimited"
+                      : "0%"}
                 </Typography>
-                <Box sx={{ mt: 1 }}>
-                  <Meter
-                    used={e.seats_in_use}
-                    total={e.seats_capacity}
-                    label="Seats filled across published offerings"
-                  />
-                </Box>
+                {(e.seats_capacity > 0 || !e.unlimited_offerings) && (
+                  <Box sx={{ mt: 1 }}>
+                    <Meter
+                      used={e.limited_seats_in_use ?? e.seats_in_use}
+                      total={e.seats_capacity}
+                      label="Seats filled across published offerings with seat limits"
+                    />
+                  </Box>
+                )}
                 <Typography variant="caption" color="text.secondary">
-                  {e.seats_in_use} of {e.seats_capacity} seats
+                  {!e.seats_capacity && e.unlimited_offerings
+                    ? "No seat limits"
+                    : `${e.limited_seats_in_use ?? e.seats_in_use} of ${e.seats_capacity} limited seats`}
                 </Typography>
+                {Boolean(e.unlimited_offerings) && (
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    sx={{ display: "block", mt: 0.5 }}
+                  >
+                    {e.unlimited_offerings} unlimited offering
+                    {e.unlimited_offerings === 1 ? "" : "s"} ·{" "}
+                    {e.unlimited_seats_in_use ?? 0} seats in use
+                  </Typography>
+                )}
               </Paper>
             </Box>
             <Box sx={{ mt: 2 }}>
@@ -604,7 +625,9 @@ export function StaffDashboard({
                       ],
                       ...e.by_offering.map((row) => [
                         row.title,
-                        row.capacity,
+                        row.unlimited_seats
+                          ? "Unlimited"
+                          : (row.capacity ?? "Not set"),
                         row.seats_in_use,
                         row.registrations,
                         row.enrolled,
@@ -625,17 +648,23 @@ export function StaffDashboard({
                     {row.title}
                   </Typography>
                   <Box sx={{ my: 1 }}>
-                    <Meter
-                      used={row.seats_in_use}
-                      total={row.capacity}
-                      label={`Seats filled for ${row.title}`}
-                    />
+                    {row.capacity !== null && (
+                      <Meter
+                        used={row.seats_in_use}
+                        total={row.capacity}
+                        label={`Seats filled for ${row.title}`}
+                      />
+                    )}
                   </Box>
                   <Typography variant="body2" color="text.secondary">
-                    {row.seats_in_use} of {row.capacity} seats ·{" "}
-                    {row.registrations} registrations · {row.enrolled} enrolled
-                    · {row.in_progress} in progress · {row.awaiting_approval}{" "}
-                    awaiting approval
+                    {row.unlimited_seats
+                      ? `Unlimited seats · ${row.seats_in_use} in use`
+                      : row.capacity === null
+                        ? "Seat capacity not set"
+                        : `${row.seats_in_use} of ${row.capacity} seats`}{" "}
+                    · {row.registrations} registrations · {row.enrolled}{" "}
+                    enrolled · {row.in_progress} in progress ·{" "}
+                    {row.awaiting_approval} awaiting approval
                   </Typography>
                 </Paper>
               ))}
@@ -670,13 +699,19 @@ export function StaffDashboard({
                         )}
                       </TableCell>
                       <TableCell>
-                        <Meter
-                          used={row.seats_in_use}
-                          total={row.capacity}
-                          label={`Seats filled for ${row.title}`}
-                        />
+                        {row.capacity !== null && (
+                          <Meter
+                            used={row.seats_in_use}
+                            total={row.capacity}
+                            label={`Seats filled for ${row.title}`}
+                          />
+                        )}
                         <Typography variant="caption" color="text.secondary">
-                          {row.seats_in_use} of {row.capacity}
+                          {row.unlimited_seats
+                            ? `Unlimited seats · ${row.seats_in_use} in use`
+                            : row.capacity === null
+                              ? "Not set"
+                              : `${row.seats_in_use} of ${row.capacity}`}
                         </Typography>
                       </TableCell>
                       <TableCell align="right">{row.registrations}</TableCell>
