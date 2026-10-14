@@ -334,7 +334,7 @@ export default function Catalog() {
           variant="scrollable"
           scrollButtons="auto"
           allowScrollButtonsMobile
-          aria-label="Catalog views"
+          aria-label="Course views"
           sx={{ flex: "1 1 auto", minWidth: 0 }}
         >
           {visibleTabs.map((t) => (

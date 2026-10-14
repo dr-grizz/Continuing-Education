@@ -11,7 +11,7 @@ export async function GET(
     return NextResponse.json({ message: "Not found." }, { status: 404 });
   try {
     const response = await fetch(
-      `${process.env.API_URL || "http://127.0.0.1:3001"}/api/v1/media/${id}`,
+      `${process.env.API_URL || "http://127.0.0.1:3051"}/api/v1/media/${id}`,
       { cache: "no-store", signal: AbortSignal.timeout(10000) },
     );
     if (!response.ok)

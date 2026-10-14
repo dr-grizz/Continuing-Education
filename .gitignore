@@ -17,3 +17,6 @@ src/generated/
 # Playwright accessibility scan output
 test-results/
 playwright-report/
+
+# Generated UI verification screenshots
+artifacts/

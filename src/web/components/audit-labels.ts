@@ -16,6 +16,7 @@ export const auditLabels: Record<string, string> = {
   "exception.retry_requested": "Staff retried provisioning",
   "exception.resolved_manually": "Manual enrollment recorded",
   "prototype.simulation_changed": "Simulation outcome changed",
+  "offering.imported_from_canvas": "Draft offering imported from Canvas",
   "offering.created": "Draft offering created",
   "prototype.offering_published": "Offering published",
   "offering.settings_changed": "Offering settings changed",

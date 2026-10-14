@@ -11,8 +11,9 @@ export type Offering = {
   start_date: string | null;
   end_date: string | null;
   price_cents: number;
-  capacity: number;
-  seats_available: number;
+  capacity: number | null;
+  unlimited_seats?: boolean;
+  seats_available: number | null;
   approval_required: boolean;
   published: boolean;
   version: number;
@@ -114,13 +115,15 @@ export async function api<T>(
     );
   return data;
 }
-export const money = (cents: number) =>
-  new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 2,
-  }).format(cents / 100);
+export const money = (cents: number | null) =>
+  cents === null
+    ? "Not set"
+    : new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency: "USD",
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 2,
+      }).format(cents / 100);
 export const date = (value: string | null) =>
   value === null
     ? "Not scheduled"
@@ -130,24 +133,38 @@ export const date = (value: string | null) =>
         year: "numeric",
       });
 
-export const courseSchedule = (
-  course: Pick<Offering, "course_type" | "start_date" | "end_date">,
-) =>
-  course.course_type === "self_paced"
-    ? "Start anytime"
-    : `${date(course.start_date)} – ${date(course.end_date)}`;
-export const courseStart = (
-  course: Pick<Offering, "course_type" | "start_date">,
-) =>
-  course.course_type === "self_paced"
-    ? "Start anytime"
-    : `Starts ${date(course.start_date)}`;
-export const courseTypeLabel = (course: Pick<Offering, "course_type">) =>
-  course.course_type === "self_paced" ? "Self-paced" : "Scheduled";
+export const courseSchedule = (course: {
+  course_type: Offering["course_type"] | null;
+  start_date: string | null;
+  end_date: string | null;
+}) =>
+  course.course_type === null
+    ? "Course type not set"
+    : course.course_type === "self_paced"
+      ? "Start anytime"
+      : `${date(course.start_date)} – ${date(course.end_date)}`;
+export const courseStart = (course: {
+  course_type: Offering["course_type"] | null;
+  start_date: string | null;
+}) =>
+  course.course_type === null
+    ? "Course type not set"
+    : course.course_type === "self_paced"
+      ? "Start anytime"
+      : `Starts ${date(course.start_date)}`;
+export const courseTypeLabel = (course: {
+  course_type: Offering["course_type"] | null;
+}) =>
+  course.course_type === null
+    ? "Not set"
+    : course.course_type === "self_paced"
+      ? "Self-paced"
+      : "Scheduled";
 
-export const courseFormatLabel = (
-  course: Pick<Offering, "course_type" | "format">,
-) => {
+export const courseFormatLabel = (course: {
+  course_type: Offering["course_type"] | null;
+  format: string;
+}) => {
   const format = course.format
     .split("·")
     .map((part) => part.trim())

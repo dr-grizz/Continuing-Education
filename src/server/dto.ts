@@ -69,7 +69,25 @@ export class OfferingDto {
   @ValidateIf((o) => o.courseType === "cohort" || o.endDate != null)
   @IsDateString({ strict: true })
   endDate?: string;
-  @ApiProperty() @IsInt() @Min(1) @Max(10000) capacity!: number;
+  @ApiPropertyOptional({
+    default: false,
+    description:
+      "Explicitly removes the seat limit; capacity must be omitted or null.",
+  })
+  @IsOptional()
+  @IsBoolean()
+  unlimitedSeats?: boolean;
+  @ApiPropertyOptional({
+    nullable: true,
+    minimum: 1,
+    maximum: 10000,
+    description: "Required unless unlimitedSeats is true.",
+  })
+  @ValidateIf((o, value) => o.unlimitedSeats !== true || value != null)
+  @IsInt()
+  @Min(1)
+  @Max(10000)
+  capacity?: number | null;
   @ApiProperty() @IsInt() @Min(0) @Max(1000000) priceCents!: number;
   @ApiProperty() @IsBoolean() approvalRequired!: boolean;
   @ApiPropertyOptional({

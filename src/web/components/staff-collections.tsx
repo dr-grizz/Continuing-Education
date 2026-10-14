@@ -180,7 +180,7 @@ export function StaffCollections({
       </Stack>
       {!canManage && (
         <Alert severity="info" role="note" sx={{ mb: 2 }}>
-          Your role can view collections. Catalog managers create and publish
+          Your role can view collections. Course managers create and publish
           them.
         </Alert>
       )}
@@ -302,7 +302,7 @@ export function StaffCollections({
           <DialogContentText>
             Learners will no longer see this{" "}
             {unpublishing?.kind === "pathway" ? "pathway" : "collection"} in the
-            catalog.
+            course list.
             {unpublishing?.kind === "pathway" &&
               ` It disappears from My learning for ${unpublishing.followers} ${
                 unpublishing.followers === 1 ? "follower" : "followers"

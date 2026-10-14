@@ -10,7 +10,7 @@ export default defineConfig({
   workers: 1,
   reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : "list",
   use: {
-    baseURL: process.env.WEB_URL || "http://127.0.0.1:3000",
+    baseURL: process.env.WEB_URL || "http://127.0.0.1:3050",
     trace: "retain-on-failure",
   },
   // axe scans run in three Chrome layouts and in Firefox and WebKit; the

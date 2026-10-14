@@ -28,11 +28,11 @@ The prototype runs with development commands on one computer. Before hosting it 
 
 1. **Production start commands.** The API and worker run through `ts-node`; `npm run build` already compiles them, so add `start:api` and `start:worker` scripts that run the compiled files with `node`.
 2. **A Dockerfile** (one image with three commands, for website, API and worker). Railway can build without one, but a Dockerfile keeps both plans identical and makes local testing realistic.
-3. **Configurable addresses.** The API listens on `127.0.0.1:3001` in code; containers need `0.0.0.0` and a `PORT` variable. `API_URL` points the website at the API over the provider's private network.
+3. **Configurable addresses.** The API listens on `127.0.0.1:3051` in code; containers need `0.0.0.0` and a `PORT` variable. `API_URL` points the website at the API over the provider's private network.
 4. **Stripe webhook route.** The website's API proxy does not forward the `Stripe-Signature` header or the raw body. Add a website route that passes `/api/webhooks/stripe` through unchanged, so the API can stay private. That route must also be left out of any sign-in gate.
 5. **A sign-in gate for the prototype.** Mock sign-in has no passwords. Every hosted environment needs a gate in front of the website until real authentication (decision A4) exists.
 6. **Database TLS.** Use `sslmode=require` in `DATABASE_URL`. Migrations run with `npm run db:migrate` before each release.
-7. **Small fixes.** The footer and staff "API documentation" links point to `localhost:3001`; hide them or point them at the hosted docs. Keep `PROTOTYPE_MODE=true` and synthetic data until production is approved.
+7. **Small fixes.** The footer and staff "API documentation" links point to `localhost:3051`; hide them or point them at the hosted docs. Keep `PROTOTYPE_MODE=true` and synthetic data until production is approved.
 
 Estimated effort: 1–2 days, the same for both plans.
 

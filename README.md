@@ -1,10 +1,10 @@
 # Continuing Education Portal prototype
 
-Local Next.js + Material UI website, NestJS REST API, PostgreSQL and durable simulated enrollment worker. All offerings and learner data are synthetic. No Stripe, university identity or Canvas service is connected.
+Local Next.js + Material UI website, NestJS REST API, PostgreSQL and durable simulated enrollment worker. Seeded offerings and learner/payment test data are synthetic; the configured Canvas connection can import real course metadata into unpublished drafts. Stripe sandbox Checkout is supported when configured; learner identity and Canvas enrollment remain simulated. Staff can use configurable Canvas OAuth and opt-in [Canvas course previews and synchronization](docs/canvas-courses.md), using that same OAuth connection. Explicit selected-course sync creates unpublished offering drafts with duplicate protection, preserved staff edits and required-information warnings; Canvas API access remains read-only. See [Canvas staff authentication](docs/canvas-staff-auth.md).
 
 ## Implementation progress
 
-Open project decisions, their owners and due dates are tracked in the [M0 decision register](docs/decision-register.md). See the [prototype implementation progress](docs/prototype/implementation-progress.md) for completed tasks, remaining todos, recent changes and verification evidence. The [implementation plan](docs/implementation-plan.md) describes the broader delivery scope and production gates.
+Start with the [next steps](docs/next-steps.md) for the current checkpoint and recommended work sequence. Open project decisions, their owners and due dates are tracked in the [M0 decision register](docs/decision-register.md). See the [prototype implementation progress](docs/prototype/implementation-progress.md) for completed tasks, remaining todos, recent changes and verification evidence. The [implementation plan](docs/implementation-plan.md) describes the broader delivery scope and production gates.
 
 ## Run locally
 
@@ -18,12 +18,12 @@ npm run db:migrate
 npm run dev
 ```
 
-- Website: http://localhost:3000
-- API docs: http://localhost:3001/api/docs
-- OpenAPI JSON: http://localhost:3001/api/openapi.json
+- Website: http://localhost:3050
+- API docs: http://localhost:3051/api/docs
+- OpenAPI JSON: http://localhost:3051/api/openapi.json
 - PostgreSQL: localhost:5433, database `continuing_education`, user `portal`; local password is in ignored `.env`.
 
-**Other devices on your network** (phones, tablets, another computer): run `npm run dev:lan` instead of `npm run dev`. It prints the address to open, such as `http://10.0.0.5:3000`. Only the website listens on the network; the API, worker and database stay on this computer, so the API docs link works only here. Use a trusted network: staff sign-in is mock, with no passwords, so anyone who can reach the address can act as any staff member. Stripe Checkout returns learners to the network address. If macOS asks whether `node` may accept incoming connections, allow it.
+**Other devices on your network** (phones, tablets, another computer): run `npm run dev:lan` instead of `npm run dev`. It prints the address to open, such as `http://10.0.0.5:3050`. Only the website listens on the network; the API, worker and database stay on this computer, so the API docs link works only here. Use a trusted network: the default staff sign-in mode is mock, with no passwords, so anyone who can reach the address can act as any staff member. Stripe Checkout returns learners to the network address. If macOS asks whether `node` may accept incoming connections, allow it.
 
 Stop application processes with Ctrl+C. `docker compose stop db` stops PostgreSQL without removing its persistent volume. Do not use `down -v` unless you intend to erase the prototype data. Setup and migration preserve existing environments/data; seed runs once.
 
@@ -93,22 +93,38 @@ Stop application processes with Ctrl+C. `docker compose stop db` stops PostgreSQ
 
    - In **Learners**, any staff member can inspect a learner's registrations and activity. Sam Support can deactivate or reactivate a learner, with a reason; a deactivated learner cannot sign in or act.
 
-   Staff sign-in is mock: no password, and anyone can pick anyone. See [ADR 0004](docs/adr/0004-staff-roles-mock-sign-in.md); university SSO replaces it later.
+   Default staff sign-in is mock: no password, and anyone can pick anyone. See [ADR 0004](docs/adr/0004-staff-roles-mock-sign-in.md). Configure [Canvas staff OAuth](docs/canvas-staff-auth.md) to require verified, explicitly linked identities.
 
 Design uses standard MUI navigation, forms, tables, alerts and dialogs. The [UI specification](docs/prototype/ui-specification.md) records the theme tokens, layouts, patterns and page behavior. Colors, the font and text branding are provisional; institutional brand assets and course content need review.
+
+## Seat capacity
+
+In an offering's Details, enter 1–10,000 seats or explicitly select **Unlimited seats**. Unlimited disables the capacity field and removes the seat limit; dates, approval rules and payment requirements still apply. Blank capacity without that option remains incomplete. Returning to a finite limit requires enough seats for current reservations/enrollments; changes to published offerings retain the audited reason requirement. Staff/learner screens and dashboard exports distinguish Unlimited from Not set.
 
 ## Stripe sandbox (optional)
 
 Payments are simulated unless a Stripe **test-mode** key is configured ([ADR 0005](docs/adr/0005-stripe-hosted-checkout.md)). To use your sandbox:
 
 1. Add `STRIPE_SECRET_KEY=sk_test_…` to `.env` yourself; never commit or share it. Live keys are refused.
-2. Install the Stripe CLI (`brew install stripe/stripe-cli/stripe`), run `stripe login`, then forward webhooks and copy the printed `whsec_…` into `.env` as `STRIPE_WEBHOOK_SECRET`:
+2. Install the Stripe CLI (`brew install stripe/stripe-cli/stripe`), then run `stripe login`. Use the same Stripe account/sandbox as the app's `STRIPE_SECRET_KEY`.
+3. In a separate terminal, start the listener with the events the portal handles:
 
    ```sh
-   stripe listen --forward-to http://127.0.0.1:3001/api/v1/webhooks/stripe
+   stripe listen \
+     --events checkout.session.completed,checkout.session.async_payment_succeeded,checkout.session.expired,charge.refunded \
+     --forward-to http://127.0.0.1:3051/api/v1/webhooks/stripe
    ```
 
-3. Restart `npm run dev`. Reserved seats in My learning now show **Pay with Stripe**. Pay with test card `4242 4242 4242 4242` (any future date, any CVC); `4000 0000 0000 9995` is declined.
+   The installed CLI requires event selection. If it reports `must specify events to forward`, include `--events` as above. To forward all snapshot events instead, use:
+
+   ```sh
+   stripe listen --all-snapshot --forward-to http://127.0.0.1:3051/api/v1/webhooks/stripe
+   ```
+
+   Both commands use test mode by default. Keep this terminal running throughout the demo; do not add `--live`.
+4. When the listener reports **Ready**, copy its printed `whsec_…` signing secret directly into the ignored root `.env` as `STRIPE_WEBHOOK_SECRET`. Do not post or commit it. Use the secret from this listener, not a Dashboard endpoint's secret.
+5. Start the app in another terminal with `npm run dev`, or stop and restart it if already running so the API loads the signing secret. On later listener starts, update `.env` and restart the app if the printed secret changes.
+6. Reserved seats in My learning now show **Pay with Stripe**. Pay with test card `4242 4242 4242 4242` (any future date, any CVC); `4000 0000 0000 9995` is declined. The listener should show forwarded events and the app's HTTP responses.
 
 For the university Finance department and whoever hosts the portal, [How the portal works with Stripe](docs/finance/stripe-integration.md) explains the payment and refund flows, the refund handoff to Finance, what is shared with Stripe, and what the portal needs from the university's Stripe account. Only the signed webhook marks a payment paid; the page Stripe returns to is informational. No tax is collected. Refunds are processed by Finance in the Stripe Dashboard; the portal does not issue them.
 
@@ -119,11 +135,11 @@ The API uses `/api/v1`, server-side scope checks and `Idempotency-Key` on writes
 Read the automation token locally into a shell variable without printing it, then request:
 
 ```sh
-curl http://localhost:3001/api/v1/reconciliation \
+curl http://localhost:3051/api/v1/reconciliation \
   -H "Authorization: Bearer $CE_AUTOMATION_TOKEN"
 ```
 
-Public catalog requests need no token. The read-only automation token cannot create offerings or decide approvals. The staff token alone only performs mock staff sign-in (`POST /api/v1/prototype/staff-sessions` with an email, and `GET /api/v1/prototype/staff-directory`). To act as staff, also send `X-Prototype-Staff-Id` with an active staff member's ID; that member's roles decide the scopes, and audit entries record them as `staff:<id>`. Do not embed tokens in committed scripts. OpenAPI describes requests and required command headers. Registration/payment jobs expose their status at `/api/v1/operations/{id}`. `GET /api/v1/exceptions` lists failed provisioning for staff and the read-only automation token; only staff with the Support or IT/Canvas administrator role can change the simulation (`/api/v1/prototype/simulation`) or recover exceptions. OAuth/service-account management and signed outbound notifications are planned, not implemented.
+Public catalog requests need no token. The read-only automation token cannot create offerings or decide approvals. In mock mode, the staff token alone only performs mock staff sign-in (`POST /api/v1/prototype/staff-sessions` with an email, and `GET /api/v1/prototype/staff-directory`). To act as staff, also send `X-Prototype-Staff-Id` with an active staff member's ID; that member's roles decide the scopes, and audit entries record them as `staff:<id>`. Do not embed tokens in committed scripts. OpenAPI describes requests and required command headers. Registration/payment jobs expose their status at `/api/v1/operations/{id}`. `GET /api/v1/exceptions` lists failed provisioning for staff and the read-only automation token; only staff with the Support or IT/Canvas administrator role can change the simulation (`/api/v1/prototype/simulation`) or recover exceptions. Canvas-mode staff requests instead require a valid `X-Staff-Session` from the trusted web backend; mock selection is disabled. See [Canvas staff authentication](docs/canvas-staff-auth.md) for configuration and approved identity linking. Sync credentials/service-account management and signed outbound notifications remain planned.
 
 ## Verify
 
@@ -133,6 +149,8 @@ npm run typecheck
 npm run build
 npm test
 npm run test:migrations
+npm run test:auth
+npm run test:canvas
 npm run test:a11y
 ```
 
@@ -145,7 +163,7 @@ Run one group with `--project`, for example `npm run test:a11y -- --project=fire
 
 **Continuous integration:** `.github/workflows/ci.yml` runs all of the above on every pull request, against a throwaway PostgreSQL service with synthetic data. It never deploys or connects to external systems. Pull requests and pushes that change only documentation (`docs/**` or Markdown files) skip it; start it by hand from the Actions tab if needed. If the scans fail, the job uploads the Playwright report.
 
-Integration tests require the website, API and PostgreSQL running. Both the integration tests and the accessibility scans remove the records they create, so local runs leave the database unchanged. They check authorization, validation, payment-before-approval prevention, idempotency and concurrent final-seat reservation against isolated test records, then remove those records. Production UI/SSO, refunds, transfers, lifecycle automation, exception recovery and live integrations remain future work. See `docs/implementation-plan.md` and `docs/adr/0001-local-prototype.md`.
+Integration tests require the website, API and PostgreSQL running. Both the integration tests and the accessibility scans remove the records they create, so local runs leave the database unchanged. They check authorization, validation, payment-before-approval prevention, idempotency and concurrent final-seat reservation against isolated test records, then remove those records. Canvas staff OAuth is implemented with mocked-provider coverage; live SSO/MFA testing awaits configuration. Production hosting, learner authentication, transfers, lifecycle automation and live Canvas enrollment remain future work. See `docs/implementation-plan.md` and `docs/adr/0001-local-prototype.md`.
 
 ### Review/test checklist
 
@@ -159,6 +177,6 @@ Integration tests require the website, API and PostgreSQL running. Both the inte
 
 Accessibility is part of every UI review. Scale checks to the change; a narrow UI change does not require repeating unrelated integration tests. The first manual catalog review is recorded in `docs/prototype/accessibility-check.txt`.
 
-Mock sign-in accepts any email and any password at `/sign-in`. Emails are normalized and saved in the PostgreSQL `learners` table; the password is never saved or sent. An HTTP-only cookie selects the demo learner for 30 days. Sign-out clears that cookie, while registrations remain in the database. Each email has its own course registrations, and staff use a separate mock staff sign-in (ADR 0004). Anyone can sign in as any demo email; this is not production authentication. Existing shared sample registrations remain attached to the legacy email-less learner.
+Mock sign-in accepts any email and any password at `/sign-in`. Emails are normalized and saved in the PostgreSQL `learners` table; the password is never saved or sent. An HTTP-only cookie selects the demo learner for 30 days. Sign-out clears that cookie, while registrations remain in the database. Each email has its own course registrations, and staff use either mock sign-in (ADR 0004) or explicitly configured [Canvas OAuth](docs/canvas-staff-auth.md). Anyone can sign in as any demo email; this is not production authentication. Existing shared sample registrations remain attached to the legacy email-less learner.
 
 For API automation, use the learner token with `POST /api/v1/prototype/users` and an email JSON body to obtain a learner ID. Pass `X-Prototype-Learner-Id` with that token on learner workflow requests. `GET /api/v1/me` returns the selected learner. Omitting the header selects the legacy sample learner for direct API demos; signed-out web workflow requests are rejected.

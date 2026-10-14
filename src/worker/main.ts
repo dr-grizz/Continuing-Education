@@ -1,8 +1,11 @@
 import type { operations } from "../generated/prisma/client";
+import { CanvasCoursesService } from "../server/canvas-courses";
 import { db } from "../domain/db";
 import { prisma, sql, transaction, Tx } from "../domain/prisma";
 import { audit, PortalService } from "../server/service";
 const portal = new PortalService();
+const canvasCourses = new CanvasCoursesService();
+let readingCourses = false;
 let stopped = false;
 type Stage = "identity" | "canvas";
 const MAX_ATTEMPTS = 3;
@@ -155,6 +158,20 @@ async function step(tx: Tx) {
 }
 let lastReconciled = 0;
 async function tick() {
+  // Network reads run outside the enrollment transaction and never block its loop.
+  if (!readingCourses) {
+    readingCourses = true;
+    void canvasCourses
+      .workerStep()
+      .catch(() => {
+        console.error(
+          "Canvas course worker unavailable; retrying on the next tick.",
+        );
+      })
+      .finally(() => {
+        readingCourses = false;
+      });
+  }
   try {
     await transaction(step);
   } catch (error) {

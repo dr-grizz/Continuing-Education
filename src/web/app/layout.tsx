@@ -5,6 +5,7 @@ import InitColorSchemeScript from "@mui/material/InitColorSchemeScript";
 import Theme from "./theme";
 import Shell from "../components/shell";
 import { DemoAuthProvider } from "../components/demo-auth";
+import { StaffSessionProvider } from "../components/staff-session";
 // Figtree: a free, self-hosted (next/font) stand-in for Proxima Nova, the cedarville.edu font.
 const sans = Figtree({ subsets: ["latin"], variable: "--font-sans" });
 export const metadata: Metadata = {
@@ -20,7 +21,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         <AppRouterCacheProvider>
           <Theme>
             <DemoAuthProvider>
-              <Shell>{children}</Shell>
+              <StaffSessionProvider>
+                <Shell>{children}</Shell>
+              </StaffSessionProvider>
             </DemoAuthProvider>
           </Theme>
         </AppRouterCacheProvider>

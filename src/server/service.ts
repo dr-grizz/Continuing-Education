@@ -14,6 +14,8 @@ import {
   type SimulatedOutcome,
   type StaffRole,
 } from "../generated/prisma/client";
+import { protectCanvasOfferingLink } from "./canvas-offering-links";
+import { missingOfferingInfo } from "../domain/offering-readiness";
 import { DEMO_LEARNER } from "../domain/db";
 import {
   offeringColumns,
@@ -43,6 +45,7 @@ import {
   QueryDto,
 } from "./dto";
 import { Principal } from "./auth";
+import { staffAuthMode } from "./staff-auth-config";
 import {
   emptySalesPage,
   parseSalesPage,
@@ -97,7 +100,7 @@ type EnrollmentWindow = {
 export type OfferingListing = Omit<offerings, "start_date" | "end_date"> &
   ScheduleText &
   EnrollmentWindow & {
-    seats_available: number;
+    seats_available: number | null;
     active_registrations?: number;
     seats_in_use?: number;
   };
@@ -154,6 +157,23 @@ export async function audit(
   await tx.audit_events.create({
     data: { actor, action, object_id: id, details },
   });
+}
+function validateCapacity(data: OfferingDto) {
+  if (data.unlimitedSeats === true) {
+    if (data.capacity != null)
+      throw new BadRequestException(
+        "Omit capacity or set it to null when Unlimited seats is selected.",
+      );
+  } else if (
+    data.capacity == null ||
+    !Number.isInteger(data.capacity) ||
+    data.capacity < 1 ||
+    data.capacity > 10000
+  ) {
+    throw new BadRequestException(
+      "Set a seat capacity from 1 to 10,000, or select Unlimited seats.",
+    );
+  }
 }
 function validateSchedule(data: OfferingDto) {
   if (data.courseType === "cohort") {
@@ -222,7 +242,7 @@ export class PortalService {
           `,${activeRegistrations} AS active_registrations,${seatsInUse} AS seats_in_use,${salesPageStatusSql} AS sales_page_status FROM offerings o`,
         )
       : listing;
-    return sql<OfferingListing>(
+    const rows = await sql<OfferingListing>(
       prisma,
       `${select} WHERE ($1 OR o.published) AND ($2='' OR o.title ILIKE $2 OR o.summary ILIKE $2) AND ($3='' OR o.category=$3)
         AND ($4='' OR o.id IN (SELECT i.offering_id FROM collection_items i JOIN collections c ON c.id=i.collection_id WHERE c.slug=$4 AND c.published))
@@ -232,6 +252,12 @@ export class PortalService {
       query.category || "",
       query.collection || "",
     );
+    return staff
+      ? rows.map((row) => ({
+          ...row,
+          missing_required_info: missingOfferingInfo(row),
+        }))
+      : rows;
   }
   async detail(id: string) {
     const [offering] = await sql<OfferingListing>(
@@ -303,13 +329,21 @@ export class PortalService {
       return response;
     });
   }
-  async reserve(tx: Tx, offering: { id: string; capacity: number }) {
+  async reserve(
+    tx: Tx,
+    offering: {
+      id: string;
+      capacity: number | null;
+      unlimited_seats?: boolean;
+    },
+  ) {
+    if (offering.unlimited_seats) return;
     const [occupied] = await sql<{ count: number }>(
       tx,
       `SELECT count(*)::integer AS count FROM entitlements WHERE offering_id=$1::uuid AND (status IN ('provisioning','enrolled','exception') OR (status='reserved' AND reserved_until>now()))`,
       offering.id,
     );
-    if (occupied.count >= offering.capacity)
+    if (offering.capacity === null || occupied.count >= offering.capacity)
       throw new ConflictException("This offering has no available seats.");
   }
   async register(principal: Principal, key: string, offeringId: string) {
@@ -325,6 +359,10 @@ export class PortalService {
           offeringId,
         );
         if (!offering) throw new NotFoundException("Offering not available.");
+        if (missingOfferingInfo(offering).length)
+          throw new ConflictException(
+            "This offering is not ready for registration.",
+          );
         const row = await tx.entitlements.findUnique({
           where: {
             learner_id_offering_id: {
@@ -1098,11 +1136,13 @@ export class PortalService {
   }
   async create(principal: Principal, key: string, data: OfferingDto) {
     validateSchedule(data);
+    validateCapacity(data);
     return this.command(
       principal,
       key,
       { action: "create", data },
       async (tx) => {
+        await protectCanvasOfferingLink(tx, data.canvasCourseUrl || null);
         const offering = await tx.offerings.create({
           data: {
             title: data.title,
@@ -1112,7 +1152,8 @@ export class PortalService {
             format: data.format,
             start_date: toDate(data.startDate),
             end_date: toDate(data.endDate),
-            capacity: data.capacity,
+            capacity: data.unlimitedSeats ? null : data.capacity!,
+            unlimited_seats: data.unlimitedSeats ?? false,
             price_cents: data.priceCents,
             approval_required: data.approvalRequired,
             course_type: data.courseType,
@@ -1145,6 +1186,7 @@ export class PortalService {
       key,
       { action: "settings", id, data },
       async (tx) => {
+        await protectCanvasOfferingLink(tx, data.canvasCourseUrl || null, id);
         const [before] = await sql<
           Pick<
             offerings,
@@ -1187,12 +1229,14 @@ export class PortalService {
     data: OfferingEditDto,
   ) {
     validateSchedule(data);
+    validateCapacity(data);
     const { version, reason, ...fields } = data;
     return this.command(
       principal,
       key,
       { action: "edit", id, data },
       async (tx) => {
+        await protectCanvasOfferingLink(tx, fields.canvasCourseUrl || null, id);
         const [before] = await sql<
           Omit<offerings, "start_date" | "end_date"> &
             ScheduleText & {
@@ -1236,7 +1280,7 @@ export class PortalService {
           throw new ConflictException(
             "Dates cannot change while learners are registered.",
           );
-        if (fields.capacity < before.seats_in_use)
+        if (!fields.unlimitedSeats && fields.capacity! < before.seats_in_use)
           throw new ConflictException(
             `Capacity cannot be lower than the ${before.seats_in_use} seats in use.`,
           );
@@ -1249,7 +1293,8 @@ export class PortalService {
           course_type: fields.courseType,
           start_date: fields.startDate ?? null,
           end_date: fields.endDate ?? null,
-          capacity: fields.capacity,
+          capacity: fields.unlimitedSeats ? null : fields.capacity!,
+          unlimited_seats: fields.unlimitedSeats ?? false,
           price_cents: fields.priceCents,
           approval_required: fields.approvalRequired,
           approval_valid_days:
@@ -1353,6 +1398,16 @@ export class PortalService {
       key,
       { action: "publish", id, version },
       async (tx) => {
+        const current = await tx.offerings.findUnique({ where: { id } });
+        if (!current || current.version !== version)
+          throw new ConflictException(
+            "Offering changed or does not exist. Refresh and retry.",
+          );
+        const missing = missingOfferingInfo(current);
+        if (missing.length)
+          throw new BadRequestException(
+            `Complete required offering information before publishing: ${missing.join(", ")}.`,
+          );
         // Version check guards against publishing a stale draft.
         const updated = await tx.offerings.updateMany({
           where: { id, version },
@@ -1533,8 +1588,10 @@ export class PortalService {
     );
   }
   // Mock staff sign-in (ADR 0004): any active member may be selected without a password.
-  // An SSO add-on replaces this lookup with a verified provider identity.
+  // Canvas mode uses its separate verified identity flow and refuses this lookup.
   async staffSession(email: string) {
+    if (staffAuthMode() !== "mock")
+      throw new ForbiddenException("Mock staff sign-in is disabled.");
     const member = await prisma.staff_members.findUnique({
       where: { email: email.trim().toLowerCase() },
       select: staffSelect,
@@ -1544,6 +1601,8 @@ export class PortalService {
     return member;
   }
   async staffDirectory() {
+    if (staffAuthMode() !== "mock")
+      throw new ForbiddenException("Mock staff sign-in is disabled.");
     return prisma.staff_members.findMany({
       where: { active: true },
       select: { id: true, email: true, display_name: true, roles: true },
@@ -1671,6 +1730,10 @@ export class PortalService {
             active: member.active,
           },
         });
+        if (!member.active)
+          await tx.staff_sessions.deleteMany({
+            where: { staff_id: member.id },
+          });
         return member;
       },
     );
@@ -1863,9 +1926,18 @@ export class PortalService {
       FROM entitlements e WHERE ${inRange}`,
       ...args,
     );
-    const [seats] = await sql<{ capacity: number; in_use: number }>(
+    const [seats] = await sql<{
+      capacity: number;
+      in_use: number;
+      limited_in_use: number;
+      unlimited_count: number;
+      unlimited_in_use: number;
+    }>(
       prisma,
-      `SELECT coalesce(sum(o.capacity),0)::int AS capacity, coalesce(sum(${seatsInUse}),0)::int AS in_use
+      `SELECT coalesce(sum(o.capacity),0)::int AS capacity, coalesce(sum(${seatsInUse}),0)::int AS in_use,
+        coalesce(sum(${seatsInUse}) FILTER (WHERE NOT o.unlimited_seats),0)::int AS limited_in_use,
+        count(*) FILTER (WHERE o.unlimited_seats)::int AS unlimited_count,
+        coalesce(sum(${seatsInUse}) FILTER (WHERE o.unlimited_seats),0)::int AS unlimited_in_use
       FROM offerings o WHERE o.published AND ($1::uuid IS NULL OR o.id=$1::uuid)`,
       offering,
     );
@@ -1888,7 +1960,8 @@ export class PortalService {
       id: string;
       title: string;
       published: boolean;
-      capacity: number;
+      capacity: number | null;
+      unlimited_seats: boolean;
       seats_in_use: number;
       registrations: number;
       enrolled: number;
@@ -1896,7 +1969,7 @@ export class PortalService {
       awaiting_approval: number;
     }>(
       prisma,
-      `SELECT o.id,o.title,o.published,o.capacity,${seatsInUse} AS seats_in_use,
+      `SELECT o.id,o.title,o.published,o.capacity,o.unlimited_seats,${seatsInUse} AS seats_in_use,
         count(e.id)::int AS registrations,
         count(e.id) FILTER (WHERE e.status='enrolled')::int AS enrolled,
         count(e.id) FILTER (WHERE e.status IN ('approved','reserved','provisioning'))::int AS in_progress,
@@ -1966,6 +2039,9 @@ export class PortalService {
         ...totals,
         seats_capacity: seats.capacity,
         seats_in_use: seats.in_use,
+        limited_seats_in_use: seats.limited_in_use,
+        unlimited_offerings: seats.unlimited_count,
+        unlimited_seats_in_use: seats.unlimited_in_use,
         trend: registrationsTrend,
         by_offering: byOffering,
       },
@@ -2609,7 +2685,10 @@ export class PortalService {
       ),
     ]);
     return {
-      offering,
+      offering: {
+        ...offering,
+        missing_required_info: missingOfferingInfo(offering),
+      },
       registrations: Object.fromEntries(
         registrations.map((r) => [r.status, r._count._all]),
       ),
