@@ -11,11 +11,12 @@
 - **Approval validity:** how long an approval lets the learner reserve a seat (default 7 days, set per offering). Lapsed or declined approvals can be requested again.
 - **Enrollment window:** Scheduled courses accept registration until a set number of days after the start date (default 7, set per offering). Self-paced courses never close.
 - **Canvas offering mapping:** one default offering per Canvas installation URL and course ID. Explicit selected-course sync creates an unpublished draft, refreshes source metadata and preserves all staff-owned offering fields. Conflicting existing links require review; mapped links are protected.
+- **Offering display image:** Canvas imports follow the course image with a CU CE fallback unless staff explicitly select a portal upload or CU CE image. Portal image choices are versioned, audited and preserved by source refreshes; only an explicit reset follows Canvas again. No portal edit changes Canvas.
 - **Canvas course link:** per-offering link that learners see only after their Canvas account and enrollment are complete.
 - **Price history:** append-only record of an offering's prices. A reservation keeps the price quoted when the seat was reserved, and payment charges that quoted price.
 - **Unpublished offering:** removed from the catalog. No new registrations, approval requests or payments; enrollments already paid continue.
 - **Order:** payment record. Prototype orders are explicitly simulated, not financial evidence.
-- **Operation:** durable background workflow with a queryable status. Failed steps retry automatically a bounded number of times.
+- **Operation:** durable workflow with a queryable status. In the current demo, normal simulated fulfillment completes during payment; delayed/failed stages resume on authenticated requests with bounded retries. There is no always-running worker.
 - **Exception:** a paid registration whose provisioning failed after automatic retries. It waits in the staff queue until staff retry provisioning (after the cause is fixed) or record a manual enrollment, each with an audited reason. Learners see “Support review needed” and are never asked to pay again. In the prototype, failures are simulated by a staff-selected outcome.
 - **Migration/cutover:** project transition process, not portal business behavior.
 

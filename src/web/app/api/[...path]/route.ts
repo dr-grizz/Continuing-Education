@@ -91,7 +91,15 @@ async function proxy(
         body: request.method === "GET" ? undefined : await request.text(),
         cache: "no-store",
         redirect: "error",
-        signal: AbortSignal.timeout(10000),
+        // A manual Canvas preview runs within this request, with a bounded
+        // 120-second provider budget. Other API calls retain a short timeout.
+        signal: AbortSignal.timeout(
+          ["staff/canvas/courses", "staff/transactions/reconcile"].includes(
+            path.join("/"),
+          )
+            ? 135_000
+            : 10_000,
+        ),
       },
     );
     return new NextResponse(await response.text(), {

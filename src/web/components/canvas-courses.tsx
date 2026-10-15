@@ -111,9 +111,6 @@ export function CanvasCourses({ can }: { can: (scope: string) => boolean }) {
   const automaticPreviewAttempted = useRef(false);
   const commandInFlight = useRef(false);
   const focusReadResult = useRef(false);
-  const [interval, setInterval] = useState(60);
-  const enableSchedule = useRef<HTMLButtonElement>(null);
-  const returnScheduleFocus = useRef(false);
   const sourceHeading = useRef<HTMLHeadingElement>(null);
   const returnPreviewFocus = useRef(false);
   useEffect(() => {
@@ -144,7 +141,6 @@ export function CanvasCourses({ can }: { can: (scope: string) => boolean }) {
         }
         if (["pending", "running"].includes(result.latest_run?.status || ""))
           timer = setTimeout(load, 2000);
-        else if (result.schedule.enabled) timer = setTimeout(load, 30_000);
       } catch (e) {
         if (active) {
           requestedPreview.current = null;
@@ -164,13 +160,6 @@ export function CanvasCourses({ can }: { can: (scope: string) => boolean }) {
     setSelected(new Set());
   }, [data?.preview?.run_id, viewMode]);
   useEffect(() => {
-    if (data) setInterval(data.schedule.interval_minutes);
-  }, [data?.schedule.interval_minutes]);
-  useEffect(() => {
-    if (returnScheduleFocus.current && data && !data.schedule.enabled) {
-      enableSchedule.current?.focus();
-      returnScheduleFocus.current = false;
-    }
     if (
       returnPreviewFocus.current &&
       data &&
@@ -220,7 +209,6 @@ export function CanvasCourses({ can }: { can: (scope: string) => boolean }) {
       refresh((value) => value + 1);
       return true;
     } catch (e) {
-      returnScheduleFocus.current = false;
       returnPreviewFocus.current = false;
       requestedPreview.current = null;
       setError((e as Error).message);
@@ -470,83 +458,11 @@ export function CanvasCourses({ can }: { can: (scope: string) => boolean }) {
                 <Typography component="h2" variant="h6">
                   Scheduled course previews
                 </Typography>
-                <Typography>
-                  {data.schedule.enabled
-                    ? `Enabled · Authorized by ${data.schedule.owner_name || "a staff member"} · Next read: ${time(data.schedule.next_run_at)}`
-                    : "Paused"}
-                </Typography>
                 <Typography variant="body2">
-                  Scheduled runs create previews for review; course details are
-                  saved only after you import selected courses. Scheduled reads
-                  use the selected staff member’s Canvas authorization after
-                  portal sign-out. Deactivation, loss of portal permissions or
-                  revoked Canvas authorization stops those reads.
+                  Scheduled synchronization is deferred in this demo. Course
+                  previews load when you open this page; use Refresh from Canvas
+                  to read them again. Import selected courses to save drafts.
                 </Typography>
-                {can("canvas:manage") && (
-                  <Stack
-                    direction={{ xs: "column", sm: "row" }}
-                    sx={{ gap: 1, alignItems: { sm: "center" } }}
-                  >
-                    <TextField
-                      select
-                      label="Read courses"
-                      value={interval}
-                      onChange={(event) =>
-                        setInterval(Number(event.target.value))
-                      }
-                      sx={{ minWidth: 200 }}
-                    >
-                      {[15, 30, 60, 120, 1440].map((minutes) => (
-                        <MenuItem key={minutes} value={minutes}>
-                          {minutes === 1440
-                            ? "Daily"
-                            : `Every ${minutes} minutes`}
-                        </MenuItem>
-                      ))}
-                    </TextField>
-                    <Button
-                      ref={enableSchedule}
-                      disabled={
-                        busy ||
-                        !data.configured ||
-                        !data.connected ||
-                        !data.last_success_at
-                      }
-                      onClick={() =>
-                        command(
-                          "schedule",
-                          {
-                            enabled: true,
-                            intervalMinutes: interval,
-                            version: data.schedule.version,
-                          },
-                          "Scheduled reads will use your Canvas authorization.",
-                        )
-                      }
-                    >
-                      Enable using my Canvas account
-                    </Button>
-                    {data.schedule.enabled && (
-                      <Button
-                        disabled={busy}
-                        onClick={() => {
-                          returnScheduleFocus.current = true;
-                          void command(
-                            "schedule",
-                            {
-                              enabled: false,
-                              intervalMinutes: interval,
-                              version: data.schedule.version,
-                            },
-                            "Scheduled course reads paused.",
-                          );
-                        }}
-                      >
-                        Pause schedule
-                      </Button>
-                    )}
-                  </Stack>
-                )}
               </Stack>
             </Paper>
           </Collapse>

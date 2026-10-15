@@ -1293,6 +1293,7 @@ function StaffWorkspace({
         )}
         {tab === "transactions" && can("payments:read") && (
           <StaffTransactions
+            canReconcile={can("payments:reconcile")}
             canRequest={can("refunds:request")}
             onChanged={setMessage}
           />

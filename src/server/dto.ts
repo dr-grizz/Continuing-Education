@@ -371,6 +371,38 @@ export class MediaUploadDto {
   @MaxLength(7_000_000)
   data!: string;
 }
+export class OfferingImageDto {
+  @ApiProperty() @IsInt() @Min(1) version!: number;
+  @ApiProperty({ enum: ["upload", "fallback", "source"] })
+  @IsIn(["upload", "fallback", "source"])
+  mode!: "upload" | "fallback" | "source";
+  @ApiPropertyOptional({
+    description: "Required for previously published offerings",
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  reason?: string;
+  @ApiPropertyOptional()
+  @ValidateIf((o) => o.mode === "upload")
+  @IsString()
+  @MinLength(1)
+  @MaxLength(200)
+  fileName?: string;
+  @ApiPropertyOptional({
+    enum: ["image/png", "image/jpeg", "image/webp", "image/gif"],
+  })
+  @ValidateIf((o) => o.mode === "upload")
+  @IsIn(["image/png", "image/jpeg", "image/webp", "image/gif"])
+  contentType?: string;
+  @ApiPropertyOptional({
+    description: "Base64 image, up to 5 MB decoded; upload mode only",
+  })
+  @ValidateIf((o) => o.mode === "upload")
+  @IsString()
+  @MaxLength(7_000_000)
+  data?: string;
+}
 export class SalesPageRestoreDto {
   @ApiProperty() @IsInt() @Min(1) version!: number;
   @ApiProperty({ description: "Published revision to copy into the draft" })

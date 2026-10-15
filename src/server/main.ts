@@ -2,6 +2,10 @@ import "reflect-metadata";
 import { CanvasCoursesService } from "./canvas-courses";
 import { CanvasCoursesController } from "./canvas-courses-controller";
 import {
+  CallHandler,
+  ExecutionContext,
+  Injectable,
+  NestInterceptor,
   Body,
   Controller,
   Get,
@@ -21,7 +25,7 @@ import {
   UseGuards,
   ValidationPipe,
 } from "@nestjs/common";
-import { NestFactory } from "@nestjs/core";
+import { APP_INTERCEPTOR, NestFactory } from "@nestjs/core";
 import type { NestExpressApplication } from "@nestjs/platform-express";
 import {
   ApiBearerAuth,
@@ -40,6 +44,7 @@ import {
   SalesPageDto,
   SalesPageRestoreDto,
   MediaUploadDto,
+  OfferingImageDto,
   CollectionEditDto,
   FollowDto,
   SavedCourseDto,
@@ -298,6 +303,21 @@ class WorkflowController {
     requireScope(req, "catalog:write");
     return this.portal.edit(req.principal, key, id, dto);
   }
+  @Post("offerings/:id/image")
+  @HttpCode(200)
+  @ApiOperation({
+    summary:
+      "Change the portal-only course image (catalog:write); Canvas is never changed and refreshes preserve the override",
+  })
+  changeOfferingImage(
+    @Req() req: any,
+    @Headers("idempotency-key") key: string,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body() dto: OfferingImageDto,
+  ) {
+    requireScope(req, "catalog:write");
+    return this.portal.changeOfferingImage(req.principal, key, id, dto);
+  }
   @Post("offerings/:id/unpublish")
   @HttpCode(200)
   @ApiOperation({
@@ -463,6 +483,16 @@ class WorkflowController {
   transactions(@Req() req: any) {
     requireScope(req, "payments:read");
     return this.portal.transactions();
+  }
+  @Post("staff/transactions/reconcile")
+  @HttpCode(200)
+  @ApiOperation({
+    summary:
+      "Manually reconcile up to five unresolved Stripe Checkout sessions (payments:reconcile)",
+  })
+  reconcilePayments(@Req() req: any, @Headers("idempotency-key") key: string) {
+    requireScope(req, "payments:reconcile");
+    return this.portal.reconcilePayments(req.principal, key);
   }
   @Post("staff/transactions/:id/refund-requests")
   @ApiOperation({
@@ -775,6 +805,17 @@ class WebhookController {
     return this.portal.stripeEvent(event);
   }
 }
+// Gates run before interceptors. Webhooks verify signatures and fulfill within
+// their own transaction; health checks must never act as a background timer.
+@Injectable()
+class DemoRequestInterceptor implements NestInterceptor {
+  constructor(private readonly portal: PortalService) {}
+  async intercept(context: ExecutionContext, next: CallHandler) {
+    const req = context.switchToHttp().getRequest();
+    if (req.principal) await this.portal.processDemo();
+    return next.handle();
+  }
+}
 @Module({
   controllers: [
     CanvasCoursesController,
@@ -784,6 +825,7 @@ class WebhookController {
     StaffAuthController,
   ],
   providers: [
+    { provide: APP_INTERCEPTOR, useClass: DemoRequestInterceptor },
     CanvasCoursesService,
     PortalService,
     PrototypeGuard,
@@ -822,7 +864,7 @@ async function main() {
   const config = new DocumentBuilder()
     .setTitle("Continuing Education prototype API")
     .setDescription(
-      "Local prototype. Staff authentication supports configured identity-only Canvas OAuth with portal roles, or mock identities in mock mode. Learner identity and enrollment are simulated. Payment uses the Stripe sandbox when configured, otherwise a simulation.",
+      "Local prototype. Staff authentication supports configurable Canvas OAuth with optional course-read scopes and portal roles, or mock identities in mock mode. Learner identity and enrollment are simulated. Payment uses the Stripe sandbox when configured, otherwise a simulation.",
     )
     .setVersion("1.0")
     .addBearerAuth()

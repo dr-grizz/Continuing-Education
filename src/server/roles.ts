@@ -10,6 +10,7 @@ export const roleScopes: Record<StaffRole, readonly string[]> = {
     "prototype:simulate",
     "learners:manage",
     "payments:read",
+    "payments:reconcile",
     "refunds:request",
   ],
   it_canvas_admin: [
@@ -28,6 +29,7 @@ export const roleScopes: Record<StaffRole, readonly string[]> = {
     "staff:manage",
     "reports:sales",
     "payments:read",
+    "payments:reconcile",
     "refunds:request",
   ],
   // Sales pages (built October 8, 2026) and, with catalog managers, the Explore tab picks.
@@ -69,6 +71,8 @@ export const roleDescriptions: Record<StaffRole, string> = {
     "Edits, previews and publishes course sales pages, and chooses the learner Explore tab picks. Cannot change prices, dates or course publication.",
 };
 export const scopeDescriptions: Record<string, string> = {
+  "payments:reconcile":
+    "Manually check unresolved Stripe sandbox Checkout sessions",
   "canvas:read":
     "View Canvas course connection status and the last successful course preview",
   "canvas:sync":

@@ -1,5 +1,6 @@
 "use client";
 import Image from "next/image";
+import { useState } from "react";
 import {
   Box,
   Button,
@@ -11,7 +12,7 @@ import {
 } from "@mui/material";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import { courseFormatLabel, courseStart, money, Offering } from "./api";
-import { courseImage } from "./course-images";
+import { courseImage, CU_CE_IMAGE } from "./course-images";
 
 // Catalog course card, shared by the Courses and Explore tabs. Titles are h3,
 // under the section's h2.
@@ -22,6 +23,10 @@ export function CourseCard({
   offering: Offering;
   layout: "list" | "grid";
 }) {
+  const source = courseImage(o);
+  const [failedSource, setFailedSource] = useState<string | null>(null);
+  const image = failedSource === source ? CU_CE_IMAGE : source;
+  const branded = image === CU_CE_IMAGE;
   return (
     <Paper
       variant="outlined"
@@ -48,11 +53,17 @@ export function CourseCard({
           aspectRatio: layout === "grid" ? "16 / 9" : undefined,
           borderRadius: layout === "grid" ? 0 : 1,
           overflow: "hidden",
-          bgcolor: "action.hover",
+          bgcolor: branded ? "#19384b" : "action.hover",
         }}
       >
         <Image
-          src={courseImage(o)}
+          key={image}
+          src={image}
+          unoptimized={
+            image.startsWith("https://") || image.startsWith("/media/")
+          }
+          referrerPolicy="no-referrer"
+          onError={() => setFailedSource(source)}
           alt=""
           fill
           sizes={
@@ -60,7 +71,10 @@ export function CourseCard({
               ? "(max-width: 599px) 100vw, (max-width: 899px) 50vw, 380px"
               : "(max-width: 599px) 157px, 192px"
           }
-          style={{ objectFit: "cover" }}
+          style={{
+            objectFit: branded ? "contain" : "cover",
+            padding: branded ? "10%" : 0,
+          }}
         />
       </Box>
       <Box

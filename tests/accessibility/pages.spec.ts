@@ -1096,21 +1096,15 @@ test.describe("Canvas course connector", () => {
     await expect(
       page.getByRole("button", { name: "Hide schedule settings" }),
     ).toHaveAttribute("aria-expanded", "true");
-    await page
-      .getByRole("button", { name: "Enable using my Canvas account" })
-      .press("Enter");
-    const pause = page.getByRole("button", { name: "Pause schedule" });
-    await expect(pause).toBeVisible();
-    await scan(page, "Canvas course preview and schedule");
-    await page.screenshot({
-      path: `/tmp/ce-canvas-courses-${test.info().project.name}.png`,
-      fullPage: true,
-    });
-    await pause.press("Enter");
-    await expect(pause).toHaveCount(0);
+    await expect(
+      page.getByText("Scheduled synchronization is deferred in this demo.", {
+        exact: false,
+      }),
+    ).toBeVisible();
     await expect(
       page.getByRole("button", { name: "Enable using my Canvas account" }),
-    ).toBeFocused();
+    ).toHaveCount(0);
+    await scan(page, "Canvas course preview and deferred schedule");
   });
   test("cached preview is reused and refresh stays in the filter toolbar", async ({
     page,
@@ -1822,3 +1816,399 @@ test.describe("Canvas staff sign-in", () => {
     await scan(page, "Canvas identity not authorized");
   });
 });
+
+test("manual Stripe reconciliation keyboard action and status", async ({
+  page,
+}) => {
+  await page.route("**/api/staff-session", (route) =>
+    route.fulfill({
+      json: {
+        member: {
+          id: "00000000-0000-4000-8000-000000000001",
+          email: "support@example.test",
+          display_name: "Payment test",
+          roles: ["support"],
+          active: true,
+          version: 1,
+          scopes: [
+            "staff:read",
+            "payments:read",
+            "payments:reconcile",
+            "refunds:request",
+          ],
+        },
+        auth: { mode: "canvas", configured: true },
+      },
+    }),
+  );
+  for (const endpoint of ["staff/offerings", "approval-requests", "exceptions"])
+    await page.route(`**/api/${endpoint}`, (route) =>
+      route.fulfill({ json: [] }),
+    );
+  await page.route("**/api/reconciliation", (route) =>
+    route.fulfill({
+      json: {
+        audit: [],
+        simulated_orders: 0,
+        simulated_enrollments: 0,
+        pending_operations: 0,
+        open_exceptions: 0,
+      },
+    }),
+  );
+  await page.route("**/api/prototype/simulation", (route) =>
+    route.fulfill({ json: { provisioningOutcome: "normal" } }),
+  );
+  await page.route("**/api/staff/transactions", (route) =>
+    route.fulfill({ json: [] }),
+  );
+  let checks = 0;
+  await page.route("**/api/staff/transactions/reconcile", (route) => {
+    checks++;
+    if (checks === 1)
+      return route.fulfill({
+        status: 503,
+        json: { message: "Stripe check unavailable. Try again." },
+      });
+    expect(route.request().headers()["idempotency-key"]).toBeTruthy();
+    return route.fulfill({ json: { checked: 2, failed: 1 } });
+  });
+  await page.goto("/staff/transactions");
+  const check = page.getByRole("button", {
+    name: "Check Stripe payments",
+    exact: true,
+  });
+  await check.focus();
+  await check.press("Enter");
+  await expect(
+    page
+      .getByRole("alert")
+      .filter({ hasText: "Stripe check unavailable. Try again." }),
+  ).toBeVisible();
+  await expect(check).toBeFocused();
+  await scan(page, "Manual Stripe recovery error");
+  await check.press("Enter");
+  await expect(
+    page.getByRole("status").filter({
+      hasText: "2 Checkout sessions reconciled; 1 could not be verified",
+    }),
+  ).toBeVisible();
+  await expect(check).toBeFocused();
+  expect(checks).toBe(2);
+  await expect(page.getByRole("main").getByRole("alert")).toHaveCount(0);
+  await scan(page, "Manual Stripe reconciliation");
+  await page.screenshot({
+    path: `/tmp/ce-request-demo-transactions-${test.info().project.name}.png`,
+    fullPage: true,
+  });
+});
+
+test("portal offering image editor keyboard, upload, validation and reset", async ({
+  page,
+}) => {
+  const id = "00000000-0000-4000-8000-000000000601";
+  const mediaId = "00000000-0000-4000-8000-000000000602";
+  let offering = {
+    id,
+    title: "Portal image test",
+    category: "Technology",
+    summary: "Synthetic course summary for image checks",
+    description: "Synthetic description for course image verification.",
+    outcomes: [],
+    format: "Online",
+    course_type: "self_paced",
+    start_date: null,
+    end_date: null,
+    price_cents: 100,
+    capacity: 25,
+    unlimited_seats: false,
+    seats_available: 25,
+    published: true,
+    version: 1,
+    approval_required: false,
+    approval_valid_days: 7,
+    enrollment_close_days: 7,
+    canvas_course_url: "https://canvas.example.test/courses/1",
+    imported_from_canvas: true,
+    canvas_image_url: null,
+    image_override: false,
+    image_media_id: null as string | null,
+    unpublished_at: null,
+    active_registrations: 0,
+    seats_in_use: 0,
+    sales_page_status: "none",
+  };
+  await page.route("**/api/staff-session", (route) =>
+    route.fulfill({
+      json: {
+        member: {
+          id,
+          email: "manager@example.test",
+          display_name: "Image test",
+          roles: ["catalog_manager"],
+          active: true,
+          version: 1,
+          scopes: ["staff:read", "catalog:write"],
+        },
+        auth: { mode: "canvas", configured: true },
+      },
+    }),
+  );
+  for (const endpoint of ["approval-requests", "exceptions"])
+    await page.route(`**/api/${endpoint}`, (route) =>
+      route.fulfill({ json: [] }),
+    );
+  await page.route("**/api/staff/offerings", (route) =>
+    route.fulfill({ json: [offering] }),
+  );
+  await page.route(`**/api/staff/offerings/${id}`, (route) =>
+    route.fulfill({ json: { offering, registrations: {}, activity: [] } }),
+  );
+  await page.route(`**/api/offerings/${id}/prices`, (route) =>
+    route.fulfill({ json: [] }),
+  );
+  await page.route("**/api/reconciliation", (route) =>
+    route.fulfill({
+      json: {
+        audit: [],
+        simulated_orders: 0,
+        simulated_enrollments: 0,
+        pending_operations: 0,
+        open_exceptions: 0,
+      },
+    }),
+  );
+  await page.route("**/api/prototype/simulation", (route) =>
+    route.fulfill({ json: { provisioningOutcome: "normal" } }),
+  );
+  const { readFile } = await import("node:fs/promises");
+  const cover = await readFile(
+    "src/web/public/course-images/data-analysis.jpg",
+  );
+  await page.route(`**/media/${mediaId}`, (route) =>
+    route.fulfill({ contentType: "image/jpeg", body: cover }),
+  );
+  const modes: string[] = [];
+  await page.route(`**/api/offerings/${id}/image`, async (route) => {
+    const body = route.request().postDataJSON();
+    expect(body.version).toBe(offering.version);
+    expect(body.reason).toBe("Choose a portal course image");
+    expect(route.request().headers()["idempotency-key"]).toBeTruthy();
+    modes.push(body.mode);
+    if (body.mode === "upload") {
+      expect(body.fileName).toBe("portal-cover.jpg");
+      expect(body.contentType).toBe("image/jpeg");
+      expect(body.data).toBe(cover.toString("base64"));
+    }
+    offering = {
+      ...offering,
+      version: offering.version + 1,
+      image_override: body.mode !== "source",
+      image_media_id: body.mode === "upload" ? mediaId : null,
+    };
+    await route.fulfill({ json: offering });
+  });
+  await page.goto(`/staff/offerings/${id}/details`);
+  const change = page.getByRole("button", {
+    name: "Change image",
+    exact: true,
+  });
+  // Unsaved text changes must not be lost by an independent image save.
+  const summary = page.getByRole("textbox", {
+    name: "Short summary",
+    exact: true,
+  });
+  await summary.fill("Unsaved portal summary");
+  await expect(change).toBeDisabled();
+  await summary.fill(offering.summary);
+  await expect(change).toBeEnabled();
+  for (const mode of ["upload", "fallback", "source"]) {
+    await change.focus();
+    await change.press("Enter");
+    const dialog = page.getByRole("dialog", { name: "Change course image" });
+    const choice = dialog.getByRole("radio", {
+      name:
+        mode === "upload"
+          ? "Upload a portal image"
+          : mode === "fallback"
+            ? "Use CU CE image"
+            : "Use Canvas course image",
+      exact: true,
+    });
+    await choice.focus();
+    await choice.press("Space");
+    if (mode === "upload") {
+      await dialog
+        .getByLabel("Choose image (PNG, JPEG, WebP or GIF; up to 5 MB)")
+        .setInputFiles({
+          name: "wrong.svg",
+          mimeType: "image/svg+xml",
+          buffer: Buffer.from("<svg/>"),
+        });
+      await expect(dialog.getByRole("alert")).toContainText("Choose a PNG");
+      await expect(dialog.getByRole("alert")).toBeFocused();
+      await scan(page, "Course image validation");
+      await dialog
+        .getByLabel("Choose image (PNG, JPEG, WebP or GIF; up to 5 MB)")
+        .setInputFiles({
+          name: "portal-cover.jpg",
+          mimeType: "image/jpeg",
+          buffer: cover,
+        });
+      await expect(
+        dialog.getByAltText("Course display image preview"),
+      ).toHaveAttribute("src", /^data:image\/jpeg/);
+    }
+    await dialog
+      .getByRole("textbox", { name: "Reason for image change" })
+      .fill("Choose a portal course image");
+    await scan(page, `Portal image ${mode} dialog`);
+    if (mode === "upload")
+      await page.screenshot({
+        path: `/tmp/ce-portal-image-dialog-${test.info().project.name}.png`,
+      });
+    const save = dialog.getByRole("button", {
+      name: "Save image",
+      exact: true,
+    });
+    await save.focus();
+    await save.press("Enter");
+    await expect(dialog).toBeHidden();
+    await expect(change).toBeFocused();
+    await expect(
+      page
+        .getByRole("alert")
+        .filter({ hasText: "Course image saved in the portal" }),
+    ).toBeVisible();
+  }
+  expect(modes).toEqual(["upload", "fallback", "source"]);
+  await change.press("Enter");
+  await page.getByRole("dialog").press("Escape");
+  await expect(page.getByRole("dialog")).toBeHidden();
+  await expect(change).toBeFocused();
+  await scan(page, "Portal course image saved");
+  await page.screenshot({
+    path: `/tmp/ce-portal-image-editor-${test.info().project.name}.png`,
+    fullPage: true,
+  });
+});
+
+for (const layout of ["list", "grid"] as const)
+  test(`Canvas course card images and CU CE fallback in ${layout} layout`, async ({
+    page,
+  }) => {
+    const rows = [
+      {
+        id: "00000000-0000-4000-8000-000000000501",
+        title: "Imported course with Canvas image",
+        canvas_image_url: "https://images.example.test/course-cover.jpg",
+      },
+      {
+        id: "00000000-0000-4000-8000-000000000502",
+        title: "Imported course without image",
+        canvas_image_url: null,
+      },
+      {
+        id: "00000000-0000-4000-8000-000000000503",
+        title: "Imported course with unavailable image",
+        canvas_image_url: "https://images.example.test/unavailable.jpg",
+      },
+      {
+        id: "00000000-0000-4000-8000-000000000504",
+        title: "Imported course with portal image",
+        canvas_image_url: "https://images.example.test/should-not-load.jpg",
+        image_override: true,
+        image_media_id: "00000000-0000-4000-8000-000000000506",
+      },
+      {
+        id: "00000000-0000-4000-8000-000000000505",
+        title: "Imported course with explicit CU CE choice",
+        canvas_image_url: "https://images.example.test/should-not-load.jpg",
+        image_override: true,
+        image_media_id: null,
+      },
+      {
+        id: "00000000-0000-4000-8000-000000000507",
+        title: "Imported course with unavailable portal image",
+        canvas_image_url: "https://images.example.test/should-not-load.jpg",
+        image_override: true,
+        image_media_id: "00000000-0000-4000-8000-000000000508",
+      },
+    ].map((row) => ({
+      ...row,
+      imported_from_canvas: true,
+      category: "Technology",
+      summary: "Synthetic image verification course",
+      format: "Online",
+      course_type: "self_paced",
+      start_date: null,
+      end_date: null,
+      price_cents: 100,
+      published: true,
+      approval_required: false,
+      enrollment_open: true,
+    }));
+    const { readFile } = await import("node:fs/promises");
+    const cover = await readFile(
+      "src/web/public/course-images/data-analysis.jpg",
+    );
+    await page.route("**/media/00000000-0000-4000-8000-000000000506", (route) =>
+      route.fulfill({ contentType: "image/jpeg", body: cover }),
+    );
+    await page.route("**/media/00000000-0000-4000-8000-000000000508", (route) =>
+      route.fulfill({ status: 404, body: "Missing portal image" }),
+    );
+    let imageRequests = 0;
+    await page.route("https://images.example.test/*", (route) => {
+      expect(route.request().headers()["authorization"]).toBeUndefined();
+      expect(route.request().url()).not.toContain("should-not-load");
+      imageRequests++;
+      return route.request().url().includes("unavailable")
+        ? route.fulfill({ status: 404, body: "Image not found" })
+        : route.fulfill({ contentType: "image/jpeg", body: cover });
+    });
+    await page.route("**/api/offerings", (route) =>
+      route.fulfill({ json: rows }),
+    );
+    await page.route("**/api/explore", (route) =>
+      route.fulfill({ json: { courses: rows, collections: [], pathways: [] } }),
+    );
+    await page.goto("/?tab=courses");
+    const toggle = page.getByRole("button", {
+      name: `${layout === "grid" ? "Grid" : "List"} layout`,
+      exact: true,
+    });
+    await toggle.focus();
+    await toggle.press("Enter");
+    for (const [index, row] of rows.entries()) {
+      const card = page.locator(".MuiPaper-root").filter({
+        has: page.getByRole("heading", { name: row.title, exact: true }),
+      });
+      await card.scrollIntoViewIfNeeded();
+      const image = card.locator("img");
+      await expect(image).toHaveAttribute("alt", "");
+      await expect(image).toHaveAttribute(
+        "src",
+        row.image_override && row.image_media_id && index !== 5
+          ? new RegExp(`/media/${row.image_media_id}$`)
+          : index === 0
+            ? row.canvas_image_url!
+            : /cedarville-continuing-education-white/,
+      );
+      await expect(image).toHaveJSProperty("complete", true);
+      expect(
+        await image.evaluate(
+          (element: HTMLImageElement) => element.naturalWidth,
+        ),
+      ).toBeGreaterThan(0);
+      await expect(
+        card.getByRole("link", { name: `View course: ${row.title}` }),
+      ).toBeVisible();
+    }
+    expect(imageRequests).toBeGreaterThanOrEqual(2);
+    await scan(page, `Canvas images and CU CE fallback (${layout})`);
+    await page.screenshot({
+      path: `/tmp/ce-course-images-${layout}-${test.info().project.name}.png`,
+      fullPage: true,
+    });
+  });

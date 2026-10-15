@@ -68,8 +68,9 @@ export class CanvasCoursesController {
   @ApiOperation({
     summary: "Filter the complete Canvas course preview before pagination",
   })
-  list(@Req() req: any, @Query() query: Record<string, unknown>) {
+  async list(@Req() req: any, @Query() query: Record<string, unknown>) {
     requireScope(req, "canvas:read");
+    await this.courses.readPendingPreview(req.principal.staffId);
     return this.courses.view(req.principal, Number(query.page ?? 1), query);
   }
   @Post("sync")
