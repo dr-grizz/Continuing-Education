@@ -1,4 +1,8 @@
 import {
+  processDemoOperation,
+  expireDemoReservations,
+} from "./demo-processing";
+import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
@@ -40,6 +44,7 @@ import {
   StaffUpdateDto,
   OfferingDto,
   OfferingEditDto,
+  OfferingImageDto,
   OfferingSettingsDto,
   ProvisioningOutcome,
   QueryDto,
@@ -61,6 +66,26 @@ import {
   webUrl,
 } from "./stripe";
 
+function imageBytes(data: { data: string; contentType: string }) {
+  const bytes = Buffer.from(data.data, "base64");
+  if (!bytes.length || bytes.length > 5 * 1024 * 1024)
+    throw new BadRequestException("Images must be 5 MB or smaller.");
+  const signatures: Record<string, (b: Buffer) => boolean> = {
+    "image/png": (b) =>
+      b.subarray(0, 8).equals(Buffer.from("89504e470d0a1a0a", "hex")),
+    "image/jpeg": (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff,
+    "image/gif": (b) => b.subarray(0, 4).toString("latin1") === "GIF8",
+    "image/webp": (b) =>
+      b.subarray(0, 4).toString("latin1") === "RIFF" &&
+      b.subarray(8, 12).toString("latin1") === "WEBP",
+  };
+  if (!signatures[data.contentType]?.(bytes))
+    throw new BadRequestException(
+      "The file is not a PNG, JPEG, WebP or GIF image.",
+    );
+  return bytes;
+}
+
 function salesPageStatus(
   page: { draft: unknown; published: unknown } | null,
 ): "none" | "draft" | "published" | "changes" {
@@ -76,7 +101,9 @@ const enrollmentWindow = `CASE WHEN o.course_type='cohort' THEN to_char(o.start_
   CASE WHEN o.course_type='cohort' THEN to_char(o.start_date+o.enrollment_close_days,'Mon FMDD, YYYY') END AS enrollment_closes_label,
   (o.course_type<>'cohort' OR current_date<=o.start_date+o.enrollment_close_days) AS enrollment_open`;
 const scheduleText = `to_char(o.start_date,'YYYY-MM-DD') AS start_date, to_char(o.end_date,'YYYY-MM-DD') AS end_date`;
-const listing = `SELECT ${offeringColumns("o")},${enrollmentWindow},${scheduleText},
+const listing = `SELECT ${offeringColumns("o")},
+  (SELECT m.source->>'image_url' FROM canvas_offering_mappings m WHERE m.offering_id=o.id) AS canvas_image_url,
+  ${enrollmentWindow},${scheduleText},
   (o.capacity - (SELECT count(*) FROM entitlements e WHERE e.offering_id=o.id AND
     (e.status IN ('provisioning','enrolled','exception') OR (e.status='reserved' AND e.reserved_until>now()))))::integer AS seats_available
   FROM offerings o`;
@@ -100,6 +127,7 @@ type EnrollmentWindow = {
 export type OfferingListing = Omit<offerings, "start_date" | "end_date"> &
   ScheduleText &
   EnrollmentWindow & {
+    canvas_image_url: string | null;
     seats_available: number | null;
     active_registrations?: number;
     seats_in_use?: number;
@@ -210,6 +238,16 @@ const asJson = (value: unknown) =>
 
 @Injectable()
 export class PortalService {
+  // Authenticated requests resume due simulations and apply elapsed deadlines.
+  // No external API calls and no processing after an HTTP response is sent.
+  async processDemo() {
+    await transaction(async (tx) => {
+      for (let i = 0; i < 32; i++)
+        if (!(await processDemoOperation(tx, audit))) break;
+      await expireDemoReservations(tx, audit);
+    });
+  }
+
   async demoUser(email: string) {
     const normalized = email.trim().toLowerCase();
     // Matching where/create/update values let Prisma use a native ON CONFLICT upsert.
@@ -511,6 +549,8 @@ export class PortalService {
     const op = await tx.operations.create({
       data: {
         entitlement_id: entitlementId,
+        // Ready in this transaction even if the client's clock is ahead of DB now().
+        next_run: new Date(0),
         // Set only through the validated simulation command; the enum column rejects anything else.
         simulated_outcome: (setting?.value ?? "normal") as SimulatedOutcome,
       },
@@ -519,7 +559,11 @@ export class PortalService {
       amount_cents: amountCents,
       ...(payment.details ?? {}),
     });
-    return op;
+    // Complete the normal two-stage simulation before acknowledging payment.
+    // Delays/failures retain next_run and resume on subsequent authenticated requests.
+    for (let i = 0; i < 2; i++)
+      if (!(await processDemoOperation(tx, audit, entitlementId))) break;
+    return tx.operations.findUniqueOrThrow({ where: { id: op.id } });
   }
   paymentConfig() {
     return { provider: stripeEnabled ? "stripe" : "simulated" };
@@ -821,6 +865,7 @@ export class PortalService {
       stored?.entitlement_id ?? null,
       { checkout_session_id: sessionId },
     );
+    await expireDemoReservations(tx, audit);
   }
   // charge.refunded from Stripe: Finance refunded in the Stripe Dashboard.
   // Records the refunded amount and closes any open portal request. A full
@@ -1045,8 +1090,8 @@ export class PortalService {
   // Sessions past their expiry that no webhook resolved (the listener was
   // down, or a delivery was lost) are checked with Stripe directly. Paid ones
   // are recorded exactly as the webhook would; expired ones release their hold.
-  async reconcileCheckouts(limit = 10) {
-    if (!stripeEnabled) return 0;
+  async reconcileCheckouts(limit = 5) {
+    if (!stripeEnabled) return { checked: 0, failed: 0 };
     const due = await prisma.checkout_sessions.findMany({
       where: {
         status: "open",
@@ -1056,18 +1101,61 @@ export class PortalService {
       take: limit,
       select: { id: true },
     });
+    let checked = 0,
+      failed = 0;
     for (const { id } of due) {
-      let session = await stripe.checkout.sessions.retrieve(id);
-      // Stripe normally expires sessions itself; force it if one is still open.
-      if (session.status === "open")
-        session = await stripe.checkout.sessions.expire(id);
-      await transaction(async (tx) => {
-        if (session.status === "complete")
-          await this.applyPaidSession(tx, session, "stripe-reconciliation");
-        else await this.applyExpiredSession(tx, id, "stripe-reconciliation");
-      });
+      try {
+        const options = { timeout: 10_000, maxNetworkRetries: 0 };
+        let session = await stripe.checkout.sessions.retrieve(id, {}, options);
+        if (session.status === "open")
+          session = await stripe.checkout.sessions.expire(id, {}, options);
+        await transaction(async (tx) => {
+          if (session.status === "complete")
+            await this.applyPaidSession(tx, session, "stripe-reconciliation");
+          else if (session.status === "expired")
+            await this.applyExpiredSession(tx, id, "stripe-reconciliation");
+          else throw new Error("Unresolved Stripe session");
+        });
+        checked++;
+      } catch {
+        // An uncertain provider response must retain its unresolved payment hold.
+        failed++;
+      }
     }
-    return due.length;
+    return { checked, failed };
+  }
+  async reconcilePayments(principal: Principal, key: string) {
+    // Validate the command key before making any external calls.
+    if (
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        key || "",
+      )
+    )
+      throw new BadRequestException("A UUID Idempotency-Key is required.");
+    const input = { action: "payments.reconcile" };
+    const fingerprint = createHash("sha256")
+      .update(JSON.stringify(input))
+      .digest("hex");
+    const previous = await prisma.commands.findUnique({
+      where: { actor_key: { actor: principal.actor, key } },
+    });
+    if (previous) {
+      if (previous.fingerprint !== fingerprint)
+        throw new ConflictException(
+          "Idempotency key was already used for a different command.",
+        );
+      return previous.response;
+    }
+    const result = await this.reconcileCheckouts();
+    return this.command(
+      principal,
+      key,
+      { action: "payments.reconcile" },
+      async (tx) => {
+        await audit(tx, principal.actor, "payments.reconciled", null, result);
+        return result;
+      },
+    );
   }
   async learning(principal: Principal) {
     return sql<LearningRow>(
@@ -1561,7 +1649,7 @@ export class PortalService {
               error: null,
               failed_at: null,
               simulated_outcome: "normal",
-              next_run: new Date(),
+              next_run: new Date(0),
             },
           });
         } else {
@@ -1583,6 +1671,9 @@ export class PortalService {
           id,
           { reason, stage: found.stage },
         );
+        if (action === "retry")
+          for (let i = 0; i < 2; i++)
+            if (!(await processDemoOperation(tx, audit, id))) break;
         return tx.entitlements.findUniqueOrThrow({ where: { id } });
       },
     );
@@ -2599,22 +2690,7 @@ export class PortalService {
     key: string,
     data: { fileName: string; contentType: string; data: string },
   ) {
-    const bytes = Buffer.from(data.data, "base64");
-    if (!bytes.length || bytes.length > 5 * 1024 * 1024)
-      throw new BadRequestException("Images must be 5 MB or smaller.");
-    const signatures: Record<string, (b: Buffer) => boolean> = {
-      "image/png": (b) =>
-        b.subarray(0, 8).equals(Buffer.from("89504e470d0a1a0a", "hex")),
-      "image/jpeg": (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff,
-      "image/gif": (b) => b.subarray(0, 4).toString("latin1") === "GIF8",
-      "image/webp": (b) =>
-        b.subarray(0, 4).toString("latin1") === "RIFF" &&
-        b.subarray(8, 12).toString("latin1") === "WEBP",
-    };
-    if (!signatures[data.contentType]?.(bytes))
-      throw new BadRequestException(
-        "The file is not a PNG, JPEG, WebP or GIF image.",
-      );
+    const bytes = imageBytes(data);
     return this.command(
       principal,
       key,
@@ -2639,6 +2715,93 @@ export class PortalService {
           size: bytes.length,
         });
         return { id: media.id, url: `/media/${media.id}` };
+      },
+    );
+  }
+  // This choice belongs to the portal offering, never to the Canvas source.
+  // Commit media and the versioned choice together; failed saves leave no upload.
+  async changeOfferingImage(
+    principal: Principal,
+    key: string,
+    id: string,
+    data: OfferingImageDto,
+  ) {
+    const bytes =
+      data.mode === "upload"
+        ? imageBytes({ data: data.data!, contentType: data.contentType! })
+        : undefined;
+    if (
+      data.mode !== "upload" &&
+      (data.data !== undefined ||
+        data.fileName !== undefined ||
+        data.contentType !== undefined)
+    )
+      throw new BadRequestException(
+        "Image file fields are only accepted for an upload.",
+      );
+    return this.command(
+      principal,
+      key,
+      {
+        action: "offering.image",
+        id,
+        version: data.version,
+        mode: data.mode,
+        reason: data.reason,
+        fileName: data.fileName,
+        contentType: data.contentType,
+        sha: bytes
+          ? createHash("sha256").update(bytes).digest("hex")
+          : undefined,
+      },
+      async (tx) => {
+        const [before] = await sql<offerings>(
+          tx,
+          "SELECT * FROM offerings WHERE id=$1::uuid AND version=$2 FOR UPDATE",
+          id,
+          data.version,
+        );
+        if (!before)
+          throw new ConflictException(
+            "Offering changed or does not exist. Refresh and retry.",
+          );
+        if (
+          (before.published || before.unpublished_at) &&
+          (!data.reason || data.reason.trim().length < 10)
+        )
+          throw new BadRequestException(
+            "Give a reason of at least 10 characters to change a published offering.",
+          );
+        const media = bytes
+          ? await tx.media_assets.create({
+              data: {
+                content_type: data.contentType!,
+                file_name: data.fileName!,
+                size: bytes.length,
+                bytes,
+                created_by: principal.actor,
+              },
+              select: { id: true },
+            })
+          : undefined;
+        const after = {
+          image_override: data.mode !== "source",
+          image_media_id: media?.id ?? null,
+        };
+        const offering = await tx.offerings.update({
+          where: { id },
+          data: { ...after, version: { increment: 1 } },
+        });
+        await audit(tx, principal.actor, "offering.image_changed", id, {
+          before: {
+            image_override: before.image_override,
+            image_media_id: before.image_media_id,
+          },
+          after,
+          mode: data.mode,
+          reason: data.reason?.trim(),
+        });
+        return offering;
       },
     );
   }

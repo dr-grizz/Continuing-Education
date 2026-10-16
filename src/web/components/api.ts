@@ -20,6 +20,10 @@ export type Offering = {
   approval_valid_days: number;
   enrollment_close_days: number;
   canvas_course_url: string | null;
+  imported_from_canvas?: boolean;
+  canvas_image_url?: string | null;
+  image_override?: boolean;
+  image_media_id?: string | null;
   enrollment_closes_on: string | null;
   enrollment_open: boolean;
   unpublished_at: string | null;

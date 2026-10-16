@@ -1,10 +1,12 @@
 # Continuing Education Portal prototype
 
-Local Next.js + Material UI website, NestJS REST API, PostgreSQL and durable simulated enrollment worker. Seeded offerings and learner/payment test data are synthetic; the configured Canvas connection can import real course metadata into unpublished drafts. Stripe sandbox Checkout is supported when configured; learner identity and Canvas enrollment remain simulated. Staff can use configurable Canvas OAuth and opt-in [Canvas course previews and synchronization](docs/canvas-courses.md), using that same OAuth connection. Explicit selected-course sync creates unpublished offering drafts with duplicate protection, preserved staff edits and required-information warnings; Canvas API access remains read-only. See [Canvas staff authentication](docs/canvas-staff-auth.md).
+Local Next.js + Material UI website, NestJS REST API, PostgreSQL and request-driven simulated enrollment. Seeded offerings and learner/payment test data are synthetic; the configured Canvas connection can import real course metadata into unpublished drafts. Stripe sandbox Checkout is supported when configured; learner identity and Canvas enrollment remain simulated. Staff can use configurable Canvas OAuth and opt-in [Canvas course previews and synchronization](docs/canvas-courses.md), using that same OAuth connection. Explicit selected-course sync creates unpublished offering drafts with duplicate protection, preserved staff edits and required-information warnings; Canvas API access remains read-only. See [Canvas staff authentication](docs/canvas-staff-auth.md).
 
 ## Implementation progress
 
 Start with the [next steps](docs/next-steps.md) for the current checkpoint and recommended work sequence. Open project decisions, their owners and due dates are tracked in the [M0 decision register](docs/decision-register.md). See the [prototype implementation progress](docs/prototype/implementation-progress.md) for completed tasks, remaining todos, recent changes and verification evidence. The [implementation plan](docs/implementation-plan.md) describes the broader delivery scope and production gates.
+
+The [demo deployment plan](docs/hosting/deployment-plan.md) contains the Azure overview and detailed diagrams, the equivalent Railway diagram, and preparation and verification steps for the combined web/API container.
 
 ## Run locally
 
@@ -23,7 +25,7 @@ npm run dev
 - OpenAPI JSON: http://localhost:3051/api/openapi.json
 - PostgreSQL: localhost:5433, database `continuing_education`, user `portal`; local password is in ignored `.env`.
 
-**Other devices on your network** (phones, tablets, another computer): run `npm run dev:lan` instead of `npm run dev`. It prints the address to open, such as `http://10.0.0.5:3050`. Only the website listens on the network; the API, worker and database stay on this computer, so the API docs link works only here. Use a trusted network: the default staff sign-in mode is mock, with no passwords, so anyone who can reach the address can act as any staff member. Stripe Checkout returns learners to the network address. If macOS asks whether `node` may accept incoming connections, allow it.
+**Other devices on your network** (phones, tablets, another computer): run `npm run dev:lan` instead of `npm run dev`. It prints the address to open, such as `http://10.0.0.5:3050`. Only the website listens on the network; the API and database stay on this computer, so the API docs link works only here. Use a trusted network: the default staff sign-in mode is mock, with no passwords, so anyone who can reach the address can act as any staff member. Stripe Checkout returns learners to the network address. If macOS asks whether `node` may accept incoming connections, allow it.
 
 Stop application processes with Ctrl+C. `docker compose stop db` stops PostgreSQL without removing its persistent volume. Do not use `down -v` unless you intend to erase the prototype data. Setup and migration preserve existing environments/data; seed runs once.
 
@@ -79,7 +81,7 @@ Stop application processes with Ctrl+C. `docker compose stop db` stops PostgreSQ
 ## Try the prototype
 
 1. Browse/search courses and view a course detail page.
-2. Register for an open course as the demo learner. In My learning, select **Simulate payment** and watch the worker prepare demo access.
+2. Register for an open course as the demo learner. In My learning, select **Simulate payment** and see simulated access complete.
 3. Request Healthcare Communication, then open **Staff**, sign in as a demo staff member with the Approver role, and approve it in **Approvals**. Return to My learning, reserve a seat and simulate payment.
 4. Use Staff to create a draft offering, publish it and inspect the audit activity. This needs the Catalog manager role.
 5. **Explore, collections and pathways.** The catalog opens on **Explore**: featured pathways, collections and courses. Open the Data-Informed Leader pathway and select **Follow pathway**, then **Save course** on any course page. Both appear in My learning, where the pathway marks your **Next** course; neither registers you. Signed-in learners land on My learning, with enrolled courses (**Enrolled courses**) above registrations in progress. As Casey Catalog Manager, use **Staff → Collections** to create, reorder and publish collections and pathways, and **Staff → Explore page** to choose what Explore features.
@@ -97,9 +99,23 @@ Stop application processes with Ctrl+C. `docker compose stop db` stops PostgreSQ
 
 Design uses standard MUI navigation, forms, tables, alerts and dialogs. The [UI specification](docs/prototype/ui-specification.md) records the theme tokens, layouts, patterns and page behavior. Colors, the font and text branding are provisional; institutional brand assets and course content need review.
 
+## Request-driven demo (no worker)
+
+`npm run dev` starts only web and API. A verified payment webhook (or simulated payment) records the order and completes normal simulated enrollment in one database transaction. No Canvas accounts or enrollments are created. Delayed/failure simulations retain durable retry state and advance on authenticated API requests, including My learning polling; they pause when nobody makes requests and resume when a learner or staff member returns. Reservations and approvals are expired during authenticated requests; health checks do not run this work.
+
+Canvas previews run during staff page requests, with the existing bounded provider timeout, private encrypted previews and explicit import gate. Scheduled previews are deferred; saved schedule configuration is retained but never executed. The settings panel explains the limitation and enabling a schedule is rejected.
+
+For a missed Stripe webhook, Support or a Staff administrator can use **Admin → Transactions → Check Stripe payments**. It checks up to five unresolved sessions past expiry, fulfills verified payments, releases confirmed expired reservations and leaves uncertain results pending. Repeat if more sessions remain. This is manual recovery, not automatic reconciliation. Production account provisioning/enrollment will need an on-demand durable job runner.
+
+This change does not deploy the demo or remove the local-only guard. See [ADR 0008](docs/adr/0008-request-driven-demo.md).
+
 ## Seat capacity
 
 In an offering's Details, enter 1–10,000 seats or explicitly select **Unlimited seats**. Unlimited disables the capacity field and removes the seat limit; dates, approval rules and payment requirements still apply. Blank capacity without that option remains incomplete. Returning to a finite limit requires enough seats for current reservations/enrollments; changes to published offerings retain the audited reason requirement. Staff/learner screens and dashboard exports distinguish Unlimited from Not set.
+
+## Course display images
+
+Imported courses use their Canvas course card image, with the CU CE image as the fallback. Course managers can change this in **Admin → Offerings → Details → Change image**: upload an image (PNG/JPEG/WebP/GIF, up to 5 MB), choose CU CE, or return to the Canvas/default image. Changes save independently of required draft details. Uploads and explicit CU CE choices stay in the portal and survive Canvas refreshes. All other staff-owned offering fields also remain unchanged by sync. See [image behavior and API](docs/canvas-courses.md#portal-owned-image-choice).
 
 ## Stripe sandbox (optional)
 
@@ -130,7 +146,7 @@ For the university Finance department and whoever hosts the portal, [How the por
 
 ## Automation
 
-The API uses `/api/v1`, server-side scope checks and `Idempotency-Key` on writes. Three random prototype tokens live in `.env`: learner, staff and read-only automation. Staff act as a mock-signed-in demo staff member whose roles decide their scopes; this is local convenience, not production security. Never expose this prototype publicly or add real learner data. API/worker refuse `NODE_ENV=production`.
+The API uses `/api/v1`, server-side scope checks and `Idempotency-Key` on writes. Three random prototype tokens live in `.env`: learner, staff and read-only automation. Staff act as a mock-signed-in demo staff member whose roles decide their scopes; this is local convenience, not production security. Never expose this prototype publicly or add real learner data. The API refuses `NODE_ENV=production`.
 
 Read the automation token locally into a shell variable without printing it, then request:
 
@@ -151,6 +167,7 @@ npm test
 npm run test:migrations
 npm run test:auth
 npm run test:canvas
+npm run test:demo
 npm run test:a11y
 ```
 

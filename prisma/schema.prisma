@@ -123,6 +123,11 @@ model offerings {
   /// CHECK offerings_featured_rank_check. Cleared on unpublish.
   featured_rank         Int?
   imported_from_canvas  Boolean                   @default(false)
+  /// Portal-owned cover choice. False follows the source/default; true with no media uses CU CE.
+  /// CHECK offerings_image_override_check: media can only be set with an explicit override.
+  image_override        Boolean                   @default(false)
+  image_media_id        String?                   @db.Uuid
+  image_media           media_assets?             @relation(fields: [image_media_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
   canvas_mapping        canvas_offering_mappings?
   entitlements          entitlements[]
   offering_prices       offering_prices[]
@@ -498,6 +503,7 @@ model media_assets {
   bytes        Bytes
   created_by   String
   created_at   DateTime @default(now()) @db.Timestamptz(6)
+  offerings    offerings[]
 }
 
 /// OAuth API grants belong to the verified staff identity; encrypted with a separate key.

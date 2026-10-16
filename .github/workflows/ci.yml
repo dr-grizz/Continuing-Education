@@ -69,13 +69,14 @@ jobs:
         run: npm run test:auth
       - name: Canvas course connector tests (mock provider, disposable database)
         run: npm run test:canvas
+      - name: Request-driven demo tests (disposable database, no worker)
+        run: npm run test:demo
       - name: Build
         run: npm run build
-      - name: Start the API, worker and website
+      - name: Start the API and website (no worker)
         run: |
           mkdir -p logs
           nohup npm run dev:api > logs/api.log 2>&1 &
-          nohup npm run dev:worker > logs/worker.log 2>&1 &
           nohup npm run start:web > logs/web.log 2>&1 &
           for url in http://127.0.0.1:3051/api/docs http://127.0.0.1:3050/; do
             for i in $(seq 1 60); do

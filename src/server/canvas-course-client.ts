@@ -1,3 +1,5 @@
+import { safeCourseImageUrl } from "../domain/course-images";
+
 export type CanvasCourse = {
   id: string;
   account_id: string;
@@ -7,6 +9,7 @@ export type CanvasCourse = {
   start_at: string | null;
   end_at: string | null;
   url: string;
+  image_url?: string | null;
 };
 export class CanvasReadError extends Error {
   constructor(
@@ -155,6 +158,9 @@ export class CanvasCourseClient {
     next.search = new URLSearchParams({ per_page: "100", ...query }).toString();
     const visited = new Set<string>();
     while (next) {
+      // Retain requested fields and publication filtering on every page.
+      for (const [key, value] of Object.entries(query))
+        next.searchParams.set(key, value);
       if (visited.has(next.href) || visited.size >= 1000)
         throw new CanvasReadError("invalid");
       visited.add(next.href);
@@ -214,6 +220,7 @@ export class CanvasCourseClient {
     const courses = new Map<string, CanvasCourse>();
     for await (const course of this.pages(`${accountPath}/courses`, {
       published: "true",
+      "include[]": "course_image",
     })) {
       const actualAccount = canvasId(course.account_id);
       // The account endpoint can include descendants. Direct-only reads filter them.
@@ -249,6 +256,7 @@ export class CanvasCourseClient {
         start_at: date(course.start_at),
         end_at: date(course.end_at),
         url: `${this.origin}/courses/${id}`,
+        image_url: safeCourseImageUrl(course.image_download_url, this.origin),
       };
       if (
         courses.has(id) &&

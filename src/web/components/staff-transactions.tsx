@@ -97,11 +97,15 @@ const financeRequest = (t: Transaction) =>
 
 export function StaffTransactions({
   canRequest,
+  canReconcile,
   onChanged,
 }: {
   canRequest: boolean;
+  canReconcile: boolean;
   onChanged: (message: string) => void;
 }) {
+  const [reconciling, setReconciling] = useState(false);
+  const [reconcileStatus, setReconcileStatus] = useState("");
   const [rows, setRows] = useState<Transaction[]>([]),
     [loaded, setLoaded] = useState(false),
     [error, setError] = useState(""),
@@ -150,6 +154,25 @@ export function StaffTransactions({
         .toLowerCase()
         .includes(query.trim().toLowerCase()),
   });
+  async function reconcile() {
+    if (reconciling) return;
+    setReconciling(true);
+    setReconcileStatus("");
+    try {
+      const result = await api<{ checked: number; failed: number }>(
+        "staff/transactions/reconcile",
+        { role: "staff", body: {} },
+      );
+      setReconcileStatus(
+        `${result.checked} Checkout sessions reconciled; ${result.failed} could not be verified. Unresolved sessions remain pending. Checks cover up to five sessions past expiry; run again if needed.`,
+      );
+      await load();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setReconciling(false);
+    }
+  }
   const [copyStatus, setCopyStatus] = useState("");
   async function copyForFinance(row: Transaction) {
     try {
@@ -241,8 +264,8 @@ export function StaffTransactions({
         Transactions
       </Typography>
       <Alert severity="info" role="note" sx={{ mb: 2 }}>
-        Read-only. Refunds are issued by the university Finance department in
-        Stripe, outside the portal.{" "}
+        Refunds are issued by the university Finance department in Stripe,
+        outside the portal.{" "}
         {canRequest
           ? "Record a request here, then send it to Finance with Copy for Finance. "
           : ""}
@@ -281,6 +304,21 @@ export function StaffTransactions({
           display={{ xs: "flex", md: "none" }}
         />
       </Stack>
+      {canReconcile && (
+        <Box sx={{ mb: 2 }}>
+          <Button aria-disabled={reconciling} onClick={reconcile}>
+            {reconciling ? "Checking payments…" : "Check Stripe payments"}
+          </Button>
+        </Box>
+      )}
+      <Typography
+        role="status"
+        aria-live="polite"
+        variant="body2"
+        sx={{ mb: 1 }}
+      >
+        {reconcileStatus}
+      </Typography>
       <Typography
         variant="body2"
         color="text.secondary"

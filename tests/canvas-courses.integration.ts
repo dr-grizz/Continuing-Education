@@ -127,6 +127,7 @@ async function main() {
     "PASS: existing OAuth requests read scopes; API grants are encrypted and bound to the verified staff identity",
   );
 
+  let cardImage: string | null = "https://images.example.test/course-101.jpg";
   let mode = "good";
   let refreshes = 0;
   let reads = 0;
@@ -136,6 +137,7 @@ async function main() {
     account_id,
     name: `Course ${id}`,
     course_code: `CE-${id}`,
+    image_download_url: id === 101 ? cardImage : null,
     workflow_state: id === 102 ? "completed" : "available",
     start_at: id === 101 ? "2026-10-02T02:00:00Z" : null,
     end_at: id === 101 ? "2026-10-31T23:00:00Z" : null,
@@ -184,6 +186,10 @@ async function main() {
       });
     if (url.pathname === "/api/v1/accounts/70")
       return Response.json({ id: 70, parent_account_id: null });
+    if (url.pathname.endsWith("/courses")) {
+      assert.equal(url.searchParams.get("include[]"), "course_image");
+      assert.equal(url.searchParams.get("published"), "true");
+    }
     if (url.searchParams.get("page") === "2") {
       if (mode === "partial")
         return Response.json({ secret: "must-not-leak" }, { status: 400 });
@@ -248,7 +254,6 @@ async function main() {
       .status,
     409,
   );
-  await courses.workerStep();
   let view = await (await call("courses")).json();
   assert.equal(view.latest_run.status, "succeeded");
   assert.deepEqual(
@@ -302,6 +307,12 @@ async function main() {
   assert.equal(imported.title, "Course 101");
   assert.equal(imported.published, false);
   assert.equal(imported.imported_from_canvas, true);
+  assert.equal((mapping.source as any).image_url, cardImage);
+  assert.equal(
+    (await portal.list({}, true)).find((o) => o.id === imported.id)!
+      .canvas_image_url,
+    cardImage,
+  );
   assert.equal(
     imported.unlimited_seats,
     false,
@@ -692,10 +703,10 @@ async function main() {
     409,
   );
   assert.equal(reads, beforeSecond);
-  await courses.workerStep();
+  await courses.readPendingPreview();
   mode = "forbidden";
   const secondRun = await courses.enqueue(second.id, randomUUID());
-  await courses.workerStep();
+  await courses.readPendingPreview();
   assert.equal((await courses.runStatus(secondRun.id)).status, "failed");
   assert.match(
     (await courses.runStatus(secondRun.id)).error!,
@@ -703,7 +714,7 @@ async function main() {
   );
   mode = "good";
   const privateRun = await courses.enqueue(staff.id, randomUUID());
-  await courses.workerStep();
+  await courses.readPendingPreview();
   assert.equal(
     (
       await call(
@@ -746,7 +757,7 @@ async function main() {
   assert.equal(refreshes, 1);
   unauthorized = true;
   await courses.enqueue(staff.id, randomUUID());
-  await courses.workerStep();
+  await courses.readPendingPreview();
   assert.equal(refreshes, 2);
   await courses.accessToken(staff.id, true);
   assert.equal(refreshes, 3);
@@ -757,7 +768,7 @@ async function main() {
   const preserved = (await courses.view(principal)).courses;
   for (mode of ["partial", "hostile", "empty"]) {
     await courses.enqueue(staff.id, randomUUID());
-    await courses.workerStep();
+    await courses.readPendingPreview();
     const failed = await courses.view(principal);
     assert.equal(failed.latest_run!.status, "failed", mode);
     assert.deepEqual(failed.courses, preserved, mode);
@@ -778,56 +789,39 @@ async function main() {
       attempts: 1,
     },
   });
-  await courses.workerStep();
+  await courses.readPendingPreview();
   assert.equal((await courses.runStatus(recovered.id)).status, "succeeded");
-  assert.equal(
-    (await call("schedule", { enabled: true, intervalMinutes: 60, version: 0 }))
-      .status,
-    200,
-  );
   assert.equal(
     (await call("schedule", { enabled: true, intervalMinutes: 60, version: 0 }))
       .status,
     409,
   );
-  await auth.logout(session.token);
-  await prisma.canvas_course_schedule.update({
+  // Historical enabled schedules are ignored; page requests cannot launch them.
+  await prisma.canvas_course_schedule.upsert({
     where: { id: "default" },
-    data: { next_run_at: new Date(Date.now() - 1000) },
-  });
-  await courses.workerStep();
-  assert.equal(
-    (await prisma.canvas_course_runs.findFirst({
-      where: { trigger: "scheduled" },
-      orderBy: { created_at: "desc" },
-    }))!.status,
-    "succeeded",
-  );
-  await prisma.staff_members.update({
-    where: { id: staff.id },
-    data: { active: false },
-  });
-  await prisma.canvas_course_schedule.update({
-    where: { id: "default" },
-    data: { next_run_at: new Date(0) },
+    create: {
+      id: "default",
+      enabled: true,
+      owner_staff_id: staff.id,
+      next_run_at: new Date(0),
+    },
+    update: {
+      enabled: true,
+      owner_staff_id: staff.id,
+      next_run_at: new Date(0),
+    },
   });
   const before = reads;
-  await courses.workerStep();
+  await courses.readPendingPreview(staff.id);
   assert.equal(reads, before);
+  assert.equal((await courses.view(principal)).schedule.enabled, false);
   assert.equal(
-    (
-      await prisma.canvas_course_schedule.findUniqueOrThrow({
-        where: { id: "default" },
-      })
-    ).enabled,
-    false,
+    await prisma.canvas_course_runs.count({ where: { trigger: "scheduled" } }),
+    0,
   );
-  await prisma.staff_members.update({
-    where: { id: staff.id },
-    data: { active: true },
-  });
+  await auth.logout(session.token);
   console.log(
-    "PASS: worker restart recovery, schedule version conflict, unattended reads after logout, and owner deactivation",
+    "PASS: request-driven recovery; schedules are deferred and never execute after logout",
   );
 
   const approver = await prisma.staff_members.findUniqueOrThrow({
@@ -852,10 +846,9 @@ async function main() {
   providerUser = 42;
   const again = await login();
   const updatedPrincipal = await auth.principal(again.token);
-  await courses.setSchedule(updatedPrincipal, {
-    enabled: true,
-    intervalMinutes: 60,
-    version: 2,
+  await prisma.canvas_course_schedule.update({
+    where: { id: "default" },
+    data: { enabled: true },
   });
   mode = "revoked";
   await prisma.staff_canvas_grants.update({
@@ -863,13 +856,13 @@ async function main() {
     data: { expires_at: new Date(0) },
   });
   await courses.enqueue(staff.id, randomUUID());
-  await courses.workerStep();
+  await courses.readPendingPreview();
   assert.equal((await courses.view(updatedPrincipal)).connected, false);
   assert.equal((await courses.view(updatedPrincipal)).schedule.enabled, false);
   mode = "good";
   await login();
   const expiring = await courses.enqueue(staff.id, randomUUID());
-  await courses.workerStep();
+  await courses.readPendingPreview();
   const expiringRecord = await prisma.canvas_course_runs.findUniqueOrThrow({
     where: { id: expiring.id },
   });
@@ -935,7 +928,7 @@ async function main() {
     return normalRequest(input, init);
   };
   const interrupted = await courses.enqueue(staff.id, randomUUID());
-  const lateWorker = courses.workerStep();
+  const lateWorker = courses.readPendingPreview();
   await reached;
   await courses.disconnect(updatedPrincipal);
   release();
@@ -947,6 +940,116 @@ async function main() {
   assert.deepEqual((await courses.view(updatedPrincipal)).courses, preserved);
   console.log(
     "PASS: denied portal role, revoked authorization pauses scheduling, and disconnect preserves staff session and source history",
+  );
+
+  // Cover metadata refreshes independently from all staff-owned offering fields.
+  await login();
+  const { courseImage, CU_CE_IMAGE } =
+    await import("../src/web/components/course-images");
+  const uploadImage = {
+    fileName: "portal-cover.png",
+    contentType: "image/png",
+    data: (
+      await readFile(
+        "src/web/public/brand/cedarville-continuing-education-white.png",
+      )
+    ).toString("base64"),
+  };
+  for (const mode of ["upload", "fallback"] as const) {
+    const currentOffering = await prisma.offerings.findUniqueOrThrow({
+      where: { id: imported.id },
+    });
+    await portal.changeOfferingImage(
+      updatedPrincipal,
+      randomUUID(),
+      imported.id,
+      {
+        mode,
+        version: currentOffering.version,
+        reason: "Staff chose a portal course image",
+        ...(mode === "upload" ? uploadImage : {}),
+      },
+    );
+    const imageOwned: typeof staffEdited =
+      await prisma.offerings.findUniqueOrThrow({
+        where: { id: imported.id },
+      });
+    for (cardImage of [
+      "https://images.example.test/new-cover.jpg",
+      null,
+      "http://unsafe.example.test/cover.jpg",
+    ]) {
+      const imageRun = await courses.enqueue(staff.id, randomUUID());
+      await courses.readPendingPreview(staff.id);
+      const imageView = await courses.view(updatedPrincipal);
+      await courses.syncCourses(
+        updatedPrincipal,
+        imageRun.id,
+        ["101"],
+        imageView.saved_revision,
+      );
+      const expectedImage = cardImage?.startsWith("https:") ? cardImage : null;
+      assert.equal(
+        (await portal.detail(imported.id)).canvas_image_url,
+        expectedImage,
+      );
+      assert.equal(
+        (await portal.list({})).find((o) => o.id === imported.id)!
+          .canvas_image_url,
+        expectedImage,
+      );
+      assert.deepEqual(
+        await prisma.offerings.findUniqueOrThrow({
+          where: { id: imported.id },
+        }),
+        imageOwned,
+      );
+    }
+
+    const displayed = courseImage(await portal.detail(imported.id));
+    assert.equal(
+      displayed,
+      mode === "upload" ? `/media/${imageOwned.image_media_id}` : CU_CE_IMAGE,
+    );
+  }
+  const overridden = await prisma.offerings.findUniqueOrThrow({
+    where: { id: imported.id },
+  });
+  await portal.changeOfferingImage(
+    updatedPrincipal,
+    randomUUID(),
+    imported.id,
+    {
+      mode: "source",
+      version: overridden.version,
+      reason: "Explicitly restore Canvas course image",
+    },
+  );
+  assert.equal((await portal.detail(imported.id)).image_override, false);
+  console.log(
+    "PASS: uploaded portal images and explicit CU CE choice survive source replacement/removal; only explicit reset follows Canvas again",
+  );
+  const { safeCourseImageUrl } = await import("../src/domain/course-images");
+  assert.equal(
+    safeCourseImageUrl(
+      "/files/12/download?verifier=public-cover",
+      "https://canvas.example.test",
+    ),
+    "https://canvas.example.test/files/12/download?verifier=public-cover",
+  );
+  for (const unsafe of [
+    "javascript:alert(1)",
+    "data:image/svg+xml,unsafe",
+    "https://user:password@example.test/x",
+    "https://example.test/x?access_token=private",
+    "https://example.test/x?refresh_token=private",
+    "https://127.0.0.1/x",
+    "https://localhost/x",
+    "https://host.internal/x",
+  ])
+    assert.equal(safeCourseImageUrl(unsafe), null, unsafe);
+  console.log(
+    "PASS: Canvas card images are requested on every page, imported and refreshed independently; absent/unsafe images use no source URL; OAuth credentials never enter image URLs",
   );
 
   process.env.CANVAS_COURSES_INCLUDE_SUBACCOUNTS = "true";

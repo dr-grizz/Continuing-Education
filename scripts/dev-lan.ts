@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import os from "node:os";
 // Runs the prototype for other devices on the local network. Only the website
 // listens on the network; it proxies to the API, which stays on loopback with
-// the worker and database. Mock sign-in has no passwords, so use a trusted
+// the database. Mock sign-in has no passwords, so use a trusted
 // network only.
 const address = Object.values(os.networkInterfaces())
   .flat()
@@ -24,10 +24,9 @@ const child = spawn(
     "concurrently",
     "-k",
     "-n",
-    "web,api,worker",
+    "web,api",
     "next dev src/web --hostname 0.0.0.0 --port 3050",
     "npm run dev:api",
-    "npm run dev:worker",
   ],
   {
     stdio: "inherit",

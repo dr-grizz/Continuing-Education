@@ -12,11 +12,10 @@
     "db:generate": "prisma generate",
     "db:remove-test-learner": "ts-node -P tsconfig.server.json scripts/remove-test-learner.ts",
     "staff:link-canvas": "ts-node -P tsconfig.server.json scripts/link-canvas-staff.ts",
-    "dev": "concurrently -k -n web,api,worker \"npm run dev:web\" \"npm run dev:api\" \"npm run dev:worker\"",
+    "dev": "concurrently -k -n web,api \"npm run dev:web\" \"npm run dev:api\"",
     "dev:lan": "ts-node -P tsconfig.server.json scripts/dev-lan.ts",
     "dev:web": "next dev src/web --hostname 127.0.0.1 --port 3050",
     "dev:api": "ts-node -P tsconfig.server.json src/server/main.ts",
-    "dev:worker": "ts-node -P tsconfig.server.json src/worker/main.ts",
     "start:web": "next start src/web --hostname 127.0.0.1 --port 3050",
     "typecheck": "tsc -p tsconfig.server.json --noEmit && tsc -p src/web/tsconfig.json --noEmit",
     "build": "tsc -p tsconfig.server.json && next build src/web",
@@ -25,7 +24,8 @@
     "test:auth": "ts-node -P tsconfig.server.json tests/canvas-auth.integration.ts",
     "test:canvas": "ts-node -P tsconfig.server.json tests/canvas-courses.integration.ts",
     "test:a11y": "playwright test",
-    "format:check": "prettier --check \"src/**/*.{ts,tsx,mjs}\" \"tests/**/*.ts\" \"scripts/**/*.{ts,mjs}\" \"*.{ts,json}\""
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,mjs}\" \"tests/**/*.ts\" \"scripts/**/*.{ts,mjs}\" \"*.{ts,json}\"",
+    "test:demo": "ts-node -P tsconfig.server.json tests/request-demo.integration.ts"
   },
   "engines": {
     "node": ">=22"

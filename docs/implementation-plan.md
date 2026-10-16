@@ -1,12 +1,12 @@
 # Continuing Education Portal: Implementation Plan
 
-Status: implementation baseline updated October 14, 2026. The current-state sections and diagrams describe the local prototype as implemented. Remaining delivery milestones and explicitly marked target workflows are proposals; production policy and infrastructure decisions remain with the named owners.
+Status: implementation baseline updated October 15, 2026. The current-state sections and diagrams describe the local prototype as implemented. Remaining delivery milestones and explicitly marked target workflows are proposals; production policy and infrastructure decisions remain with the named owners.
 
 Original planning tracker: [GitHub issue #1](https://github.com/dr-grizz/Continuing-Education/issues/1). Subsequent local updates, including workflow diagrams and API requirements, have not been synchronized to that issue.
 
 ## Recommendation and source
 
-Build an API-first modular portal: Next.js with React/TypeScript and **Material UI** for the website, a NestJS REST API, PostgreSQL, and a durable background worker. The website and authorized automation use the same application services and business rules. Use established library components and Cedarville branding throughout. Deliver a working sandbox registration flow before expanding the feature set.
+Build an API-first modular portal: Next.js with React/TypeScript and **Material UI** for the website, a NestJS REST API, PostgreSQL, and durable operation records. The current demo processes work on demand without an always-running worker; future live provisioning needs a durable runner. The website and authorized automation use the same application services and business rules. Use established library components and Cedarville branding throughout. Deliver a working sandbox registration flow before expanding the feature set.
 
 This plan adapts `course-portal-implementation-plan-v2.md`, supplied from `/Users/hye/Downloads/working_dir/course-portal-planning/`. The supplied document is source material, not authorization to provision identities, charge learners, alter Canvas, or deploy. Preserve its hybrid ownership model while resolving the implementation gaps listed here. The original file remains unchanged.
 
@@ -14,13 +14,13 @@ The repository now contains a local prototype, `CONTEXT.md`, and the prototype a
 
 ### Local prototype status
 
-The local application uses Next.js/React and Material UI, a versioned NestJS REST API, PostgreSQL/Prisma and a durable database-backed worker. Web/API ports are **3050/3051**. Prisma manages 20 migration directories, `000_baseline` through `019_unlimited_seats`; preserve migration history and existing data. This is an implemented local prototype, not an approved production deployment.
+The local application uses Next.js/React and Material UI, a versioned NestJS REST API, PostgreSQL/Prisma and request-driven durable simulations (no always-running worker). Web/API ports are **3050/3051**. Prisma manages 21 migration directories, `000_baseline` through `020_offering_images`; preserve migration history and existing data. This is an implemented local prototype, not an approved production deployment.
 
 | Area | Implemented behavior | Remaining boundary |
 | --- | --- | --- |
 | Staff sign-in | Configurable **Canvas OAuth** authorization-code flow, pre-approved Canvas identity bindings, hashed/revocable portal sessions and current server-side role checks | IT-managed Canvas SSO/MFA stays upstream; fresh MFA assurance and institutional acceptance remain unverified. Mock staff selection exists only in mock mode |
 | Canvas access | The same staff OAuth client/callback requests narrowly enforced GET scopes when course reads are enabled; per-staff encrypted API grants, serialized refresh and disconnect | OAuth scopes do not grant Canvas account permissions or portal roles; no Canvas enrollment/grade writes or learner grades/progress |
-| Course discovery | Automatic cached preview loading, manual Refresh from Canvas, scheduled reads under an explicit staff owner, configured subaccount and optional descendants, full pagination and on-page filters | Reads create private encrypted previews with 30-minute expiry; they never create offering drafts automatically |
+| Course discovery | Automatic cached preview loading, manual Refresh from Canvas, on-demand reads with schedules deferred, configured subaccount and optional descendants, full pagination and on-page filters | Reads create private encrypted previews with 30-minute expiry; they never create offering drafts automatically |
 | Offering imports | Create offering draft / Refresh source details row actions, Import selected, Imported courses tab, stable installation/course-ID mappings and atomic duplicate/stale-preview guards | Existing-link conflicts need review; linking existing offerings, remapping, exclusions and live mapping health checks remain planned |
 | Offering administration | Required-information warnings; independent portal publication; immutable price history and quoted reservation prices; bounded or explicit Unlimited seats; audited edits/unpublication | Unlisted visibility is not implemented. Incomplete drafts cannot publish/register; published edits keep the existing protected-terms rules |
 | Payments and reversals | Stripe **test-mode** hosted Checkout, signed inbound webhooks, refunds processed externally by Finance, full-refund portal entitlement reversal and later re-registration | No live payments, real Canvas access removal, approved dispute/lifecycle policy or authoritative financial reconciliation |
@@ -37,7 +37,7 @@ The portal's staff integration uses **Canvas OAuth**, replacing the proposed dir
 2. The browser starts authorization through the portal. The API creates short-lived hashed state bound to an independent HTTP-only browser nonce. Canvas returns a code to the exact configured callback; the API validates state and exchanges the code server-side over HTTPS with `CANVAS_USER_AGENT`.
 3. With course reads disabled, the default request uses identity-only `/auth/userinfo` and stores no Canvas API token. With course reads enabled, the **same developer key and callback** request the GET scopes below. The exchange identifies the Canvas user; an active, pre-linked portal staff record is still required.
 4. The browser receives only an opaque HTTP-only portal session cookie. Its hash is stored in the database, and each staff request rechecks expiry, active status, identity binding and current roles. API access/refresh tokens stay encrypted server-side with a separately configured key and identity/configuration binding. Credentials never go into `NEXT_PUBLIC_` variables, browser storage or audit records.
-5. Portal permissions decide permitted portal actions; Canvas permissions decide which account/course resources that user's grant can read. Developer-key scopes are an additional endpoint limit. All three checks must permit the operation. Course managers can read/import; IT/Canvas administrators and Staff administrators can also manage the schedule. Offering edits/publication still need `catalog:write`; staff administration alone does not grant it.
+5. Portal permissions decide permitted portal actions; Canvas permissions decide which account/course resources that user's grant can read. Developer-key scopes are an additional endpoint limit. All three checks must permit the operation. Course managers can read/import; IT/Canvas administrators and Staff administrators retain schedule-management permission, but enabling schedules is deferred in this demo. Offering edits/publication still need `catalog:write`; staff administration alone does not grant it.
 
 ```text
 url:GET|/api/v1/accounts/:id
@@ -84,17 +84,18 @@ sequenceDiagram
     Note over Web,DB: Browser gets no Canvas token, session roles are rechecked on each request
 ```
 
-Scheduled reads retain the selected staff owner's grant after portal logout. Refresh is serialized, preserves an omitted refresh token and retries a Canvas 401 once after refresh. Revocation, deactivation or lost permission stops/pauses work. Disconnect removes that staff grant and pauses its schedule while preserving the portal session and saved source history. Canvas-mode configuration errors fail closed; mock identity headers/selectors cannot bypass it. See [operational details](canvas-staff-auth.md).
+Saved staff grants remain after portal logout, but scheduled execution is deferred in this demo. Refresh is serialized, preserves an omitted refresh token and retries a Canvas 401 once after refresh. Revocation, deactivation or lost permission stops/pauses work. Disconnect removes that staff grant and pauses its schedule while preserving the portal session and saved source history. Canvas-mode configuration errors fail closed; mock identity headers/selectors cannot bypass it. See [operational details](canvas-staff-auth.md).
 
 ### Canvas previews and offering imports (implemented)
 
-**Admin → Canvas courses** automatically reuses a valid preview or starts one read when needed. **Refresh from Canvas** reloads discovery; **Schedule settings** manages background previews. Preview filters apply to the complete inventory before pagination: title keywords, start/end date ranges (Eastern Time) and publish state. Connection and staff details are compact, expandable panels.
+**Admin → Canvas courses** automatically reuses a valid preview or starts one read when needed. **Refresh from Canvas** reloads discovery; **Schedule settings** explains that scheduled previews are deferred. Preview filters apply to the complete inventory before pagination: title keywords, start/end date ranges (Eastern Time) and publish state. Connection and staff details are compact, expandable panels.
 
-- API/worker run the connector directly in TypeScript; local development skills and Python are not portal runtime dependencies.
+- API requests run the connector directly in TypeScript; local development skills and Python are not portal runtime dependencies.
 - Read only published courses from the configured subaccount, optionally including descendants; validate pagination origins and ancestry. Failed/partial/suspiciously empty scans keep the last good source data. Previews are private encrypted temporary files, outside the database, with a 30-minute lifetime; durable job/audit metadata and OAuth grants remain in PostgreSQL.
-- **Create offering draft** handles an unmapped row; **Refresh source details** handles a mapped row; **Import selected** handles batches. Selection across pages, retry and the Imported courses tab are implemented. Neither automatic page loading nor scheduled reads saves course details or creates offerings without this explicit action.
+- **Create offering draft** handles an unmapped row; **Refresh source details** handles a mapped row; **Import selected** handles batches. Selection across pages, retry and the Imported courses tab are implemented. Neither automatic page loading nor manual preview reads save course details or creates offerings without this explicit action.
 - Import uses the server-held owned preview, current authorization, preview freshness and saved revision. One default mapping per `(installation URL, Canvas course ID)` and one target offering are database-enforced. A conflicting existing manual course link stops the batch; no title matching, silent adoption or duplicate offering creation. Mapped links cannot be removed/changed through offering edits.
 - New drafts copy the Canvas title/link/valid dates and leave required sales information unset. Warnings and publication gates cover topic, summary, description, format, price, capacity mode and course type/schedule. A finite capacity is 1–10,000; explicit **Unlimited seats** stores a separate flag with null capacity. Blank capacity without that flag remains incomplete. A new finite limit must cover seats already in use.
+- Imported offering cards use the Canvas course image from source metadata; absent, unsafe or failed images use the existing CU CE white logo on navy. Discovery includes `course_image` using the same GET scope. Source refresh can change/remove this URL independently of staff-owned offering fields. Staff can upload a portal image, explicitly use CU CE, or return to the source image in offering Details. Migration 020 stores that versioned, audited portal choice separately; refresh never overwrites it and image editing never changes Canvas.
 - Later imports update **source metadata only**, preserving every staff-owned offering field, publication, version, price, capacity mode, dates, orders and entitlements. Portal publication never publishes/unpublishes Canvas. Listed/unlisted visibility and availability checks against previously mapped course IDs remain planned.
 
 ```mermaid
@@ -103,22 +104,18 @@ sequenceDiagram
     actor Staff
     participant API as Portal API
     participant DB as Portal database
-    participant Worker as Course-read worker
     participant Canvas as Canvas API
     participant Preview as Private encrypted temporary preview
     Staff->>API: Open page or Refresh from Canvas
     API->>DB: Reuse current read or queue durable read under own grant
-    opt Scheduled read is due
-        Worker->>DB: Queue read under selected active staff owner
-    end
-    Worker->>DB: Claim fenced job and retrieve encrypted staff grant
-    Worker->>Canvas: Refresh token if needed, GET all course pages and account details
-    Canvas-->>Worker: Published course metadata within configured account boundary
+    API->>DB: Claim fenced job and retrieve encrypted staff grant
+    API->>Canvas: Refresh token if needed, GET all course pages and account details
+    Canvas-->>API: Published course metadata within configured account boundary
     alt Complete valid read
-        Worker->>Preview: Write staff-bound encrypted preview, expires in 30 minutes
-        Worker->>DB: Record successful job metadata only
+        API->>Preview: Write staff-bound encrypted preview, expires in 30 minutes
+        API->>DB: Record successful job metadata only
     else Failed or incomplete read
-        Worker->>DB: Record safe error, retain prior saved inventory
+        API->>DB: Record safe error, retain prior saved inventory
     end
     API->>Preview: Read caller's valid preview
     API-->>Staff: Filtered course list, no automatic offering creation
@@ -132,7 +129,7 @@ sequenceDiagram
             alt No mapping
                 API->>DB: Create unpublished incomplete draft and unique mapping
             else Existing mapping
-                API->>DB: Refresh source details only, preserve offering edits
+                API->>DB: Refresh source details only, preserve all offering edits and image choice
             end
         end
         API->>DB: Merge selected source records and audit import
@@ -147,7 +144,7 @@ Decided October 6, 2026, and implemented in the prototype (migration `005_enroll
 
 | Policy | Decision | Prototype behavior |
 | --- | --- | --- |
-| Approval validity | An approval lasts one week; staff can change the period | `approval_valid_days` (default 7, range 1–365). Approval sets `approval_expires_at`. Unused approvals lapse to `approval_expired` (worker, audited `approval.expired`). A still-valid approval survives an expired seat reservation. A changed period applies to new approvals only |
+| Approval validity | An approval lasts one week; staff can change the period | `approval_valid_days` (default 7, range 1–365). Approval sets `approval_expires_at`. Unused approvals lapse to `approval_expired` (authenticated API requests, audited `approval.expired`). A still-valid approval survives an expired seat reservation. A changed period applies to new approvals only |
 | Enrollment window | Scheduled courses close enrollment one week after the start date; staff can change the window | `enrollment_close_days` (default 7, range 0–365). Registration, approval requests and seat renewals are refused after the start date plus that many days. Registrations already in progress are unaffected. Self-paced courses never close |
 | Repeat requests | Declined learners may request approval again | Re-registering after a decline (or a lapsed approval) creates a new approval request (audited `approval.requested_again`) |
 | Course launch | Learners get a link to the Canvas course once their Canvas account and enrollment exist | `canvas_course_url` (optional HTTPS). Shown as **Open course in Canvas** only after enrollment completes; returned by the API only for enrolled registrations. Sample offerings use `canvas.example.edu` placeholders, which open a "not connected yet" dialog instead of a new tab; imported offerings use stable Canvas course mappings; real learner identity/enrollment verification still awaits M4 |
@@ -384,33 +381,27 @@ Before full UI development, review catalog, course detail, learner status and st
 
 ## Architecture and implementation boundaries
 
-The implemented local architecture is a single domain context with a NestJS API and database-backed worker sharing application services, a Next.js/React website with MUI, and PostgreSQL managed through Prisma Migrate. Services bind to loopback on 3050/3051, with PostgreSQL on 5433. Production hosting, real learner authentication, IT identity contracts and production operational ownership remain unresolved. Staff Canvas OAuth and read-only Canvas metadata access are implemented; neither requires a separate portal-to-SSO adapter or a deployed local skill.
+The implemented local architecture is a single domain context with a NestJS API processing durable work during requests, a Next.js/React website with MUI, and PostgreSQL managed through Prisma Migrate. Services bind to loopback on 3050/3051, with PostgreSQL on 5433. Production hosting, real learner authentication, IT identity contracts and production operational ownership remain unresolved. Staff Canvas OAuth and read-only Canvas metadata access are implemented; neither requires a separate portal-to-SSO adapter or a deployed local skill.
 
 NestJS supports [OpenAPI documentation generation](https://docs.nestjs.com/openapi/introduction) and [API versioning](https://docs.nestjs.com/techniques/versioning). MUI documents its [Next.js integration](https://mui.com/material-ui/integrations/nextjs/). The framework split keeps the automation interface independent of website pages, at the cost of separate web and API runtime processes. Deploy them from one repository and route browser API traffic through the same origin where practical.
 
 ```mermaid
 flowchart LR
-    learner["Learner: mock sign-in"] --> web["Next.js and MUI web: 3050"]
-    staff["Approved staff"] --> web
-    web -->|"Same-origin proxy and portal session"| api["NestJS API: 3051"]
-    automation["Local read-only automation token"] --> api
-    api --> db[("PostgreSQL: offerings, mappings, sessions, encrypted grants and jobs")]
-    worker["Durable worker: reads, reconciliation and simulated fulfillment"] <--> db
-    web -->|"Staff authorization redirect and callback"| oauth["Canvas OAuth"]
-    api <-->|"Authorization-code exchange"| oauth
-    worker <-->|"Refresh owner grant when needed"| oauth
-    oauth <-->|"Institution-managed sign-in when required"| sso["IT SSO and MFA"]
-    worker <-->|"GET course/account metadata with owner's grant"| canvas["Canvas API"]
-    api --> preview["Private encrypted previews: 30-minute expiry"]
-    worker --> preview
-    api <-->|"Checkout and signed inbound webhooks"| stripe["Stripe test mode"]
-    worker <-->|"Checkout reconciliation"| stripe
-    future["Planned: verified learner auth, IT identity/SIS, Canvas enrollment and grades, notifications"]
-    api -.-> future
-    worker -.-> future
+    browser["Portal browser"] --> web["Next.js web: 3050"]
+    web -->|"Server-side broker requests"| api["NestJS API: 3051"]
+    api <--> db[("PostgreSQL: durable records and jobs")]
+    api <--> preview[("Private encrypted temporary previews")]
+    api <-->|"OAuth exchange and refresh"| oauth["Canvas OAuth"]
+    browser <-->|"Staff sign-in redirects"| oauth
+    oauth --> sso["Institutional SSO and MFA"]
+    api <-->|"Authorized course GET requests"| canvas["Canvas API"]
+    api <-->|"Test Checkout and manual reconciliation"| stripe["Stripe sandbox"]
+    stripe -->|"Signed payment and refund webhooks"| api
+    api -.-> future["Future on-demand identity and enrollment runner"]
+    api --> simulation["Database-only simulated fulfillment during requests"]
 ```
 
-Solid edges describe implemented integration boundaries. Dashed edges indicate future capabilities, not configured services. Canvas uses institutional SSO upstream; the portal integrates with Canvas OAuth. Source previews are temporary files shared by API and worker, while saved source/mapping records are in PostgreSQL. Identity/enrollment simulation never calls institutional provisioning or Canvas enrollment APIs.
+Solid edges describe implemented integration boundaries. Dashed edges indicate future capabilities, not configured services. Canvas uses institutional SSO upstream; the portal integrates with Canvas OAuth. Source previews are temporary files written and read by the API, while saved source/mapping records are in PostgreSQL. Identity/enrollment simulation never calls institutional provisioning or Canvas enrollment APIs.
 
 
 Current repository structure:
@@ -422,7 +413,7 @@ docs/runbooks/             # Recovery, reconciliation and rollback
 src/web/                   # Next.js website, MUI screens and shared theme
 src/server/                # NestJS REST API, authorization, integrations
 src/domain/                # Offerings, approvals, orders, entitlements
-src/worker/                # Durable workflows and lifecycle jobs
+src/server/demo-processing.ts # Request-driven simulated fulfillment and expiry
 tests/                     # Domain, integration and browser checks
 ```
 
@@ -437,7 +428,7 @@ Use versioned REST/JSON endpoints under `/api/v1`, a generated OpenAPI specifica
 | Capability | Implemented API or explicitly planned example | Boundary |
 | --- | --- | --- |
 | Read catalog and availability | `GET /api/v1/offerings` | Public responses exclude personal data |
-| Create/update/publish offerings | `POST /api/v1/offerings`, `POST /api/v1/offerings/{id}/edit`, `POST /api/v1/offerings/{id}/publish` | Offering-management permission; normal validation and audit |
+| Create/update/publish offerings | `POST /api/v1/offerings`, `POST /api/v1/offerings/{id}/edit`, `POST /api/v1/offerings/{id}/publish`, `POST /api/v1/offerings/{id}/image` | Offering-management permission; normal validation and audit |
 | Read and decide approval requests | `GET /api/v1/approval-requests`, `POST /api/v1/approval-requests/{id}/decision` | Scoped approval authority; preserve any required human review |
 | Read orders and access status | Current: `GET /api/v1/staff/transactions`, `GET /api/v1/me/learning`; broader machine contracts planned | Restricted record visibility; cannot set payment status manually |
 | Queue approved operational work | Implemented: `POST /api/v1/exceptions/{id}/retry`; transfers planned | Same policy, capacity, sponsorship and authorization checks as staff UI |
@@ -456,14 +447,14 @@ M1 establishes API documentation, authorization and operation-status conventions
 
 ### Domain records and invariants
 
-The [current database ERD](prototype/database-erd.mmd) includes the actual scalar fields and enforced foreign keys through migration 019. Staff sessions and encrypted Canvas API grants are distinct records; live learner identity links below remain planned.
+The [current database ERD](prototype/database-erd.mmd) includes the actual scalar fields and enforced foreign keys through migration 020. Staff sessions and encrypted Canvas API grants are distinct records; live learner identity links below remain planned.
 
 | Record | Key fields / constraints |
 | --- | --- |
 | Learner | Current internal ID and normalized mock email; verified contact/authentication accounts remain planned |
 | Staff identity/session/grant | Implemented provider/origin plus Canvas user ID, active portal roles, hashed session and separately encrypted staff API grant |
 | Learner identity link | Planned: durable university ID, type, sponsorship evidence, SIS mapping and uniqueness |
-| Offering | Current description fields, price/history, dates/type, finite or Unlimited capacity, approval rule, protected Canvas mapping and independent portal publication; reusable product normalization remains deferred |
+| Offering | Current description fields, price/history, dates/type, finite or Unlimited capacity, portal-owned image override, approval rule, protected Canvas mapping and independent portal publication; reusable product normalization remains deferred |
 | Canvas course source/mapping | Current per-configuration saved inventory; unique installation/course-ID mapping to one offering, raw source metadata and timestamps; preview details remain temporary until explicit import |
 | Approval | Learner/offering, decision, actor, decision time, validity window |
 | Seat reservation | Learner/offering, Checkout Session, expiry, reserved/consumed/released state |
@@ -639,7 +630,7 @@ sequenceDiagram
 
 #### 4. Checkout, payment confirmation and seat release
 
-**Implemented in Stripe test mode:** registration reserves the entitlement first; Checkout requires that current reservation and a still-published offering. Product/Price creation or reuse happens at Checkout, not publication. A signed webhook applies payment and queues simulated fulfillment within one database transaction. No general event-processing worker is required before payment is recorded.
+**Implemented in Stripe test mode:** registration reserves the entitlement first; Checkout requires that current reservation and a still-published offering. Product/Price creation or reuse happens at Checkout, not publication. A signed webhook applies payment and completes normal simulated fulfillment within one database transaction. No general event-processing worker is required before payment is recorded.
 
 ```mermaid
 sequenceDiagram
@@ -648,7 +639,6 @@ sequenceDiagram
     participant API as Portal API
     participant DB as Portal database
     participant Stripe as Stripe test mode
-    participant Worker
     Learner->>API: Open Checkout for current reservation
     API->>DB: Check ownership, reserved status, expiry and published offering
     API->>Stripe: Create or reuse Product and Price, create idempotent Checkout Session
@@ -659,24 +649,24 @@ sequenceDiagram
     Stripe->>API: Signed checkout completion webhook
     API->>API: Verify raw-body signature and relevant paid session data
     API->>DB: Atomically deduplicate event, save paid order and queue provisioning
+    API->>DB: Complete normal simulated identity and Canvas stages
     API-->>Stripe: Acknowledge committed result
-    Worker->>DB: Claim provisioning operation
-    Worker->>DB: Simulate identity and Canvas stages, persist status
     Learner->>API: Read My learning status
     API-->>Learner: Recorded payment and simulated access progress
-    opt Missing webhook or unresolved Checkout
-        Worker->>Stripe: Reconcile saved Checkout Session state
-        Stripe-->>Worker: Paid, expired or still unresolved
-        Worker->>DB: Apply paid result once or expire unpaid reservation safely
+    opt Staff requests recovery of overdue unresolved Checkout
+        Note over API: Support or Staff administrator uses Check Stripe payments
+        API->>Stripe: Reconcile saved Checkout Session state
+        Stripe-->>API: Paid, expired or still unresolved
+        API->>DB: Apply paid result once or expire unpaid reservation safely
     end
-    Note over API,Worker: Browser close is not cancellation, current unresolved holds have a one-day fallback
+    Note over API,API: Browser close is not cancellation, current unresolved holds have a one-day fallback
 ```
 
-Cards/wallets are enabled; delayed payment methods and automatic recovery are not part of the current Checkout setup. The Stripe CLI listener forwards selected events or `--all-snapshot` to port 3051; its signing secret belongs in ignored `.env`. Session creation currently makes Stripe calls within a database transaction. The worker preserves unresolved Checkout holds until one day after session expiry, then its local fallback can release them; that fallback needs explicit policy agreement and failure-path testing. Interrupted creation after remote success, full reconciliation failure paths and restart recovery need the additional drills in [next steps](next-steps.md); the diagram does not claim those production gates are complete.
+Cards/wallets are enabled; delayed payment methods and automatic recovery are not part of the current Checkout setup. The Stripe CLI listener forwards selected events or `--all-snapshot` to port 3051; its signing secret belongs in ignored `.env`. Session creation currently makes Stripe calls within a database transaction. Request-driven expiry preserves unresolved Checkout holds until one day after session expiry, then its local fallback can release them; that fallback needs explicit policy agreement and failure-path testing. Interrupted creation after remote success, full reconciliation failure paths and restart recovery need the additional drills in [next steps](next-steps.md); the diagram does not claim those production gates are complete.
 
 #### 5. Courtesy provisioning and Canvas access
 
-**Current implementation:** the worker's identity and Canvas stages are simulations with bounded retries, delayed/failure injection, exceptions and audited staff retry/manual-resolution actions. They make no institutional provisioning, SIS or Canvas enrollment calls. An enrolled prototype status is not evidence of a real Canvas enrollment.
+**Current implementation:** identity and Canvas stages are request-driven simulations with bounded retries, delayed/failure injection, exceptions and audited staff retry/manual-resolution actions. They make no institutional provisioning, SIS or Canvas enrollment calls. An enrolled prototype status is not evidence of a real Canvas enrollment.
 
 **Planned live target below:** existing university identities will skip Courtesy provisioning. Real activation and Canvas enrollment must be tracked independently under the approved IT contract. No existing staff OAuth read grant authorizes this future write workflow; its permissions and identity design require a separate decision.
 
@@ -870,7 +860,7 @@ sequenceDiagram
 
 #### 9. Reconciliation and exception recovery
 
-**Implemented:** the worker reconciles saved Stripe Checkout Sessions and runs the simulated provisioning/retry workflow. The staff exception queue supports scoped, audited retries and recording a manual outcome. Those prototype outcomes do not verify institutional identity or Canvas access. Owner assignment, alerting, live identity/enrollment reconciliation and operational runbooks remain planned.
+**Implemented:** the API handles manual reconciliation of saved Stripe Checkout Sessions and request-driven simulated provisioning/retries. The staff exception queue supports scoped, audited retries and recording a manual outcome. Those prototype outcomes do not verify institutional identity or Canvas access. Owner assignment, alerting, live identity/enrollment reconciliation and operational runbooks remain planned.
 
 **Planned broader target below:** reconcile authoritative institutional state before retrying remote writes; manual Canvas enrollment follows an approved Canvas Administration procedure.
 
@@ -884,7 +874,7 @@ sequenceDiagram
     participant Canvas
     actor Staff as Authorized support staff
     participant Portal
-    Note over Worker,Canvas: PLANNED institutional reconciliation, current worker checks Stripe and simulations
+    Note over Worker,Canvas: PLANNED institutional reconciliation, current API handles manual Stripe checks and simulations
     Worker->>DB: Read unresolved sessions, jobs and access obligations
     Worker->>Stripe: Retrieve relevant payment/session/refund state
     Stripe-->>Worker: Authoritative financial state
@@ -995,7 +985,7 @@ Exit: concurrent checkout for the last seat cannot oversell; duplicate/out-of-or
 
 ### M4 — Identity, Canvas and learner status
 
-**Implemented source-read slice:** the existing staff OAuth client/callback authorizes paginated course/account reads, nested subaccounts, encrypted grants, scheduled/private previews and explicit imports into protected offering drafts. It does not implement learner records or Canvas enrollment.
+**Implemented source-read slice:** the existing staff OAuth client/callback authorizes paginated course/account reads, nested subaccounts, encrypted grants, private on-demand previews and explicit imports into protected offering drafts. It does not implement learner records or Canvas enrollment.
 
 **Remaining live fulfillment:** replace the simulated identity/Canvas enrollment adapters with approved services after learner authentication, sponsorship, SIS mapping and write-permission decisions. Start against mocks, then isolated test services. Request a Courtesy identity only for a proved no-match outcome. Persist request ID and sponsorship; handle asynchronous activation separately from Canvas enrollment.
 
@@ -1063,7 +1053,7 @@ Implemented for the local prototype. Support two explicit offering types: cohort
 | Interface | Brand review; desktop/mobile screenshots; functional verification of changed workflows |
 | Accessibility | Required in each UI review using the README review/test checklist; keyboard/focus, names/labels/semantics, contrast, targets, reflow/zoom and announcements; automated scan plus manual screen-reader review of registration, sign-in, errors, dialogs and staff tables before release; record unresolved findings and unperformed checks |
 | Authorization | Staff Canvas OAuth binding/state/session/CSRF and role isolation; portal permission plus Canvas permission plus GET scope checks; live MFA/deny/revocation cases; verified learner linking/recovery cannot claim another identity |
-| Canvas source/import | Full pagination and account boundary, owner-specific grants, scheduled logout/revocation behavior, private-preview expiry, stale/concurrent import protection, duplicate conflicts, staff-edit preservation, publication independence and missing-field gates; unlisted and mapping health still require implementation |
+| Canvas source/import | Full pagination and account boundary, owner-specific grants, deferred scheduling, revocation behavior, private-preview expiry, stale/concurrent import protection, duplicate conflicts, staff-edit preservation, publication independence and missing-field gates; unlisted and mapping health still require implementation |
 | Payments/capacity | Success, decline, abandoned/expired checkout, final-seat concurrency and explicit Unlimited registration, safe return to finite capacity, duplicate/out-of-order webhook, crash/replay and unavailable Stripe reconciliation |
 | Provisioning | Ambiguous identities blocked before payment; existing identity reused safely; asynchronous IT/SIS delays; uncertain enrollment response and retry; reversal during provisioning |
 | Reversals/lifecycle | Full/partial/failed refund, dispute outcomes, transfer recovery, new purchase near expiry, notice rules, protected provisioning and existing-identity immunity |

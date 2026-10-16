@@ -20,6 +20,7 @@ export const auditLabels: Record<string, string> = {
   "offering.created": "Draft offering created",
   "prototype.offering_published": "Offering published",
   "offering.settings_changed": "Offering settings changed",
+  "offering.image_changed": "Portal course image changed",
   "offering.edited": "Offering edited",
   "offering.unpublished": "Offering unpublished",
   "staff.created": "Staff member added",
@@ -43,12 +44,14 @@ export const auditLabels: Record<string, string> = {
   "payment.refund_unmatched": "Stripe refund needs review",
   "refund.requested": "Refund requested",
   "access.ended": "Course access ended (refund)",
+  "payments.reconciled": "Stripe payments checked",
   "refund.request_cancelled": "Refund request cancelled",
 };
 export const actorLabels: Record<string, string> = {
   "demo-staff": "Staff (demo)",
   "demo-learner": "Legacy demo learner",
   "demo-automation": "Automation token",
+  "prototype-request": "Demo processing",
   "prototype-worker": "Background worker",
   "stripe-webhook": "Stripe (webhook)",
   "stripe-reconciliation": "Stripe (reconciliation)",

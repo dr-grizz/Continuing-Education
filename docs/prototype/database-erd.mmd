@@ -1,4 +1,4 @@
-%% Local PostgreSQL schema through 019_unlimited_seats, October 14, 2026.
+%% Local PostgreSQL schema through 020_offering_images, October 15, 2026.
 %% Scalar fields and enforced relation cardinalities derived from prisma/schema.prisma.
 %% SQL-only checks/triggers and indexes are documented in migrations; Prisma history is omitted.
 %% Composite PK columns form one key; composite unique fields are not individually unique.
@@ -26,6 +26,7 @@ erDiagram
     offerings ||--o| sales_pages : offering
     offerings ||--o{ sales_page_revisions : offering
     offerings ||--o| canvas_offering_mappings : offering
+    media_assets |o--o{ offerings : portal_cover
 
     audit_events {
         bigint id PK
@@ -96,6 +97,8 @@ erDiagram
         timestamptz unpublished_at "Nullable"
         integer featured_rank "Nullable"
         boolean imported_from_canvas
+        boolean image_override
+        uuid image_media_id FK "Nullable"
     }
 
     operations {

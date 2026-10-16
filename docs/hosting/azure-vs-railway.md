@@ -2,6 +2,12 @@
 
 For the portal lead and university IT (decision **A3**, hosting provider). Drafted October 8, 2026. Prices are list prices for US East, checked that day: Azure from its public retail price API, Railway from its pricing page. Both change; confirm in each provider's calculator before committing.
 
+## October 15 demo amendment
+
+See the [current deployment plan](deployment-plan.md) for both Azure diagram views and the equivalent Railway setup.
+
+The current demo has no always-running worker: one combined web/API container plus external PostgreSQL is the preferred small-demo layout. Migrations can run once at container startup before serving traffic. Normal simulated enrollment completes during payment handling; delayed/retry work resumes on authenticated requests. Canvas discovery is on demand and schedules are deferred. Manual Transactions reconciliation replaces periodic Stripe polling. The separate-worker layouts below remain future deployment options, not the current runtime. See [ADR 0008](../adr/0008-request-driven-demo.md). Hosting packaging, an access gate and webhook forwarding still need implementation; historical prices below must be rechecked before provisioning.
+
 ## Summary
 
 |                                | Azure (Container Apps + PostgreSQL Flexible Server)                                                                     | Railway (Pro)                                                                                                                              |

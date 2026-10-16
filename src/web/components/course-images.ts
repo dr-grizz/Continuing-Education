@@ -1,4 +1,6 @@
-import type { Offering } from "./api";
+import { safeCourseImageUrl } from "../../domain/course-images";
+
+export const CU_CE_IMAGE = "/brand/cedarville-continuing-education-white.png";
 
 const covers: Record<string, string> = {
   "10000000-0000-4000-8000-000000000001": "data-analysis",
@@ -15,8 +17,28 @@ const categoryCovers: Record<string, string> = {
   Ministry: "biblical-study",
 };
 
-// Local prototype covers; newly created courses use their category's photo.
-export function courseImage(offering: Pick<Offering, "id" | "category">) {
+// Imported courses use their Canvas cover, independently of portal category.
+// Keep the existing photos for manually created and seeded prototype offerings.
+export function courseImage(offering: {
+  id: string;
+  category: string;
+  imported_from_canvas?: boolean;
+  canvas_image_url?: string | null;
+  image_override?: boolean;
+  image_media_id?: string | null;
+}) {
+  if (offering.image_override) {
+    const mediaId = offering.image_media_id;
+    return mediaId &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        mediaId,
+      )
+      ? `/media/${mediaId}`
+      : CU_CE_IMAGE;
+  }
+  const source = safeCourseImageUrl(offering.canvas_image_url);
+  if (source) return source;
+  if (offering.imported_from_canvas) return CU_CE_IMAGE;
   const cover =
     covers[offering.id] ??
     categoryCovers[offering.category] ??
