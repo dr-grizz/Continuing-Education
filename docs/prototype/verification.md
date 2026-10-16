@@ -1,5 +1,7 @@
 # Local prototype verification
 
+This is a historical verification record. For current expected behavior, repeatable steps and new run results, use the [systematic test cases](../testing/use-cases.md) and [test run record](../testing/test-run-template.md).
+
 October 1, 2026. All checks use synthetic data and local services.
 
 - TypeScript checks and optimized Next.js build pass.
