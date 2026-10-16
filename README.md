@@ -159,6 +159,8 @@ Public catalog requests need no token. The read-only automation token cannot cre
 
 ## Verify
 
+Use the [systematic test cases](docs/testing/use-cases.md) for role-based manual, integration and recovery testing, and copy the [test run record](docs/testing/test-run-template.md) to record actual results and outstanding coverage. The [security test cases](docs/testing/security-test-cases.md) cover adversarial checks and distinguish implemented controls from mock-identity and hosted-release gaps.
+
 ```sh
 npm run format:check
 npm run typecheck
