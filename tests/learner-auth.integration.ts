@@ -14,6 +14,7 @@ import {
 import { NestFactory } from "@nestjs/core";
 import { NextRequest } from "next/server";
 import { migrate } from "../scripts/db-migrate";
+import { endPoolAndWaitForClients } from "./helpers/close-pool";
 
 const savedEnv = { ...process.env },
   realFetch = global.fetch;
@@ -48,6 +49,18 @@ async function main() {
   });
   delete process.env.CANVAS_STAFF_AUTHORIZE_URL;
   delete process.env.CANVAS_STAFF_TOKEN_URL;
+  // Reproduce CI's cleanup boundary with two real idle connections. end() alone
+  // can resolve before their remove events; dropping with FORCE then kills them.
+  const probe = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    max: 2,
+  });
+  const probeClients = await Promise.all([probe.connect(), probe.connect()]);
+  let removed = 0;
+  probe.on("remove", () => removed++);
+  probeClients.forEach((connection) => connection.release());
+  await endPoolAndWaitForClients(probe);
+  assert.equal(removed, 2);
   await migrate(process.env.DATABASE_URL, { quiet: true });
   client = (await import("../src/domain/prisma")).prisma;
   pool = (await import("../src/domain/db")).db;
@@ -532,8 +545,8 @@ main()
     global.fetch = realFetch;
     await app?.close();
     await client?.$disconnect();
-    await pool?.end();
-    if (created) await admin.query(`DROP DATABASE ${database} WITH (FORCE)`);
+    if (pool) await endPoolAndWaitForClients(pool);
+    if (created) await admin.query(`DROP DATABASE ${database}`);
     await admin.end();
     process.env = savedEnv;
   });
