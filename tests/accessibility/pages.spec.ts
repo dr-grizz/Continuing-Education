@@ -1247,6 +1247,7 @@ test.describe("Canvas course connector", () => {
         version: 1,
         approvalValidDays: 14,
         enrollmentCloseDays: 7,
+        listed: true,
         canvasCourseUrl: draft.canvas_course_url,
       });
       settingsSaved = true;
