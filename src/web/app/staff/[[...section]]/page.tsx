@@ -99,6 +99,7 @@ type AuditEntry = {
 type ApprovalRequest = Learning & {
   created_at: string;
   learner_email: string | null;
+  learner_name?: string | null;
   approval_valid_days: number;
 };
 const actorLabel = (entry: AuditEntry) =>
@@ -458,13 +459,17 @@ function StaffWorkspace({
   });
   const approvalsView = useTableView(requests, {
     compare: {
-      learner: (a, b) => byText(a.learner_email ?? "", b.learner_email ?? ""),
+      learner: (a, b) =>
+        byText(
+          a.learner_email ?? a.learner_name ?? "",
+          b.learner_email ?? b.learner_name ?? "",
+        ),
       title: (a, b) => byText(a.title, b.title),
       requested: (a, b) => byText(a.created_at, b.created_at),
     },
     initial: { key: "requested", direction: "asc" },
     matches: (r) =>
-      `${r.learner_email ?? ""} ${r.title}`
+      `${r.learner_email ?? r.learner_name ?? ""} ${r.title}`
         .toLowerCase()
         .includes(approvalQuery.toLowerCase()),
   });
@@ -1025,7 +1030,9 @@ function StaffWorkspace({
                         variant="body2"
                         sx={{ overflowWrap: "anywhere" }}
                       >
-                        {r.learner_email || "Legacy demo learner"}
+                        {r.learner_email ||
+                          r.learner_name ||
+                          "Legacy demo learner"}
                       </Typography>
                       <Typography variant="body2" color="text.secondary">
                         Requested {new Date(r.created_at).toLocaleDateString()}
@@ -1089,7 +1096,9 @@ function StaffWorkspace({
                       {approvalsView.visible.map((r) => (
                         <TableRow key={r.id}>
                           <TableCell sx={{ overflowWrap: "anywhere" }}>
-                            {r.learner_email || "Legacy demo learner"}
+                            {r.learner_email ||
+                              r.learner_name ||
+                              "Legacy demo learner"}
                             <Typography
                               variant="caption"
                               sx={{

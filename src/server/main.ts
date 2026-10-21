@@ -71,6 +71,12 @@ import { stripe, webhookSecret } from "./stripe";
 import { StaffAuthController, StaffBrokerGuard } from "./staff-auth-controller";
 import { CanvasStaffAuthService } from "./canvas-staff-auth";
 import { staffAuthMode } from "./staff-auth-config";
+import { learnerAuthMode } from "./learner-auth-config";
+import { CanvasLearnerAuthService } from "./canvas-learner-auth";
+import {
+  LearnerAuthController,
+  LearnerBrokerGuard,
+} from "./learner-auth-controller";
 @ApiTags("Catalog")
 @Controller("api/v1")
 class CatalogController {
@@ -823,6 +829,7 @@ class DemoRequestInterceptor implements NestInterceptor {
     WorkflowController,
     WebhookController,
     StaffAuthController,
+    LearnerAuthController,
   ],
   providers: [
     { provide: APP_INTERCEPTOR, useClass: DemoRequestInterceptor },
@@ -831,11 +838,14 @@ class DemoRequestInterceptor implements NestInterceptor {
     PrototypeGuard,
     StaffBrokerGuard,
     CanvasStaffAuthService,
+    CanvasLearnerAuthService,
+    LearnerBrokerGuard,
   ],
 })
 class AppModule {}
 async function main() {
   staffAuthMode();
+  learnerAuthMode();
   // Refuse to start until npm run db:migrate has recorded the Prisma baseline.
   const migrated = await sql(
     prisma,

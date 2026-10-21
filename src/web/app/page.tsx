@@ -103,7 +103,7 @@ export default function Catalog() {
     initialSearch ??= window.location.search;
     if (landingChecked || !auth.ready) return;
     landingChecked = true;
-    if (!auth.email || initialSearch) return;
+    if (!auth.signedIn || initialSearch) return;
     const entry = performance.getEntriesByType("navigation")[0] as
       PerformanceNavigationTiming | undefined;
     let fromOutside = true;
@@ -118,7 +118,7 @@ export default function Catalog() {
       !entry ||
       (entry.type === "navigate" && new URL(entry.name).pathname === "/");
     if (fromOutside && freshHomeLoad) router.replace("/learning");
-  }, [auth.ready, auth.email, router]);
+  }, [auth.ready, auth.learnerId, router]);
   // Keep the tab and filters in the URL so views can be shared and reloaded.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -185,14 +185,14 @@ export default function Catalog() {
   }, []);
   // Followed pathways get a "Following" chip on their cards.
   useEffect(() => {
-    if (!auth.email) {
+    if (!auth.signedIn) {
       setFollowing(new Set());
       return;
     }
     api<FollowedPathway[]>("me/pathways")
       .then((list) => setFollowing(new Set(list.map((p) => p.id))))
       .catch(() => setFollowing(new Set()));
-  }, [auth.email]);
+  }, [auth.signedIn]);
   // A legacy collection filter supplies its course list.
   useEffect(() => {
     if (!collectionSlug) {

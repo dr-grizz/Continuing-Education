@@ -4,6 +4,11 @@ import { createContext, useContext, useEffect, useState } from "react";
 
 type DemoAuth = {
   email: string | null;
+  learnerId: string | null;
+  displayName: string | null;
+  signedIn: boolean;
+  mode: "mock" | "canvas" | null;
+  configured: boolean;
   ready: boolean;
   signIn: (email: string) => Promise<void>;
   signOut: () => Promise<void>;
@@ -27,6 +32,11 @@ async function session(method: string, email?: string) {
 }
 export function DemoAuthProvider({ children }: { children: React.ReactNode }) {
   const [email, setEmail] = useState<string | null>(null);
+  const [learnerId, setLearnerId] = useState<string | null>(null);
+  const [displayName, setDisplayName] = useState<string | null>(null);
+  const [signedIn, setSignedIn] = useState(false);
+  const [mode, setMode] = useState<"mock" | "canvas" | null>(null);
+  const [configured, setConfigured] = useState(false);
   const [ready, setReady] = useState(false);
   useEffect(() => {
     let active = true;
@@ -36,7 +46,14 @@ export function DemoAuthProvider({ children }: { children: React.ReactNode }) {
     } catch {}
     session("GET")
       .then((data) => {
-        if (active) setEmail(data.email);
+        if (active) {
+          setEmail(data.email);
+          setLearnerId(data.id || null);
+          setSignedIn(Boolean(data.id));
+          setDisplayName(data.display_name || data.email || null);
+          setMode(data.auth?.mode || null);
+          setConfigured(data.auth?.configured === true);
+        }
       })
       .catch(() => {
         if (active) setEmail(null);
@@ -51,13 +68,31 @@ export function DemoAuthProvider({ children }: { children: React.ReactNode }) {
   async function signIn(value: string) {
     const user = await session("POST", value.trim().toLowerCase());
     setEmail(user.email);
+    setLearnerId(user.id);
+    setDisplayName(user.display_name || user.email);
+    setSignedIn(Boolean(user.id));
   }
   async function signOut() {
     await session("DELETE");
     setEmail(null);
+    setLearnerId(null);
+    setDisplayName(null);
+    setSignedIn(false);
   }
   return (
-    <AuthContext.Provider value={{ email, ready, signIn, signOut }}>
+    <AuthContext.Provider
+      value={{
+        email,
+        learnerId,
+        displayName,
+        signedIn,
+        mode,
+        configured,
+        ready,
+        signIn,
+        signOut,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

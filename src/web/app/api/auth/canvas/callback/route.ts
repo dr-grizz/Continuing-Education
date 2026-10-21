@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { completeLearnerLogin } from "../../../../../server/learner-auth";
 import {
   authCookieName,
   clearCookie,
@@ -16,6 +17,10 @@ export async function GET(request: NextRequest) {
       { message: "Prototype is disabled." },
       { status: 503 },
     );
+  // Purpose is bound to a separate single-use state record and browser nonce.
+  // Neither flow can consume the other's state or create the other's session.
+  if (request.nextUrl.searchParams.get("state")?.startsWith("learner."))
+    return completeLearnerLogin(request);
   let origin = request.nextUrl.origin;
   let secure = true;
   const redirect = (error?: string) => {

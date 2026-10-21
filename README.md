@@ -1,6 +1,6 @@
 # Continuing Education Portal prototype
 
-Local Next.js + Material UI website, NestJS REST API, PostgreSQL and request-driven simulated enrollment. Seeded offerings and learner/payment test data are synthetic; the configured Canvas connection can import real course metadata into unpublished drafts. Stripe sandbox Checkout is supported when configured; learner identity and Canvas enrollment remain simulated. Staff can use configurable Canvas OAuth and opt-in [Canvas course previews and synchronization](docs/canvas-courses.md), using that same OAuth connection. Explicit selected-course sync creates unpublished offering drafts with duplicate protection, preserved staff edits and required-information warnings; Canvas API access remains read-only. See [Canvas staff authentication](docs/canvas-staff-auth.md).
+Local Next.js + Material UI website, NestJS REST API, PostgreSQL and request-driven simulated enrollment. Seeded offerings and learner/payment test data are synthetic; the configured Canvas connection can import real course metadata into unpublished drafts. Stripe sandbox Checkout is supported when configured; learner login can use existing CU accounts through [Canvas OAuth](docs/canvas-learner-auth.md), while guest provisioning and Canvas enrollment remain simulated. Staff can use configurable Canvas OAuth and opt-in [Canvas course previews and synchronization](docs/canvas-courses.md), using that same OAuth connection. Explicit selected-course sync creates unpublished offering drafts with duplicate protection, preserved staff edits and required-information warnings; Canvas API access remains read-only. See [Canvas staff authentication](docs/canvas-staff-auth.md).
 
 ## Implementation progress
 
@@ -168,6 +168,7 @@ npm run build
 npm test
 npm run test:migrations
 npm run test:auth
+npm run test:learner-auth
 npm run test:canvas
 npm run test:demo
 npm run test:a11y
@@ -182,7 +183,7 @@ Run one group with `--project`, for example `npm run test:a11y -- --project=fire
 
 **Continuous integration:** `.github/workflows/ci.yml` runs all of the above on every pull request, against a throwaway PostgreSQL service with synthetic data. It never deploys or connects to external systems. Pull requests and pushes that change only documentation (`docs/**` or Markdown files) skip it; start it by hand from the Actions tab if needed. If the scans fail, the job uploads the Playwright report.
 
-Integration tests require the website, API and PostgreSQL running. Both the integration tests and the accessibility scans remove the records they create, so local runs leave the database unchanged. They check authorization, validation, payment-before-approval prevention, idempotency and concurrent final-seat reservation against isolated test records, then remove those records. Canvas staff OAuth is implemented with mocked-provider coverage; live SSO/MFA testing awaits configuration. Production hosting, learner authentication, transfers, lifecycle automation and live Canvas enrollment remain future work. See `docs/implementation-plan.md` and `docs/adr/0001-local-prototype.md`.
+Integration tests require the website, API and PostgreSQL running. Both the integration tests and the accessibility scans remove the records they create, so local runs leave the database unchanged. They check authorization, validation, payment-before-approval prevention, idempotency and concurrent final-seat reservation against isolated test records, then remove those records. Canvas staff OAuth is implemented with mocked-provider coverage; live SSO/MFA testing awaits configuration. Production hosting, pre-account guest authentication/provisioning, transfers, lifecycle automation and live Canvas enrollment remain future work. Existing-account learner Canvas OAuth has isolated mocked-provider coverage; live learner login remains to be verified. See `docs/implementation-plan.md` and `docs/adr/0001-local-prototype.md`.
 
 ### Review/test checklist
 
@@ -196,6 +197,8 @@ Integration tests require the website, API and PostgreSQL running. Both the inte
 
 Accessibility is part of every UI review. Scale checks to the change; a narrow UI change does not require repeating unrelated integration tests. The first manual catalog review is recorded in `docs/prototype/accessibility-check.txt`.
 
-Mock sign-in accepts any email and any password at `/sign-in`. Emails are normalized and saved in the PostgreSQL `learners` table; the password is never saved or sent. An HTTP-only cookie selects the demo learner for 30 days. Sign-out clears that cookie, while registrations remain in the database. Each email has its own course registrations, and staff use either mock sign-in (ADR 0004) or explicitly configured [Canvas OAuth](docs/canvas-staff-auth.md). Anyone can sign in as any demo email; this is not production authentication. Existing shared sample registrations remain attached to the legacy email-less learner.
+With `LEARNER_AUTH_MODE=canvas`, learners sign in through their existing CU Canvas account, including staff acting as learners. The portal creates or reuses a learner by verified Canvas origin/user ID, uses a revocable opaque session and never grants staff roles from learner login. Existing demo registrations are preserved without automatic email matching. See [Canvas learner sign-in](docs/canvas-learner-auth.md). Guest account creation after payment remains future work.
 
-For API automation, use the learner token with `POST /api/v1/prototype/users` and an email JSON body to obtain a learner ID. Pass `X-Prototype-Learner-Id` with that token on learner workflow requests. `GET /api/v1/me` returns the selected learner. Omitting the header selects the legacy sample learner for direct API demos; signed-out web workflow requests are rejected.
+With `LEARNER_AUTH_MODE=mock` (the local default), mock sign-in accepts any email and any password at `/sign-in`. Emails are normalized and saved in the PostgreSQL `learners` table; the password is never saved or sent. An HTTP-only cookie selects the demo learner for 30 days. Sign-out clears that cookie, while registrations remain in the database. Each email has its own course registrations, and staff use either mock sign-in (ADR 0004) or explicitly configured [Canvas OAuth](docs/canvas-staff-auth.md). Anyone can sign in as any demo email; this is not production authentication. Existing shared sample registrations remain attached to the legacy email-less learner.
+
+In learner mock mode only, use the learner token with `POST /api/v1/prototype/users` and an email JSON body to obtain a learner ID. Pass `X-Prototype-Learner-Id` with that token on learner workflow requests. `GET /api/v1/me` returns the selected learner. Omitting the header selects the legacy sample learner for direct API demos; signed-out web workflow requests are rejected.

@@ -1,6 +1,6 @@
 # Continuing Education Portal: Implementation Plan
 
-Status: implementation baseline updated October 15, 2026. The current-state sections and diagrams describe the local prototype as implemented. Remaining delivery milestones and explicitly marked target workflows are proposals; production policy and infrastructure decisions remain with the named owners.
+Status: implementation baseline updated October 21, 2026. The current-state sections and diagrams describe the local prototype as implemented. Remaining delivery milestones and explicitly marked target workflows are proposals; production policy and infrastructure decisions remain with the named owners.
 
 Original planning tracker: [GitHub issue #1](https://github.com/dr-grizz/Continuing-Education/issues/1). Subsequent local updates, including workflow diagrams and API requirements, have not been synchronized to that issue.
 
@@ -14,7 +14,7 @@ The repository now contains a local prototype, `CONTEXT.md`, and the prototype a
 
 ### Local prototype status
 
-The local application uses Next.js/React and Material UI, a versioned NestJS REST API, PostgreSQL/Prisma and request-driven durable simulations (no always-running worker). Web/API ports are **3050/3051**. Prisma manages 21 migration directories, `000_baseline` through `020_offering_images`; preserve migration history and existing data. This is an implemented local prototype, not an approved production deployment.
+The local application uses Next.js/React and Material UI, a versioned NestJS REST API, PostgreSQL/Prisma and request-driven durable simulations (no always-running worker). Web/API ports are **3050/3051**. Prisma manages 22 migration directories, `000_baseline` through `021_canvas_learner_auth`; preserve migration history and existing data. This is an implemented local prototype, not an approved production deployment.
 
 | Area | Implemented behavior | Remaining boundary |
 | --- | --- | --- |
@@ -24,14 +24,14 @@ The local application uses Next.js/React and Material UI, a versioned NestJS RES
 | Offering imports | Create offering draft / Refresh source details row actions, Import selected, Imported courses tab, stable installation/course-ID mappings and atomic duplicate/stale-preview guards | Existing-link conflicts need review; linking existing offerings, remapping, exclusions and live mapping health checks remain planned |
 | Offering administration | Required-information warnings; independent portal publication; immutable price history and quoted reservation prices; bounded or explicit Unlimited seats; audited edits/unpublication | Unlisted visibility is not implemented. Incomplete drafts cannot publish/register; published edits keep the existing protected-terms rules |
 | Payments and reversals | Stripe **test-mode** hosted Checkout, signed inbound webhooks, refunds processed externally by Finance, full-refund portal entitlement reversal and later re-registration | No live payments, real Canvas access removal, approved dispute/lifecycle policy or authoritative financial reconciliation |
-| Learners and enrollment | Mock email learner selection; approval/window rules; payment/access status; durable simulated identity and Canvas provisioning with retries and staff recovery | No verified learner authentication, institutional identity matching, Courtesy provisioning, SIS lookup or real Canvas enrollment |
+| Learners and enrollment | Configurable existing-account learner Canvas OAuth with independent revocable sessions; local mock email selection; approval/window rules; payment/access status; durable simulated identity and Canvas provisioning with retries and staff recovery | Existing-account login has mocked-provider coverage; live learner acceptance, pre-account guest login, paid Cedarville guest provisioning, SIS lookup and real Canvas enrollment remain open |
 | Content and reporting | Rich-text sales-page editing with media/preview/revisions, collections/pathways, saved courses, Explore picks, role-based enrollment/sales reports and CSV aggregates | Completion/grades, broader exports and production privacy/brand/accessibility acceptance remain open |
 
 Evidence: a staff Canvas OAuth login and subaccount course discovery were exercised live locally; the October 14 preview included 123 published courses from subaccount 49 and descendants. Automated provider/API/migration/browser tests cover the connector, import protections, staff edits and unlimited seats. Those results do not prove fresh MFA, verified learner access or production readiness. Manual screen-reader review remains pending. See [implementation evidence](prototype/implementation-progress.md), [next steps](next-steps.md), [Canvas authentication](canvas-staff-auth.md), [course connector](canvas-courses.md) and [mapping plan](canvas-mapping-plan.md).
 
 ### Staff sign-in and Canvas API authorization (implemented)
 
-The portal's staff integration uses **Canvas OAuth**, replacing the proposed direct portal-to-institution OIDC/SAML staff integration. Canvas continues to use IT's existing SSO/MFA configuration. OAuth does not replace that upstream sign-in system, and `force_login` alone does not prove a fresh MFA challenge. Learner authentication is a separate, still unresolved integration.
+The portal's staff integration uses **Canvas OAuth**, replacing the proposed direct portal-to-institution OIDC/SAML staff integration. Canvas continues to use IT's existing SSO/MFA configuration. OAuth does not replace that upstream sign-in system, and `force_login` alone does not prove a fresh MFA challenge. Existing-CU-account learners now use the identity-only Canvas OAuth flow described in [ADR 0009](adr/0009-canvas-learner-login.md); future guest pre-account authentication remains unresolved.
 
 1. An administrator creates an approved portal staff record and explicitly binds it to `(Canvas origin, numeric Canvas user ID)`. The administrative linking command can select that portal record by email; login never auto-links by email, creates a staff member or assigns a role.
 2. The browser starts authorization through the portal. The API creates short-lived hashed state bound to an independent HTTP-only browser nonce. Canvas returns a code to the exact configured callback; the API validates state and exchanges the code server-side over HTTPS with `CANVAS_USER_AGENT`.
@@ -167,7 +167,7 @@ Resolved October 5, 2026: My learning no longer loses keyboard focus (focus move
 | Catalog and staff paging | The API returns up to 100 offerings and 200 audit events; the catalog has no pagination; staff sorting and paging are client-side within those limits | Server-side search, sort and paging before catalog or audit volume approaches the limits | M2 |
 | Brand baseline | Figtree, a free font similar to Proxima Nova (the cedarville.edu font), is used; colors are provisional and copy is unreviewed | Cedarville Marketing to approve Figtree as the substitute or supply a licensed brand font; approve colors, logo use and content | M1 exit |
 | Theme acceptance | Manual Light, Dark and Match device choices are implemented | Finish institutional brand/accessibility acceptance | M1 |
-| Authentication acceptance | Canvas-mode staff use OAuth and current server-side roles; mock mode remains a local demo option; learner email selection is still mock | Verify institutional Canvas authentication/MFA, remaining denial/session cases and real learner authentication before pilot | M1 |
+| Authentication acceptance | Canvas-mode staff use OAuth and current server-side roles; mock mode remains a local demo option; existing-account learners can use identity-only Canvas OAuth; arbitrary email selection remains mock-only | Verify institutional Canvas authentication/MFA, remaining denial/session cases and real learner authentication before pilot | M1 |
 | Exception ownership and alerting | Failed provisioning reaches a staff queue with reason, history, retry and manual-resolution actions, but exceptions have no assigned owner, age target or alert, and the simulation outcome is one shared setting for all demo users | Owner assignment, ageing/SLA indicators and alerts once staff roles exist; per-scenario simulation if concurrent demos need it | M3 |
 
 ## Scope and ownership
@@ -489,7 +489,7 @@ Each workflow states whether it is implemented, simulated or a planned live targ
 | Workflow | Portal area | Related milestone |
 | --- | --- | --- |
 | 1. Publish an offering (implemented; live mapping health planned) | Offering administration | M2 |
-| 2. Learner sign-in (mock); verified linking planned | Learner registration and access | M1, M4 |
+| 2. Existing-account learner Canvas OAuth; guest workflow planned | Learner registration and access | M1, M4 |
 | 3. Approvals implemented; pre-payment institutional proof planned | Learner registration and access | M2, M3 |
 | 4. Sandbox checkout, webhook confirmation and seat release | Learner registration and access | M3 |
 | 5. Simulated provisioning; live Courtesy/Canvas access planned | Learner registration and access | M4 |
@@ -533,22 +533,32 @@ These workflows take a learner from portal sign-in through eligibility checks, p
 
 #### 2. Learner sign-in and university identity linking
 
-**Current implementation:** entering a learner email selects/creates a normalized demo learner and stores an HTTP-only cookie. It does not verify email ownership, use passkeys, prove a university identity or link a Canvas learner. Staff OAuth is a separate flow and does not change this learner boundary.
+**Current implementation:** `LEARNER_AUTH_MODE=canvas` uses the existing Canvas developer key and callback with `/auth/userinfo` only. Bind a portal learner to the Canvas origin and verified user ID; create one learner profile on first login without creating a CU account. Staff can independently sign in as learners without changing staff roles or sessions. Email is not returned or verified by this flow, and old demo registrations are never adopted by email. Mock mode remains local-only. See [ADR 0009](adr/0009-canvas-learner-login.md).
 
 ```mermaid
 sequenceDiagram
-    actor Learner
+    actor Learner as Learner or staff acting as learner
     participant Web as Portal web
     participant API as Portal API
+    participant Canvas as CU Canvas OAuth
     participant DB as Portal database
-    Learner->>Web: Enter demo email
-    Web->>API: Create or retrieve normalized mock learner
-    API->>DB: Check active status and retrieve learner ID
-    API-->>Web: Mock learner selection
-    Web-->>Learner: HTTP-only demo cookie, no identity proof
+    Learner->>Web: Sign in with CU account
+    Web->>API: Begin learner flow with browser nonce and return page
+    API->>DB: Store hashed state, nonce, expiry and safe return page
+    Web->>Canvas: Redirect with identity-only scope
+    Canvas-->>Web: Code and state at existing shared callback
+    Web->>API: Complete learner flow with code, state and nonce
+    API->>DB: Consume learner state once
+    API->>Canvas: Exchange code over HTTPS with User-Agent
+    Canvas-->>API: Verified user ID and name; no API token
+    API->>DB: Create or reuse active learner by Canvas origin and user ID
+    API->>DB: Store learner session hash and audit sign-in
+    API-->>Web: Opaque learner session and allowed return page
+    Web-->>Learner: HTTP-only cookie and My learning or requested course
+    Note over API,DB: No email matching, staff role grants, guest account creation or Canvas enrollment
 ```
 
-**Planned target only:** select an approved learner authentication provider and identity-linking/recovery policy in M0/M1/M4. Email challenge, passkeys and university sign-in below are unimplemented proposals, not consequences of staff Canvas OAuth.
+**Future guest target only:** learners without a CU account register for a course and pay before Cedarville guest account creation. The pre-account authentication/recovery and institutional provisioning contracts are deferred. The older target below illustrates possible identity controls; it does not authorize selecting a provider or implementing account creation. Existing-account login no longer depends on those decisions.
 
 ```mermaid
 sequenceDiagram

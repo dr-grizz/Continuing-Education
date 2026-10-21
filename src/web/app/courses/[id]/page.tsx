@@ -103,16 +103,16 @@ export default function Course({
   }, [course]);
   // Saved courses are private to the signed-in learner and register nothing.
   useEffect(() => {
-    if (!auth.email) {
+    if (!auth.signedIn) {
       setSaved(false);
       return;
     }
     api<Offering[]>("me/saved-courses")
       .then((list) => setSaved(list.some((o) => o.id === id)))
       .catch(() => setSaved(false));
-  }, [auth.email, id]);
+  }, [auth.learnerId, id]);
   async function toggleSaved() {
-    if (!auth.email) {
+    if (!auth.signedIn) {
       router.push(`/sign-in?returnTo=${encodeURIComponent(`/courses/${id}`)}`);
       return;
     }
@@ -136,7 +136,7 @@ export default function Course({
     }
   }
   async function register() {
-    if (!auth.email) {
+    if (!auth.signedIn) {
       router.push(`/sign-in?returnTo=${encodeURIComponent(`/courses/${id}`)}`);
       return;
     }
@@ -277,10 +277,10 @@ export default function Course({
                   : busy
                     ? "Saving…"
                     : course.approval_required
-                      ? auth.email
+                      ? auth.signedIn
                         ? "Request approval"
                         : "Sign in to request approval"
-                      : auth.email
+                      : auth.signedIn
                         ? "Start registration"
                         : "Sign in to register"}
               </Button>
@@ -294,7 +294,7 @@ export default function Course({
                 aria-disabled={saving || undefined}
                 startIcon={saved ? <BookmarkIcon /> : <BookmarkBorderIcon />}
               >
-                {!auth.email
+                {!auth.signedIn
                   ? "Sign in to save this course"
                   : saved
                     ? "Remove from saved courses"

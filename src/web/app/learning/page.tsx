@@ -502,8 +502,8 @@ export default function LearningPage() {
         My learning
       </Typography>
       <Typography color="text.secondary" sx={{ mt: 1 }}>
-        Demo session for {auth.email}. Your course registrations are saved for
-        this email.
+        Demo session for {auth.displayName}. Your course registrations are saved
+        for this email.
       </Typography>
       {checkoutResult && (
         <Alert

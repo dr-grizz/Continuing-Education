@@ -41,6 +41,7 @@ type Transaction = {
   provider: "stripe" | "simulated";
   stripe_payment_intent_id: string | null;
   learner_email: string | null;
+  learner_name?: string | null;
   offering_title: string;
   request_id: string | null;
   request_status: "requested" | "refunded" | "cancelled" | null;
@@ -63,7 +64,7 @@ const statusOf = (t: Transaction): Status =>
         ? "requested"
         : "paid";
 const learnerOf = (t: Transaction) =>
-  t.learner_email ?? "Legacy sample learner";
+  t.learner_email ?? t.learner_name ?? "Legacy sample learner";
 const day = (value: string) =>
   new Date(value).toLocaleDateString("en-US", {
     month: "short",
