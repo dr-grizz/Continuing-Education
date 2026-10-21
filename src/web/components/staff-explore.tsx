@@ -86,7 +86,14 @@ export function StaffExplore({
   const options: Record<Section, { id: string; title: string }[]> = {
     courses: offerings
       .filter((o) => o.published)
-      .map((o) => ({ id: o.id, title: o.title })),
+      .map((o) => ({
+        id: o.id,
+        title: o.title,
+        note:
+          o.listed === false
+            ? "Unlisted; hidden from Explore until listed"
+            : undefined,
+      })),
     collections: collections
       .filter((c) => c.published && c.kind === "collection")
       .map((c) => ({ id: c.id, title: c.title })),
@@ -173,7 +180,7 @@ export function StaffExplore({
                   max={max}
                   onChange={(next) => setIds({ ...ids, [key]: next })}
                   emptyText="No picks; all spots fill automatically."
-                  helperText="Only published items can be picked."
+                  helperText="Only published items can be picked. Unlisted courses stay hidden from Explore; their saved picks are retained."
                 />
               ) : (
                 <>

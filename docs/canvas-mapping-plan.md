@@ -1,6 +1,6 @@
 # Canvas course connection and mapping plan
 
-Updated October 15, 2026. The course connector now uses the existing staff OAuth client and callback, implemented entirely in the TypeScript backend. No local skill, Python runtime or separate OAuth application is deployed with the portal. The course-read feature is opt-in. See [setup and verification](canvas-courses.md).
+Updated October 21, 2026. The course connector now uses the existing staff OAuth client and callback, implemented entirely in the TypeScript backend. No local skill, Python runtime or separate OAuth application is deployed with the portal. The course-read feature is opt-in. See [setup and verification](canvas-courses.md).
 
 ## Implemented: connect and preview
 
@@ -13,7 +13,7 @@ Updated October 15, 2026. The course connector now uses the existing staff OAuth
 - A complete successful scan creates a private encrypted preview outside the portal database, with a 30-minute expiry. Staff review its paginated course list and sync selected rows, merging by course ID while preserving other synced courses. The Imported courses tab shows the saved inventory independently of the temporary preview. Scheduled reads are deferred. Failed pages, suspicious empty results, stale saves and invalid pagination preserve the last saved snapshot. Nested courses are included by validating account ancestry using the existing three read scopes.
 - Migration `017_canvas_course_connector` adds encrypted grants, the schedule, durable runs and complete source snapshots. It does not change existing offerings, prices, visibility, orders or learner records.
 
-Explicit selected-course sync now creates incomplete unpublished offering drafts with stable mappings. Independent listed/unlisted visibility is the next implementation slice. Canvas course, enrollment and grade writes are excluded. Learner identity and enrollment remain simulated in the local prototype.
+Explicit selected-course sync now creates incomplete unpublished offering drafts with stable mappings. Independent listed/unlisted visibility is implemented in offering Settings; see [ADR 0010](adr/0010-independent-offering-visibility.md). Canvas course, enrollment and grade writes are excluded. Existing-CU-account learner login supports Canvas OAuth; guest provisioning and Canvas enrollment remain simulated.
 
 ## Authorization
 
@@ -35,7 +35,7 @@ Drafts copy source title/link/valid dates, leave unknown required values unset a
 
 ## Next mapping work
 
-1. Add separate portal publication and listed/unlisted visibility, preserving current published/unpublished state and listing preference when republishing. Enforce it across public discovery endpoints while preserving direct access to unlisted offerings and existing paid entitlements.
+1. **T01 implemented:** independent listing is stored separately from publication and enforced across public discovery, preserving direct access to published unlisted offerings and existing paid records. [Verification](testing/offering-visibility-verification.md) records completed checks and the pending manual screen-reader review.
 2. Recheck previously mapped course IDs. Published-only discovery cannot distinguish unpublication, movement, deletion or loss of permission. Treat 403/404 as unavailable/unknown, flag stale mappings and define freshness, retry and registration/payment gates without deleting history or silently changing portal publication. Include existing reservations and Checkout sessions in the recovery policy.
 3. Add an explicit reviewed workflow to link a conflicting existing offering. Never infer identity from titles or remap implicitly. Keep source exclusions and additional offering variants as separately scoped follow-up work.
 4. Test three representative mappings before a wider reviewed import. Inspect existing saved mappings first, reuse appropriate drafts, and record exact IDs and recovery information. The 123-course count is a historical October 14 preview, not a current imported-course count. Use mocked failures instead of changing live Canvas publication for tests.
@@ -50,7 +50,7 @@ Drafts copy source title/link/valid dates, leave unknown required values unset a
 | Published/unlisted | Hidden                                                  | Available                                   | Same eligibility checks   |
 | Unpublished        | Hidden                                                  | Unavailable publicly; staff preview remains | Closed                    |
 
-Apply these rules server-side to every discovery response, not only to UI controls. Unlisted links are shareable and do not provide invitation-only authorization. Existing paid learners retain their My learning records and entitlement-based access. Publishing sales-page text remains separate from publishing the offering. Portal changes never publish or unpublish Canvas courses.
+These rules are applied server-side to discovery responses. Listing preference survives unpublish/republish and Canvas source refreshes. Courses explicitly saved by their owner remain in My learning; followed-pathway course lists use the public discovery filter. Unlisted links are shareable and do not provide invitation-only authorization. Existing paid learners retain their My learning records and entitlement-based access. Publishing sales-page text remains separate from publishing the offering. Portal changes never publish or unpublish Canvas courses.
 
 ## Later: grades and progress
 

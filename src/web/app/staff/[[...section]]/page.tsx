@@ -845,7 +845,7 @@ function StaffWorkspace({
                       <OfferingLink offering={c} />
                     </Typography>
                     <Chip
-                      label={statusLabels[offeringStatus(c)]}
+                      label={`${statusLabels[offeringStatus(c)]}${c.listed === false ? " · Unlisted" : ""}`}
                       variant="outlined"
                       color={statusColors[offeringStatus(c)]}
                     />
@@ -938,7 +938,7 @@ function StaffWorkspace({
                       </TableCell>
                       <TableCell>
                         <Chip
-                          label={statusLabels[offeringStatus(c)]}
+                          label={`${statusLabels[offeringStatus(c)]}${c.listed === false ? " · Unlisted" : ""}`}
                           variant="outlined"
                           color={statusColors[offeringStatus(c)]}
                         />

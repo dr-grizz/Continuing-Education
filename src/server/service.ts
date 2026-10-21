@@ -284,7 +284,7 @@ export class PortalService {
       : listing;
     const rows = await sql<OfferingListing>(
       prisma,
-      `${select} WHERE ($1 OR o.published) AND ($2='' OR o.title ILIKE $2 OR o.summary ILIKE $2) AND ($3='' OR o.category=$3)
+      `${select} WHERE ($1 OR (o.published AND o.listed)) AND ($2='' OR o.title ILIKE $2 OR o.summary ILIKE $2) AND ($3='' OR o.category=$3)
         AND ($4='' OR o.id IN (SELECT i.offering_id FROM collection_items i JOIN collections c ON c.id=i.collection_id WHERE c.slug=$4 AND c.published))
         ORDER BY o.start_date,o.title LIMIT 100`,
       staff,
@@ -1251,6 +1251,7 @@ export class PortalService {
             approval_valid_days: data.approvalValidDays ?? 7,
             enrollment_close_days: data.enrollmentCloseDays ?? 7,
             canvas_course_url: data.canvasCourseUrl || null,
+            listed: data.listed ?? true,
           },
         });
         await tx.offering_prices.create({
@@ -1284,10 +1285,13 @@ export class PortalService {
             | "approval_valid_days"
             | "enrollment_close_days"
             | "canvas_course_url"
+            | "listed"
+            | "published"
+            | "unpublished_at"
           >
         >(
           tx,
-          "SELECT approval_valid_days,enrollment_close_days,canvas_course_url FROM offerings WHERE id=$1::uuid AND version=$2 FOR UPDATE",
+          "SELECT approval_valid_days,enrollment_close_days,canvas_course_url,listed,published,unpublished_at FROM offerings WHERE id=$1::uuid AND version=$2 FOR UPDATE",
           id,
           data.version,
         );
@@ -1295,10 +1299,20 @@ export class PortalService {
           throw new ConflictException(
             "Offering changed or does not exist. Refresh and retry.",
           );
+        if (
+          data.listed !== undefined &&
+          data.listed !== before.listed &&
+          (before.published || before.unpublished_at) &&
+          (!data.reason || data.reason.trim().length < 10)
+        )
+          throw new BadRequestException(
+            "Give a reason of at least 10 characters to change a published offering's listing.",
+          );
         const after = {
           approval_valid_days: data.approvalValidDays,
           enrollment_close_days: data.enrollmentCloseDays,
           canvas_course_url: data.canvasCourseUrl || null,
+          listed: data.listed ?? before.listed,
         };
         const offering = await tx.offerings.update({
           where: { id },
@@ -1308,6 +1322,7 @@ export class PortalService {
         await audit(tx, principal.actor, "offering.settings_changed", id, {
           before,
           after,
+          reason: data.reason?.trim() || null,
         });
         return offering;
       },
@@ -1393,6 +1408,7 @@ export class PortalService {
           enrollment_close_days:
             fields.enrollmentCloseDays ?? before.enrollment_close_days,
           canvas_course_url: fields.canvasCourseUrl || null,
+          listed: fields.listed ?? before.listed,
         };
         const previous = before as Record<string, unknown>;
         const changes = Object.fromEntries(
@@ -2151,7 +2167,7 @@ export class PortalService {
     };
   }
   // Collections and pathways (decisions F3 and F4). Learners see only published
-  // collections and their published courses; pathway steps are numbered in that order.
+  // collections and their published, listed courses; pathway steps use that order.
   async publicCollections() {
     return sql<CollectionSummary>(
       prisma,
@@ -2159,7 +2175,7 @@ export class PortalService {
          array_agg(DISTINCT o.category ORDER BY o.category) AS topics,
          min(o.price_cents)::integer AS min_price_cents,max(o.price_cents)::integer AS max_price_cents
        FROM collections c JOIN collection_items i ON i.collection_id=c.id
-       JOIN offerings o ON o.id=i.offering_id AND o.published
+       JOIN offerings o ON o.id=i.offering_id AND o.published AND o.listed
        WHERE c.published GROUP BY c.id ORDER BY c.kind,c.title`,
     );
   }
@@ -2178,7 +2194,7 @@ export class PortalService {
     return sql<OfferingListing & { position: number }>(
       prisma,
       `${listing.replace("FROM offerings o", ",i.position FROM offerings o JOIN collection_items i ON i.offering_id=o.id")}
-       WHERE i.collection_id=$1::uuid AND o.published ORDER BY i.position`,
+       WHERE i.collection_id=$1::uuid AND o.published AND o.listed ORDER BY i.position`,
       collectionId,
     );
   }
@@ -2190,7 +2206,9 @@ export class PortalService {
           orderBy: { position: "asc" },
           select: {
             offering_id: true,
-            offerings: { select: { title: true, published: true } },
+            offerings: {
+              select: { title: true, published: true, listed: true },
+            },
           },
         },
         _count: { select: { pathway_follows: true } },
@@ -2203,6 +2221,7 @@ export class PortalService {
         id: item.offering_id,
         title: item.offerings.title,
         published: item.offerings.published,
+        listed: item.offerings.listed,
       })),
     }));
   }
@@ -2246,13 +2265,13 @@ export class PortalService {
   ) {
     const minimum = kind === "pathway" ? 2 : 1;
     const visible = await tx.offerings.count({
-      where: { id: { in: offeringIds }, published: true },
+      where: { id: { in: offeringIds }, published: true, listed: true },
     });
     if (visible < minimum)
       throw new BadRequestException(
         kind === "pathway"
-          ? "A published pathway needs at least two published courses."
-          : "A published collection needs at least one published course.",
+          ? "A published pathway needs at least two published, listed courses."
+          : "A published collection needs at least one published, listed course.",
       );
   }
   async createCollection(

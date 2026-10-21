@@ -27,7 +27,7 @@ Do not record tokens, session cookies, OAuth codes, signing secrets, client secr
 
 ## Results summary
 
-The test set contains **86 functional cases** and **24 security checks** (110 total), including **64 P0 cases**, plus **8 functional future cases** and **6 deferred security gates**. Not run is the starting state, not a pass. Fill the selected scope and counts after execution; list blocked prerequisites separately.
+The test set contains **87 functional cases** and **24 security checks** (111 total), including **65 P0 cases**, plus **7 functional future cases** and **6 deferred security gates**. Not run is the starting state, not a pass. Fill the selected scope and counts after execution; list blocked prerequisites separately.
 
 | Category                                           | Count or notes                |
 | -------------------------------------------------- | ----------------------------- |
@@ -35,9 +35,9 @@ The test set contains **86 functional cases** and **24 security checks** (110 to
 | Pass                                               | 0                             |
 | Fail                                               | 0                             |
 | Blocked                                            | 0                             |
-| Not run                                            | 110 before scope selection    |
+| Not run                                            | 111 before scope selection    |
 | Not applicable with reasons                        | 0                             |
-| Deferred future cases                              | 14 (8 functional, 6 security) |
+| Deferred future cases                              | 13 (7 functional, 6 security) |
 | Required P0 cases still failing or blocked         |                               |
 | Live Canvas and Stripe checks completed            |                               |
 | Manual keyboard and screen-reader checks completed |                               |
@@ -82,6 +82,7 @@ Use Pass, Fail, Blocked, Not run or Not applicable. In Actual result, describe t
 | [OFF-07](use-cases.md#offering-administration)                | P0 B              | Not run |               |                    |
 | [OFF-08](use-cases.md#offering-administration)                | P1 B              | Not run |               |                    |
 | [OFF-09](use-cases.md#offering-administration)                | P1 B              | Not run |               |                    |
+| [OFF-10](use-cases.md#offering-administration) | P0 B | Not run | | |
 | [IMAGE-01](use-cases.md#course-display-images)                | P0 B              | Not run |               |                    |
 | [IMAGE-02](use-cases.md#course-display-images)                | P1 B              | Not run |               |                    |
 | [IMAGE-03](use-cases.md#course-display-images)                | P0 B              | Not run |               |                    |
@@ -178,7 +179,6 @@ Do not count these as failures or passes against the current demo. Move a case i
 | [FUTURE-03](use-cases.md#future-integration-cases) | Account creation after payment            | Deferred |       |
 | [FUTURE-04](use-cases.md#future-integration-cases) | Real Canvas enrollment and removal        | Deferred |       |
 | [FUTURE-05](use-cases.md#future-integration-cases) | Grades and progress                       | Deferred |       |
-| [FUTURE-06](use-cases.md#future-integration-cases) | Listed and unlisted visibility            | Deferred |       |
 | [FUTURE-07](use-cases.md#future-integration-cases) | Mapping health and reviewed remapping     | Deferred |       |
 | [FUTURE-08](use-cases.md#future-integration-cases) | Scheduled discovery and hosted deployment | Deferred |       |
 

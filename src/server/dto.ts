@@ -43,6 +43,14 @@ export class DecisionDto {
   decision!: "approved" | "declined";
 }
 export class OfferingDto {
+  @ApiPropertyOptional({
+    default: true,
+    description:
+      "Public discovery preference, independent of publication. Unlisted published courses remain accessible by direct link.",
+  })
+  @ValidateIf((_o, value) => value !== undefined)
+  @IsBoolean()
+  listed?: boolean;
   @ApiProperty() @IsString() @MinLength(3) @MaxLength(120) title!: string;
   @ApiProperty({ enum: ["Technology", "Leadership", "Healthcare", "Ministry"] })
   @IsIn(["Technology", "Leadership", "Healthcare", "Ministry"])
@@ -119,6 +127,22 @@ export class OfferingDto {
   canvasCourseUrl?: string;
 }
 export class OfferingSettingsDto {
+  @ApiPropertyOptional({
+    description:
+      "Omit to retain the current listing preference. False hides public discovery without unpublishing.",
+  })
+  @ValidateIf((_o, value) => value !== undefined)
+  @IsBoolean()
+  listed?: boolean;
+  @ApiPropertyOptional({
+    description:
+      "Required when changing listing on an offering that is or was published.",
+  })
+  @IsOptional()
+  @IsString()
+  @MinLength(10)
+  @MaxLength(500)
+  reason?: string;
   @ApiProperty() @IsInt() @Min(1) version!: number;
   @ApiProperty({ minimum: 1, maximum: 365 })
   @IsInt()

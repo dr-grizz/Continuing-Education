@@ -23,6 +23,7 @@
     "test:migrations": "ts-node -P tsconfig.server.json tests/migrations.integration.ts",
     "test:auth": "ts-node -P tsconfig.server.json tests/canvas-auth.integration.ts",
     "test:learner-auth": "ts-node -P tsconfig.server.json tests/learner-auth.integration.ts",
+    "test:visibility": "ts-node -P tsconfig.server.json tests/offering-visibility.integration.ts",
     "test:canvas": "ts-node -P tsconfig.server.json tests/canvas-courses.integration.ts",
     "test:a11y": "playwright test",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,mjs}\" \"tests/**/*.ts\" \"scripts/**/*.{ts,mjs}\" \"*.{ts,json}\"",

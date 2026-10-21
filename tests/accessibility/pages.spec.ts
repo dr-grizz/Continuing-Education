@@ -12,6 +12,271 @@ const tags = [
   "wcag22aa",
 ];
 
+test.describe("T01 offering visibility", () => {
+  const id = "00000000-0000-4000-8000-000000000301";
+  const listingName = "Listed in course discovery";
+  async function setup(
+    page: Page,
+    {
+      published = true,
+      listed = true,
+      editable = true,
+      incomplete = false,
+    } = {},
+  ) {
+    const offering = {
+      id,
+      title: "Visibility test course",
+      category: "Technology",
+      summary: "A synthetic course for visibility checks.",
+      description:
+        "A synthetic course description used to verify independent visibility settings.",
+      format: "Online",
+      course_type: incomplete ? null : "self_paced",
+      start_date: null,
+      end_date: null,
+      capacity: incomplete ? null : 20,
+      unlimited_seats: false,
+      price_cents: incomplete ? null : 1000,
+      published,
+      listed,
+      version: 1,
+      approval_required: false,
+      approval_valid_days: 7,
+      enrollment_close_days: 7,
+      canvas_course_url: null,
+      imported_from_canvas: incomplete,
+      unpublished_at: null,
+      seats_available: incomplete ? null : 20,
+      seats_in_use: 0,
+      active_registrations: 0,
+      sales_page_status: "none",
+      enrollment_open: true,
+      outcomes: [],
+      collections: [],
+      sales_page: null,
+    };
+    await page.route("**/api/demo-session", (route) =>
+      route.fulfill({
+        json: {
+          id: null,
+          email: null,
+          auth: { mode: "mock", configured: true },
+        },
+      }),
+    );
+    await page.route("**/api/staff-session", (route) =>
+      route.fulfill({
+        json: {
+          member: {
+            id: "00000000-0000-4000-8000-000000000302",
+            email: "visibility@example.test",
+            display_name: "Visibility tester",
+            active: true,
+            version: 1,
+            roles: [editable ? "catalog_manager" : "support"],
+            scopes: editable ? ["catalog:write"] : [],
+          },
+          auth: { mode: "canvas", configured: true },
+        },
+      }),
+    );
+    await page.route("**/api/staff/offerings", (route) =>
+      route.fulfill({ json: [offering] }),
+    );
+    await page.route(`**/api/staff/offerings/${id}`, (route) =>
+      route.fulfill({ json: { offering, registrations: {}, activity: [] } }),
+    );
+    await page.route(`**/api/offerings/${id}/prices`, (route) =>
+      route.fulfill({ json: [] }),
+    );
+    for (const endpoint of ["approval-requests", "exceptions"])
+      await page.route(`**/api/${endpoint}`, (route) =>
+        route.fulfill({ json: [] }),
+      );
+    await page.route("**/api/reconciliation", (route) =>
+      route.fulfill({ json: { audit: [] } }),
+    );
+    await page.route("**/api/prototype/simulation", (route) =>
+      route.fulfill({ json: { provisioningOutcome: "normal" } }),
+    );
+    return offering;
+  }
+  test("keyboard listing control saves independently and requires an audit reason", async ({
+    page,
+  }) => {
+    const offering = await setup(page);
+    const writes: any[] = [];
+    await page.route(`**/api/offerings/${id}/edit`, async (route) => {
+      const body = route.request().postDataJSON();
+      writes.push(body);
+      expect(body.version).toBe(offering.version);
+      expect(body.reason).toBe("Share course only by its direct link");
+      expect(body.priceCents).toBe(offering.price_cents);
+      Object.assign(offering, {
+        listed: body.listed,
+        version: offering.version + 1,
+      });
+      await route.fulfill({ json: { id } });
+    });
+    await page.goto(`/staff/offerings/${id}/settings`);
+    const listing = page.getByRole("switch", { name: listingName });
+    await expect(listing).toBeChecked();
+    await listing.focus();
+    await page.keyboard.press("Space");
+    await expect(listing).not.toBeChecked();
+    await expect(page.getByText(/Unlisted: published courses/)).toBeVisible();
+    const save = page.getByRole("button", {
+      name: "Save changes",
+      exact: true,
+    });
+    await save.click();
+    await expect(
+      page.getByRole("alert").filter({ hasText: "Fix these fields" }),
+    ).toBeFocused();
+    expect(writes).toHaveLength(0);
+    await page
+      .getByRole("textbox", { name: "Reason for change", exact: true })
+      .fill("Share course only by its direct link");
+    await save.click();
+    await expect.poll(() => writes.length).toBe(1);
+    expect(writes[0].listed).toBe(false);
+    await expect(
+      page.getByText("Published · Unlisted", { exact: true }),
+    ).toBeVisible();
+    await scan(page, "Published unlisted settings");
+    await page.reload();
+    await expect(listing).not.toBeChecked();
+    await listing.focus();
+    await page.keyboard.press("Space");
+    await page
+      .getByRole("textbox", { name: "Reason for change", exact: true })
+      .fill("Share course only by its direct link");
+    await save.click();
+    await expect.poll(() => writes.length).toBe(2);
+    expect(writes[1].listed).toBe(true);
+    await expect(listing).toBeChecked();
+    await scan(page, "Relisted offering settings");
+  });
+  test("stale visibility save preserves input and announces the conflict", async ({
+    page,
+  }) => {
+    await setup(page);
+    await page.route(`**/api/offerings/${id}/edit`, (route) =>
+      route.fulfill({
+        status: 409,
+        json: { message: "Offering changed. Refresh and retry." },
+      }),
+    );
+    await page.goto(`/staff/offerings/${id}/settings`);
+    const listing = page.getByRole("switch", { name: listingName });
+    await listing.uncheck();
+    await page
+      .getByRole("textbox", { name: "Reason for change", exact: true })
+      .fill("Restrict discovery to direct course links");
+    await page
+      .getByRole("button", { name: "Save changes", exact: true })
+      .click();
+    await expect(
+      page.getByRole("alert").filter({ hasText: "Offering changed" }),
+    ).toBeFocused();
+    await expect(listing).not.toBeChecked();
+    await scan(page, "Stale listing preference save");
+  });
+  test("incomplete imported draft saves listing without publishing or filling sales details", async ({
+    page,
+  }) => {
+    const offering = await setup(page, { published: false, incomplete: true });
+    let saved = false;
+    await page.route(`**/api/offerings/${id}/settings`, async (route) => {
+      const body = route.request().postDataJSON();
+      expect(body.listed).toBe(false);
+      expect(body.priceCents).toBeUndefined();
+      expect(body.version).toBe(1);
+      saved = true;
+      Object.assign(offering, { listed: false, version: 2 });
+      await route.fulfill({ json: { id } });
+    });
+    await page.goto(`/staff/offerings/${id}/settings`);
+    await page.getByRole("switch", { name: listingName }).uncheck();
+    await page
+      .getByRole("button", { name: "Save changes", exact: true })
+      .click();
+    await expect.poll(() => saved).toBe(true);
+    await expect(
+      page.getByText("Draft · Unlisted", { exact: true }),
+    ).toBeVisible();
+    await scan(page, "Incomplete draft listing settings");
+  });
+  test("view-only staff see unlisted state without an edit control", async ({
+    page,
+  }) => {
+    await setup(page, { listed: false, editable: false });
+    await page.goto(`/staff/offerings/${id}/settings`);
+    await expect(
+      page.getByText("Published · Unlisted", { exact: true }),
+    ).toBeVisible();
+    await expect(page.getByRole("switch", { name: listingName })).toHaveCount(
+      0,
+    );
+    await expect(
+      page.getByRole("button", { name: "Save changes", exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByText(
+        "Unlisted — published courses are available by direct link",
+        { exact: true },
+      ),
+    ).toBeVisible();
+    await scan(page, "Read-only offering visibility");
+  });
+  test("staff curation retains hidden membership and explains unlisted featured picks", async ({
+    page,
+  }) => {
+    const offering = await setup(page, { listed: false });
+    await page.route("**/api/staff/collections", (route) =>
+      route.fulfill({
+        json: [
+          {
+            id: "00000000-0000-4000-8000-000000000303",
+            kind: "collection",
+            slug: "visibility-group",
+            title: "Visibility group",
+            summary: "A collection with an unlisted course",
+            published: true,
+            version: 1,
+            followers: 0,
+            courses: [
+              { id, title: offering.title, published: true, listed: false },
+            ],
+          },
+        ],
+      }),
+    );
+    await page.route("**/api/staff/explore", (route) =>
+      route.fulfill({
+        json: {
+          courses: [{ id, title: offering.title, published: true }],
+          collections: [],
+          pathways: [],
+        },
+      }),
+    );
+    await page.goto("/staff/collections");
+    await expect(
+      page.locator("li:visible").filter({ hasText: offering.title }),
+    ).toContainText("unlisted, hidden from this list");
+    await scan(page, "Staff collection unlisted membership");
+    await page.goto("/staff/explore");
+    await expect(
+      page.getByText("Unlisted; hidden from Explore until listed", {
+        exact: true,
+      }),
+    ).toBeVisible();
+    await scan(page, "Staff retained unlisted featured pick");
+  });
+});
+
 test.describe("CU learner OAuth", () => {
   async function sessions(page: Page, signedIn = false, staff = false) {
     await page.route("**/api/demo-session", (route) =>

@@ -85,7 +85,10 @@ class CatalogController {
     return { status: "ok", mode: "local-prototype" };
   }
   @Get("offerings")
-  @ApiOperation({ summary: "List published sample offerings (up to 100)" })
+  @ApiOperation({
+    summary:
+      "List published, listed offerings for public discovery (up to 100)",
+  })
   list(@Query() query: QueryDto) {
     return this.portal.list(query);
   }

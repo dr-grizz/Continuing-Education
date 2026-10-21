@@ -47,7 +47,7 @@ Create **one roadmap plus these ten issues**. Each title represents a concrete o
 
 | Draft ID | Proposed issue title                                                             | Priority | Milestone                     | Dependency or initial readiness                                                           |
 | -------- | -------------------------------------------------------------------------------- | -------- | ----------------------------- | ----------------------------------------------------------------------------------------- |
-| T01      | Add independent listed and unlisted offering visibility                          | P1       | Canvas mapping and visibility | Next implementation; triage then ready-for-agent                                          |
+| T01      | Add independent listed and unlisted offering visibility                          | P1       | Canvas mapping and visibility | Implemented locally; verification recorded; manual screen-reader acceptance pending                                          |
 | T02      | Show verified Canvas mapping status and allow manual recheck                     | P1       | Canvas mapping and visibility | Source-status slice can proceed; purchase-blocking policy excluded                        |
 | T03      | Link a Canvas course to an existing offering through an explicit reviewed action | P1       | Canvas mapping and visibility | Scope/review the link workflow before ready-for-agent                                     |
 | T04      | Verify and recover interrupted Stripe Checkout creation                          | P1       | Shared demo and test baseline | Existing sandbox/recovery foundation; use provider mocks                                  |
@@ -62,7 +62,9 @@ Create **one roadmap plus these ten issues**. Each title represents a concrete o
 
 ### T01 Independent offering visibility
 
-**Problem:** portal publication does not yet support a published course that is accessible by direct link but excluded from public discovery.
+**Status:** implemented locally October 21, 2026 on `codex/offering-visibility`; see [verification](testing/offering-visibility-verification.md). Manual screen-reader acceptance remains pending. No GitHub issue has been created.
+
+**Original problem:** portal publication did not support a published course that is accessible by direct link but excluded from public discovery.
 
 **Scope:** add listed/unlisted preference separately from publication; use an additive migration; provide staff Settings controls and apply visibility server-side to browsing/search, Explore, collections/pathways, related responses and counts. New imported drafts remain unpublished. Existing offerings retain their current discovery behavior.
 

@@ -65,7 +65,7 @@ export const offeringTabs = [
   { slug: "activity", label: "Activity" },
 ] as const;
 const statusOf = (o: StaffOffering) =>
-  o.published ? "Published" : o.unpublished_at ? "Unpublished" : "Draft";
+  `${o.published ? "Published" : o.unpublished_at ? "Unpublished" : "Draft"}${o.listed === false ? " · Unlisted" : ""}`;
 const statusColor = (o: StaffOffering) =>
   o.published ? "success" : o.unpublished_at ? "warning" : "default";
 const when = (value: string) =>
@@ -314,6 +314,12 @@ export function StaffOfferingPage({
                         ],
                       ]
                     : [
+                        [
+                          "Discovery",
+                          o.listed === false
+                            ? "Unlisted — published courses are available by direct link"
+                            : "Listed when published",
+                        ],
                         [
                           "Approval",
                           o.approval_required
