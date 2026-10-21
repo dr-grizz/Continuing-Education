@@ -2,6 +2,10 @@
 
 Local Next.js + Material UI website, NestJS REST API, PostgreSQL and request-driven simulated enrollment. Seeded offerings and learner/payment test data are synthetic; the configured Canvas connection can import real course metadata into unpublished drafts. Stripe sandbox Checkout is supported when configured; learner login can use existing CU accounts through [Canvas OAuth](docs/canvas-learner-auth.md), while guest provisioning and Canvas enrollment remain simulated. Staff can use configurable Canvas OAuth and opt-in [Canvas course previews and synchronization](docs/canvas-courses.md), using that same OAuth connection. Explicit selected-course sync creates unpublished offering drafts with duplicate protection, preserved staff edits and required-information warnings; Canvas API access remains read-only. See [Canvas staff authentication](docs/canvas-staff-auth.md).
 
+## Badges and certificates
+
+The optional [badge and certificate service](docs/badges-and-certificates.md) is integrated into the native staff workspace and **My badges** navigation. It includes design/image uploads, publication and course rules, manual/CSV awards, certificate PDFs and learner sharing through portal sessions. Start it separately with `npm run dev:badges`; it is disabled until configured and explicit learner links are provisioned. Existing pilot data/keys stay private and are not migrated by this source integration.
+
 ## Implementation progress
 
 Start with the [next steps](docs/next-steps.md) for the current checkpoint and recommended work sequence. Open project decisions, their owners and due dates are tracked in the [M0 decision register](docs/decision-register.md). See the [prototype implementation progress](docs/prototype/implementation-progress.md) for completed tasks, remaining todos, recent changes and verification evidence. The [implementation plan](docs/implementation-plan.md) describes the broader delivery scope and production gates.
@@ -10,7 +14,7 @@ The [demo deployment plan](docs/hosting/deployment-plan.md) contains the Azure o
 
 ## Run locally
 
-Requires Node.js 22+ and running Docker Desktop. From the repository root:
+Requires Node.js 24+ and running Docker Desktop. From the repository root:
 
 ```sh
 npm ci

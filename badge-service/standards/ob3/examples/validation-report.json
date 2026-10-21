@@ -1,0 +1,12 @@
+{
+  "synthetic": true,
+  "notice": "Unsigned data model only; no proof, status or issuer authority verification. Example URLs do not resolve.",
+  "stage": "unsigned-model",
+  "valid": true,
+  "schemaValid": true,
+  "jsonLdValid": true,
+  "proofVerified": false,
+  "issuerAuthorityVerified": false,
+  "statusChecked": false,
+  "errors": []
+}

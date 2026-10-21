@@ -1,6 +1,10 @@
 "use client";
 import { missingOfferingInfo } from "../../../../domain/offering-readiness";
-import { use, useEffect, useRef, useState } from "react";
+import { Suspense, use, useEffect, useRef, useState } from "react";
+import {
+  CredentialTools,
+  type CredentialTool,
+} from "../../../components/credential-tools";
 import { useRouter } from "next/navigation";
 import {
   Alert,
@@ -179,9 +183,21 @@ type TabName =
   | "activity"
   | "learners"
   | "users"
-  | "roles";
+  | "roles"
+  | "badge-designer"
+  | "badge-publishing"
+  | "badge-awards"
+  | "certificates"
+  | "badge-issuances";
 
 // Sidebar groups and section addresses. "users" is the Staff section, at /staff/staff.
+const credentialSections: Partial<Record<TabName, CredentialTool>> = {
+  "badge-designer": "issuer",
+  "badge-publishing": "publishing",
+  "badge-awards": "awards",
+  certificates: "certificates",
+  "badge-issuances": "issuances",
+};
 const sections: {
   tab: TabName;
   slug: string;
@@ -269,6 +285,46 @@ const sections: {
     group: "Courses",
     icon: <SchoolIcon />,
     scope: "canvas:read",
+  },
+  {
+    tab: "badge-designer",
+    slug: "badges",
+    label: "Badge designer",
+    group: "Credentials",
+    icon: <BadgeIcon />,
+    scope: "badges:manage",
+  },
+  {
+    tab: "badge-publishing",
+    slug: "badge-publishing",
+    label: "Publish and map badges",
+    group: "Credentials",
+    icon: <BadgeIcon />,
+    scope: "badges:manage",
+  },
+  {
+    tab: "badge-awards",
+    slug: "badge-awards",
+    label: "Award badges",
+    group: "Credentials",
+    icon: <BadgeIcon />,
+    scope: "badges:manage",
+  },
+  {
+    tab: "certificates",
+    slug: "certificates",
+    label: "Certificates",
+    group: "Credentials",
+    icon: <BadgeIcon />,
+    scope: "badges:manage",
+  },
+  {
+    tab: "badge-issuances",
+    slug: "badge-issuances",
+    label: "Issuance register",
+    group: "Credentials",
+    icon: <BadgeIcon />,
+    scope: "badges:manage",
   },
   {
     tab: "activity",
@@ -500,12 +556,12 @@ function StaffWorkspace({
         : "Request declined.",
     );
   useEffect(() => {
-    if (tab === "canvas") {
+    if (tab === "canvas" || credentialSections[tab]) {
       setLoaded(true);
       return;
     }
     refresh().catch((e) => setError(e.message));
-  }, [tab === "canvas"]);
+  }, [tab === "canvas" || Boolean(credentialSections[tab])]);
   async function action(path: string, body: unknown, text: string) {
     setBusy(true);
     setError("");
@@ -1331,6 +1387,11 @@ function StaffWorkspace({
             canManage={can("staff:manage")}
             onAssign={(role) => router.push(`/staff/staff?role=${role}`)}
           />
+        )}
+        {credentialSections[tab] && can("badges:manage") && (
+          <Suspense fallback={<LoadingCards label="Loading credentials" />}>
+            <CredentialTools tool={credentialSections[tab]!} />
+          </Suspense>
         )}
         <OfferingForm
           open={formOpen}

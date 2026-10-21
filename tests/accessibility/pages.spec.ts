@@ -2349,3 +2349,186 @@ for (const layout of ["list", "grid"] as const)
       fullPage: true,
     });
   });
+// Credential documents keep the pilot editor behavior and participate in the
+// existing portal theme, session, keyboard and accessibility checks.
+test.describe("credential integration", () => {
+  for (const [slug, title] of [
+    ["badges", "Badge designer"],
+    ["badge-publishing", "Publish and map badges"],
+    ["badge-awards", "Award badges"],
+    ["certificates", "Certificates"],
+    ["badge-issuances", "Issuance register"],
+  ]) {
+    test(`${title} workspace`, async ({ page }) => {
+      const signIn = await page.request.post("/api/staff-session", {
+        data: { email: "admin@cuce.test" },
+      });
+      expect(signIn.ok()).toBeTruthy();
+      await page.goto(`/staff/${slug}`);
+      await expect(
+        page
+          .locator("main > div")
+          .getByRole("heading", { name: title, exact: true }),
+      ).toBeVisible();
+      const frame = page.frameLocator("iframe");
+      await expect(frame.locator("main")).toBeVisible();
+      if (slug === "certificates")
+        await expect(frame.locator("#cc-tools")).toBeVisible();
+      if (slug === "badge-awards")
+        await expect(frame.locator("#ca-tools")).toBeVisible();
+      if (slug === "badge-issuances")
+        await expect(frame.locator("#register-content")).toBeVisible();
+      if (slug === "badge-publishing")
+        await expect(frame.locator("#workspace")).toBeVisible();
+      await scan(page, `${title} integrated document`);
+    });
+  }
+  test("signed-out learner badges", async ({ page }) => {
+    await page.goto("/badges");
+    await expect(
+      page.getByRole("heading", { name: "My badges and certificates" }),
+    ).toBeVisible();
+    await scan(page, "Signed-out learner badges");
+  });
+  test("Canvas learner without email can open earned credentials", async ({
+    page,
+  }) => {
+    await page.route("**/api/demo-session", (route) =>
+      route.fulfill({
+        json: {
+          id: "00000000-0000-4000-8000-000000000099",
+          email: null,
+          display_name: "CU Test Learner",
+          auth: { mode: "canvas", configured: true },
+        },
+      }),
+    );
+    await page.route("**/api/badges/me/badges", (route) =>
+      route.fulfill({ json: { badges: [] } }),
+    );
+    await page.goto("/badges");
+    await expect(page.locator("iframe")).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: "Sign in", exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      page
+        .frameLocator("iframe")
+        .getByText("Your achievements will appear here.", { exact: true }),
+    ).toBeVisible();
+    await scan(page, "Canvas learner credentials without email");
+  });
+  test("unlinked learner account fails closed", async ({ page }) => {
+    await page.request.post("/api/demo-session", {
+      data: { email: "a11y-scan@example.test" },
+    });
+    await page.goto("/badges");
+    await expect(
+      page
+        .frameLocator("iframe")
+        .getByText(
+          "Your badge account has not been linked. Contact portal support.",
+          { exact: true },
+        ),
+    ).toBeVisible();
+    await scan(page, "Unlinked learner badges");
+  });
+});
+
+test("credential integration: keyboard, unsaved design and 320px reflow", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.request.post("/api/staff-session", {
+    data: { email: "admin@cuce.test" },
+  });
+  await page.goto("/staff/certificates");
+  const frame = page.frameLocator("iframe");
+  await expect(frame.locator("#cc-tools")).toBeVisible();
+  await frame.locator("#cc-header").focus();
+  await page.keyboard.press("Tab");
+  await expect(frame.locator("#cc-logo")).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(frame.locator("#cc-header")).toBeFocused();
+  await frame.locator("#cc-header").fill("Unsaved accessibility exercise");
+  await page
+    .getByRole("link", { name: "Issuance register", exact: true })
+    .click();
+  const dialog = page.getByRole("dialog", { name: "Leave without saving?" });
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: "Stay", exact: true }).click();
+  await expect(frame.locator("#cc-header")).toHaveValue(
+    "Unsaved accessibility exercise",
+  );
+  await page
+    .getByRole("link", { name: "Issuance register", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Discard changes", exact: true })
+    .click();
+  await expect(page).toHaveURL(/\/staff\/badge-issuances$/);
+  await page.setViewportSize({ width: 320, height: 800 });
+  for (const slug of [
+    "badges",
+    "badge-publishing",
+    "badge-awards",
+    "certificates",
+    "badge-issuances",
+  ]) {
+    await page.goto(`/staff/${slug}`);
+    await expect(page.locator("iframe")).toBeVisible();
+    await page.waitForLoadState("networkidle");
+    expect(
+      await page.evaluate(
+        () =>
+          document.documentElement.scrollWidth <=
+          document.documentElement.clientWidth + 1,
+      ),
+      `${slug} portal reflow`,
+    ).toBe(true);
+    if (slug === "badge-issuances") {
+      const region = page
+        .frameLocator("iframe")
+        .getByRole("region", { name: "Issuance register table", exact: true });
+      await region.focus();
+      await expect(region).toBeFocused();
+      await page.keyboard.press("ArrowRight");
+      await expect
+        .poll(() => region.evaluate((el) => el.scrollLeft))
+        .toBeGreaterThan(0);
+    }
+    const overflow = await page
+      .frameLocator("iframe")
+      .locator("html")
+      .evaluate((el) => ({
+        width: el.clientWidth,
+        scroll: el.scrollWidth,
+        regions: [
+          ...el.querySelectorAll("main,.records,.table-wrap,.table-footer"),
+        ].map((n) => ({
+          cls: String(n.className),
+          width: n.getBoundingClientRect().width,
+          overflow: getComputedStyle(n).overflow,
+          display: getComputedStyle(n).display,
+        })),
+        widest: [...el.querySelectorAll("body *")]
+          .filter(
+            (n) =>
+              !n.closest(".table-wrap") &&
+              n.getBoundingClientRect().right > el.clientWidth + 1,
+          )
+          .slice(0, 8)
+          .map((n) => ({
+            tag: n.tagName,
+            id: n.id,
+            cls: String(n.className),
+            right: n.getBoundingClientRect().right,
+            width: n.getBoundingClientRect().width,
+          })),
+      }));
+    expect(
+      overflow.scroll <= overflow.width + 1,
+      `${slug} editor reflow: ${JSON.stringify(overflow)}`,
+    ).toBe(true);
+  }
+});

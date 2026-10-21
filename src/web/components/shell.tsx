@@ -30,6 +30,7 @@ import { StripeTestCardsButton } from "./stripe-test-cards";
 const navLinks = [
   ["/", "Courses"],
   ["/learning", "My learning"],
+  ["/badges", "My badges"],
   ["/staff", "Admin"],
 ];
 export default function Shell({ children }: { children: React.ReactNode }) {

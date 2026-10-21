@@ -883,7 +883,7 @@ async function main() {
   SwaggerModule.setup("api/docs", app, document, {
     jsonDocumentUrl: "api/openapi.json",
   });
-  await app.listen(3051, "127.0.0.1");
+  await app.listen(Number(process.env.API_PORT || 3051), "127.0.0.1");
   console.log("API: http://localhost:3051/api/docs");
 }
 main().catch((error) => {

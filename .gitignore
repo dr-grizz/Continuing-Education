@@ -20,3 +20,6 @@ playwright-report/
 
 # Generated UI verification screenshots
 artifacts/
+
+# Isolated local validation tooling and private badge runtime
+tmp/

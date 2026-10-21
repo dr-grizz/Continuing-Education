@@ -4,7 +4,12 @@ import { StaffRole } from "../generated/prisma/enums";
 // endpoints apply current portal scopes independently of Canvas API permissions.
 export const roleScopes: Record<StaffRole, readonly string[]> = {
   approver: ["approvals:decide"],
-  catalog_manager: ["catalog:write", "canvas:read", "canvas:sync"],
+  catalog_manager: [
+    "catalog:write",
+    "canvas:read",
+    "canvas:sync",
+    "badges:manage",
+  ],
   support: [
     "exceptions:resolve",
     "prototype:simulate",
@@ -23,6 +28,7 @@ export const roleScopes: Record<StaffRole, readonly string[]> = {
   // Also holds the former Finance role's permissions (removed October 8, 2026):
   // the university Finance department works in Stripe, not in the portal.
   staff_admin: [
+    "badges:manage",
     "canvas:read",
     "canvas:sync",
     "canvas:manage",
@@ -73,6 +79,8 @@ export const roleDescriptions: Record<StaffRole, string> = {
 export const scopeDescriptions: Record<string, string> = {
   "payments:reconcile":
     "Manually check unresolved Stripe sandbox Checkout sessions",
+  "badges:manage":
+    "Design and publish badges, map earning rules, award manually or by CSV, manage certificates and view the issuance register",
   "canvas:read":
     "View Canvas course connection status and the last successful course preview",
   "canvas:sync":
