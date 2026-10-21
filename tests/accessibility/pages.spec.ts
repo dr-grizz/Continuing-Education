@@ -11,6 +11,143 @@ const tags = [
   "wcag22a",
   "wcag22aa",
 ];
+
+test.describe("CU learner OAuth", () => {
+  async function sessions(page: Page, signedIn = false, staff = false) {
+    await page.route("**/api/demo-session", (route) =>
+      route.fulfill({
+        json: {
+          id: signedIn ? "00000000-0000-4000-8000-000000000099" : null,
+          email: null,
+          display_name: signedIn ? "CU Test Learner" : null,
+          auth: { mode: "canvas", configured: true },
+        },
+      }),
+    );
+    await page.route("**/api/staff-session", (route) =>
+      route.fulfill({
+        json: {
+          member: staff
+            ? {
+                id: "test-staff",
+                email: "test@example.test",
+                display_name: "Test Staff",
+                roles: ["staff_admin"],
+                scopes: [],
+              }
+            : null,
+          auth: { mode: "canvas", configured: true },
+        },
+      }),
+    );
+  }
+  test("existing-account sign-in and error are accessible without password fields", async ({
+    page,
+  }) => {
+    await sessions(page);
+    await page.goto("/sign-in?returnTo=%2Flearning");
+    const link = page.getByRole("link", {
+      name: "Sign in with CU account",
+      exact: true,
+    });
+    await expect(link).toBeVisible();
+    await expect(page.getByLabel("Password", { exact: true })).toHaveCount(0);
+    await expect(page.getByLabel("Email", { exact: true })).toHaveCount(0);
+    await expect(link).toHaveAttribute(
+      "href",
+      "/api/auth/learner/canvas/start?returnTo=%2Flearning",
+    );
+    for (
+      let i = 0;
+      i < 25 &&
+      !(await link.evaluate((element) => element === document.activeElement));
+      i++
+    )
+      await page.keyboard.press("Tab");
+    await expect(link).toBeFocused();
+    await scan(page, "CU learner sign-in");
+    await page.goto("/sign-in?authError=invalid");
+    await expect(
+      page.getByRole("alert").filter({ hasText: "Sign-in expired" }),
+    ).toBeVisible();
+    await scan(page, "CU learner sign-in error");
+  });
+  test("Canvas identity without email stays signed in after checkout return", async ({
+    page,
+  }) => {
+    await sessions(page, true, true);
+    await page.route("**/api/me/**", (route) => route.fulfill({ json: [] }));
+    await page.goto("/settings");
+    await expect(
+      page.getByText("Your CU account is linked through Canvas.", {
+        exact: false,
+      }),
+    ).toBeVisible();
+    await scan(page, "CU learner account settings");
+    await page.goto("/learning?checkout=success");
+    await expect(
+      page.getByRole("heading", { name: "My learning", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: "Sign in", exact: true }),
+    ).toHaveCount(0);
+    await scan(page, "CU learner checkout return");
+  });
+  test("staff can reach the separate learner login", async ({
+    page,
+    isMobile,
+  }) => {
+    await sessions(page, false, true);
+    await page.goto("/settings");
+    if (isMobile)
+      await page.getByRole("button", { name: "Open navigation menu" }).click();
+    const link = page.getByRole(isMobile ? "menuitem" : "link", {
+      name: "Use as learner",
+      exact: true,
+    });
+    await expect(link).toBeVisible();
+    await expect(link).toHaveAttribute("href", "/sign-in");
+    if (isMobile) await page.keyboard.press("Escape");
+    await scan(page, "staff-to-learner navigation");
+  });
+  test("staff learner list identifies Canvas learners by name without email", async ({
+    page,
+  }) => {
+    await sessions(page, false, true);
+    await page.route("**/api/staff/learners", (route) =>
+      route.fulfill({
+        json: [
+          {
+            id: "00000000-0000-4000-8000-000000000099",
+            email: null,
+            display_name: "CU Test Learner",
+            created_at: "2026-10-21T12:00:00Z",
+            active: true,
+            version: 1,
+            registrations: 0,
+            enrolled: 0,
+            in_progress: 0,
+            last_activity: null,
+          },
+        ],
+      }),
+    );
+    await page.goto("/staff/learners");
+    await expect(
+      page
+        .getByRole("button", { name: "View learner CU Test Learner" })
+        .first(),
+    ).toBeVisible();
+    const search = page.getByRole("textbox", { name: "Search learners" });
+    await search.fill("CU Test");
+    await expect(
+      page
+        .getByRole("button", { name: "View learner CU Test Learner" })
+        .first(),
+    ).toBeVisible();
+    await scan(page, "Canvas learner name in staff directory");
+  });
+});
 async function scan(page: Page, name: string) {
   // Wait for loading placeholders to be replaced before scanning.
   await page.waitForLoadState("networkidle");

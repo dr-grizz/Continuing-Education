@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Alert,
@@ -20,6 +20,22 @@ export default function SignIn() {
   const router = useRouter();
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [returnTo, setReturnTo] = useState("/learning");
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    setReturnTo(params.get("returnTo") || "/learning");
+    const errors: Record<string, string> = {
+      configuration:
+        "CU sign-in is not configured. Contact the portal administrator.",
+      unavailable: "Unable to complete CU sign-in. Try again.",
+      unauthorized:
+        "This learner account is deactivated. Contact the program office.",
+      invalid: "Sign-in expired or could not be verified. Try again.",
+      denied: "CU sign-in was cancelled or denied. You can try again.",
+    };
+    const code = params.get("authError");
+    if (code) setError(errors[code] || errors.invalid);
+  }, []);
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (busy) return;
@@ -49,6 +65,57 @@ export default function SignIn() {
       setBusy(false);
     }
   }
+  if (auth.mode !== "mock")
+    return (
+      <Box sx={{ maxWidth: 480, mx: "auto" }}>
+        <Typography component="h1" variant="h4">
+          Sign in
+        </Typography>
+        <Typography sx={{ mt: 1, mb: 3 }} color="text.secondary">
+          Use your existing CU account to register for courses and view My
+          learning.
+        </Typography>
+        <Paper variant="outlined" sx={{ p: 3 }}>
+          <Stack spacing={3}>
+            {error && <Alert severity="error">{error}</Alert>}
+            {auth.ready && !auth.configured && (
+              <Alert severity="warning">
+                CU sign-in is currently unavailable. Contact the portal
+                administrator.
+              </Alert>
+            )}
+            {auth.signedIn ? (
+              <>
+                <Typography>Signed in as {auth.displayName}.</Typography>
+                <Button href="/learning" variant="contained">
+                  Go to My learning
+                </Button>
+              </>
+            ) : (
+              <>
+                <Typography>
+                  Sign in through Canvas using your CU account. Staff can use
+                  the same account as learners; administrator access is
+                  separate.
+                </Typography>
+                <Button
+                  href={`/api/auth/learner/canvas/start?returnTo=${encodeURIComponent(returnTo)}`}
+                  variant="contained"
+                  disabled={!auth.ready || !auth.configured}
+                >
+                  Sign in with CU account
+                </Button>
+                <Typography variant="body2" color="text.secondary">
+                  Guest registration without an existing CU account is planned
+                  for a future release.
+                </Typography>
+              </>
+            )}
+            <Button href="/">Back to courses</Button>
+          </Stack>
+        </Paper>
+      </Box>
+    );
   return (
     <Box sx={{ maxWidth: 480, mx: "auto" }}>
       <Typography component="h1" variant="h4">

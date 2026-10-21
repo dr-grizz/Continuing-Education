@@ -249,6 +249,8 @@ export class PortalService {
   }
 
   async demoUser(email: string) {
+    if ((process.env.LEARNER_AUTH_MODE || "mock") !== "mock")
+      throw new ForbiddenException("Mock learner sign-in is disabled.");
     const normalized = email.trim().toLowerCase();
     // Matching where/create/update values let Prisma use a native ON CONFLICT upsert.
     const learner = await prisma.learners.upsert({
@@ -267,7 +269,7 @@ export class PortalService {
   async me(principal: Principal) {
     const learner = await prisma.learners.findUnique({
       where: { id: principal.learnerId },
-      select: { id: true, email: true, created_at: true },
+      select: { id: true, email: true, display_name: true, created_at: true },
     });
     if (!learner) throw new NotFoundException("Demo learner not found.");
     return learner;
@@ -976,7 +978,7 @@ export class PortalService {
     }>(
       prisma,
       `SELECT o.id,o.created_at,o.amount_cents,o.refunded_cents,o.refunded_at,o.provider,o.stripe_payment_intent_id,
-         l.email AS learner_email,f.title AS offering_title,e.status AS registration_status,
+         l.email AS learner_email,l.display_name AS learner_name,f.title AS offering_title,e.status AS registration_status,
          r.id AS request_id,r.status AS request_status,r.reason AS request_reason,r.created_at AS request_created_at,
          s.email AS requested_by_email
        FROM orders o JOIN entitlements e ON e.id=o.entitlement_id
@@ -1184,7 +1186,7 @@ export class PortalService {
       where: { status: "awaiting_approval" },
       include: {
         offerings: { select: { title: true, approval_valid_days: true } },
-        learners: { select: { email: true } },
+        learners: { select: { email: true, display_name: true } },
       },
       orderBy: { created_at: "asc" },
     });
@@ -1193,6 +1195,7 @@ export class PortalService {
       title: offering.title,
       approval_valid_days: offering.approval_valid_days,
       learner_email: learners.email,
+      learner_name: learners.display_name,
     }));
   }
   async decide(
@@ -1551,7 +1554,7 @@ export class PortalService {
       where: { status: "exception" },
       include: {
         offerings: { select: { title: true } },
-        learners: { select: { email: true } },
+        learners: { select: { email: true, display_name: true } },
         // The current enrollment job is the latest one.
         operations: { orderBy: { created_at: "desc" }, take: 1 },
       },
@@ -1595,6 +1598,7 @@ export class PortalService {
       offering_id: row.offering_id,
       title: row.offerings.title,
       learner_email: row.learners.email,
+      learner_name: row.learners.display_name,
       operation_id: row.operations[0]?.id ?? null,
       stage: row.operations[0]?.stage ?? null,
       error: row.operations[0]?.error ?? null,
@@ -1845,14 +1849,14 @@ export class PortalService {
       last_activity: Date | null;
     }>(
       prisma,
-      `SELECT l.id,l.email,l.created_at,l.active,l.deactivated_at,l.version,
+      `SELECT l.id,l.email,l.display_name,l.created_at,l.active,l.deactivated_at,l.version,
         count(e.id)::integer AS registrations,
         count(e.id) FILTER (WHERE e.status='enrolled')::integer AS enrolled,
         count(e.id) FILTER (WHERE e.status IN ('awaiting_approval','approved','reserved','provisioning','exception'))::integer AS in_progress,
-        (SELECT max(a.created_at) FROM audit_events a WHERE a.actor='demo-learner:'||l.id::text
+        (SELECT max(a.created_at) FROM audit_events a WHERE a.actor='demo-learner:'||l.id::text OR a.actor='learner:'||l.id::text
           OR a.object_id IN (SELECT x.id FROM entitlements x WHERE x.learner_id=l.id)) AS last_activity
       FROM learners l LEFT JOIN entitlements e ON e.learner_id=l.id
-      WHERE ($1='' OR l.email ILIKE $1)
+      WHERE ($1='' OR l.email ILIKE $1 OR l.display_name ILIKE $1)
       GROUP BY l.id ORDER BY l.created_at DESC LIMIT 500`,
       term,
     );
@@ -1863,6 +1867,7 @@ export class PortalService {
       select: {
         id: true,
         email: true,
+        display_name: true,
         created_at: true,
         active: true,
         deactivated_at: true,
@@ -1898,6 +1903,7 @@ export class PortalService {
       where: {
         OR: [
           { actor: `demo-learner:${id}` },
+          { actor: `learner:${id}` },
           { object_id: { in: [id, ...registrationIds] } },
         ],
       },
@@ -2657,12 +2663,12 @@ export class PortalService {
     }>(
       prisma,
       `SELECT a.actor,a.action,a.object_id,a.created_at,
-        CASE WHEN a.actor LIKE 'demo-learner:%' THEN coalesce(actor_learner.email,'Legacy demo learner')
+        CASE WHEN a.actor LIKE 'demo-learner:%' OR a.actor LIKE 'learner:%' THEN coalesce(actor_learner.email,actor_learner.display_name,'Legacy demo learner')
           WHEN a.actor LIKE 'staff:%' THEN actor_staff.email END AS actor_email,
         coalesce(o.title,eo.title,col.title) AS offering_title,
-        coalesce(subject_learner.email,subject_staff.email) AS subject_email
+        coalesce(subject_learner.email,subject_learner.display_name,subject_staff.email) AS subject_email
       FROM audit_events a
-      LEFT JOIN learners actor_learner ON a.actor='demo-learner:'||actor_learner.id::text
+      LEFT JOIN learners actor_learner ON a.actor='demo-learner:'||actor_learner.id::text OR a.actor='learner:'||actor_learner.id::text
       LEFT JOIN staff_members actor_staff ON a.actor='staff:'||actor_staff.id::text
       LEFT JOIN staff_members subject_staff ON subject_staff.id=a.object_id
       LEFT JOIN offerings o ON o.id=a.object_id

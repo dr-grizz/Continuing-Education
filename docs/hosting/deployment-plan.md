@@ -10,7 +10,7 @@ Use **one application container running web and API**, with **PostgreSQL outside
 - Normal simulated enrollment completes in the payment transaction. Delayed/failure simulations and expiry resume on authenticated API requests; they pause without traffic.
 - Canvas previews run on demand with staff OAuth. Explicit course selection creates offering drafts. The connector does not write to Canvas.
 - Support or Staff administrators manually recover overdue unresolved Stripe sessions using **Transactions → Check Stripe payments**. Payments remain in Stripe test mode.
-- Learner login, identity preparation and Canvas enrollment remain simulated. Real login, verified email-to-Canvas matching, account creation and learning records remain separate planned work.
+- Existing-account learner login supports identity-only Canvas OAuth, including staff acting as learners, with independent revocable sessions. Guest authentication before account creation, paid Cedarville guest provisioning, real Canvas enrollment and learning records remain planned. See [learner login](../canvas-learner-auth.md).
 - Temporary encrypted course previews stay inside the app container. Losing them during a restart requires a fresh preview; portal records and durable retry state remain in PostgreSQL.
 - Start with one replica and one active application revision for the demo. Rolling deployments can temporarily overlap instances; preview requests must recover gracefully if they reach an instance without the preview file. Multiple steady-state replicas need shared preview storage.
 

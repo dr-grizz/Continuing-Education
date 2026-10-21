@@ -45,17 +45,17 @@ export default function Collection({
   }, [slug]);
   const pathway = collection?.kind === "pathway";
   useEffect(() => {
-    if (!auth.email || !pathway || !collection) {
+    if (!auth.signedIn || !pathway || !collection) {
       setFollowing(false);
       return;
     }
     api<FollowedPathway[]>("me/pathways")
       .then((list) => setFollowing(list.some((p) => p.id === collection.id)))
       .catch(() => setFollowing(false));
-  }, [auth.email, pathway, collection]);
+  }, [auth.learnerId, pathway, collection]);
   async function toggleFollow() {
     if (!collection) return;
-    if (!auth.email) {
+    if (!auth.signedIn) {
       router.push(
         `/sign-in?returnTo=${encodeURIComponent(`/collections/${slug}`)}`,
       );
@@ -127,7 +127,7 @@ export default function Collection({
               onClick={toggleFollow}
               aria-disabled={busy || undefined}
             >
-              {!auth.email
+              {!auth.signedIn
                 ? "Sign in to follow this pathway"
                 : following
                   ? "Stop following"

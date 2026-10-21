@@ -57,20 +57,53 @@ model entitlements {
   @@unique([learner_id, offering_id])
 }
 
-/// Demo learner. The email-less row 00000000-0000-4000-8000-000000000001 is the legacy sample learner.
+/// Portal learner. Existing-account Canvas login uses installation/user ID;
+/// mock profiles and the email-less legacy sample learner remain separate.
 model learners {
-  id              String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  /// CHECK learners_email_check: lowercase, trimmed, 3-254 characters. Null only for the legacy learner.
-  email           String?           @unique
-  created_at      DateTime          @default(now()) @db.Timestamptz(6)
+  id               String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// CHECK learners_email_check: lowercase, trimmed, 3-254 characters when set.
+  /// Canvas identity-only login supplies no verified email, so it remains null.
+  email            String?            @unique
+  created_at       DateTime           @default(now()) @db.Timestamptz(6)
   /// Deactivated learners cannot sign in or act; existing enrollments continue.
-  active          Boolean           @default(true)
+  active           Boolean            @default(true)
   /// Set while deactivated. CHECK learners_access_check: set exactly when active is false.
-  deactivated_at  DateTime?         @db.Timestamptz(6)
-  version         Int               @default(1)
-  entitlements    entitlements[]
-  saved_courses   saved_courses[]
-  pathway_follows pathway_follows[]
+  deactivated_at   DateTime?          @db.Timestamptz(6)
+  version          Int                @default(1)
+  display_name     String?
+  auth_provider    String             @default("mock")
+  external_subject String?
+  learner_sessions learner_sessions[]
+  entitlements     entitlements[]
+  saved_courses    saved_courses[]
+  pathway_follows  pathway_follows[]
+
+  @@unique([auth_provider, external_subject])
+}
+
+/// Identity-only Canvas login; never stores Canvas API grants or authorization codes.
+model learner_oauth_states {
+  state_hash         String   @id @db.Char(64)
+  browser_hash       String   @db.Char(64)
+  configuration_hash String   @db.Char(64)
+  return_to          String
+  expires_at         DateTime @db.Timestamptz(6)
+  created_at         DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([expires_at])
+}
+
+model learner_sessions {
+  token_hash       String   @id @db.Char(64)
+  learner_id       String   @db.Uuid
+  auth_provider    String
+  external_subject String
+  expires_at       DateTime @db.Timestamptz(6)
+  created_at       DateTime @default(now()) @db.Timestamptz(6)
+  learners         learners @relation(fields: [learner_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([learner_id])
+  @@index([expires_at])
 }
 
 /// Price history. TRIGGER offering_prices_no_update (function offering_prices_append_only)
@@ -496,13 +529,13 @@ model sales_page_revisions {
 /// the prototype; hosting will move the bytes to object storage. Served at
 /// /media/{id}. CHECK media_assets_content_type_check and _size_check.
 model media_assets {
-  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  id           String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   content_type String
   file_name    String
   size         Int
   bytes        Bytes
   created_by   String
-  created_at   DateTime @default(now()) @db.Timestamptz(6)
+  created_at   DateTime    @default(now()) @db.Timestamptz(6)
   offerings    offerings[]
 }
 

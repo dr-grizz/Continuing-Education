@@ -1,4 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
+import {
+  learnerAuthInfo,
+  learnerBackend,
+  learnerCookie,
+} from "../../../server/learner-auth";
+import {
+  authCookieName,
+  clearCookie,
+  sameOrigin,
+  secureResponse,
+} from "../../../server/staff-auth";
 const cookie = "ce-demo-learner";
 async function session(request: NextRequest) {
   if (process.env.PROTOTYPE_MODE !== "true")
@@ -7,13 +18,53 @@ async function session(request: NextRequest) {
       { status: 503 },
     );
   try {
+    const auth = await learnerAuthInfo();
+    if (auth.mode === "canvas") {
+      if (!auth.configured || !auth.portalOrigin)
+        return secureResponse(
+          NextResponse.json(
+            { message: "Learner authentication is not configured.", auth },
+            { status: 503 },
+          ),
+        );
+      if (request.method === "POST")
+        return secureResponse(
+          NextResponse.json(
+            { message: "Sign in with your CU account." },
+            { status: 403 },
+          ),
+        );
+      const token = request.cookies.get(
+        authCookieName(learnerCookie, auth.secureCookies),
+      )?.value;
+      if (!token)
+        return secureResponse(
+          NextResponse.json({ id: null, email: null, auth }),
+        );
+      const upstream = await learnerBackend("me", {}, token);
+      if (upstream.status === 401) {
+        const response = secureResponse(
+          NextResponse.json({ id: null, email: null, auth }),
+        );
+        clearCookie(
+          response,
+          authCookieName(learnerCookie, auth.secureCookies),
+          auth.secureCookies,
+        );
+        return response;
+      }
+      const data = await upstream.json();
+      return secureResponse(
+        NextResponse.json({ ...data, auth }, { status: upstream.status }),
+      );
+    }
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       Authorization: `Bearer ${process.env.LEARNER_API_TOKEN}`,
     };
     const id = request.cookies.get(cookie)?.value;
     if (request.method === "GET" && !id)
-      return NextResponse.json({ email: null });
+      return secureResponse(NextResponse.json({ email: null, auth }));
     if (id && request.method === "GET") headers["X-Prototype-Learner-Id"] = id;
     const body = request.method === "POST" ? await request.json() : undefined;
     const upstream = await fetch(
@@ -34,7 +85,9 @@ async function session(request: NextRequest) {
       },
     );
     const data = await upstream.json();
-    const response = NextResponse.json(data, { status: upstream.status });
+    const response = secureResponse(
+      NextResponse.json({ ...data, auth }, { status: upstream.status }),
+    );
     if (upstream.ok && body)
       response.cookies.set(cookie, data.id, {
         httpOnly: true,
@@ -53,8 +106,51 @@ async function session(request: NextRequest) {
 }
 export const GET = session;
 export const POST = session;
-export async function DELETE() {
-  const response = NextResponse.json({ email: null });
-  response.cookies.delete(cookie);
-  return response;
+export async function DELETE(request: NextRequest) {
+  if (process.env.PROTOTYPE_MODE !== "true")
+    return NextResponse.json(
+      { message: "Prototype is disabled." },
+      { status: 503 },
+    );
+  try {
+    const auth = await learnerAuthInfo();
+    if (auth.mode === "canvas") {
+      if (!sameOrigin(request, auth.portalOrigin))
+        return secureResponse(
+          NextResponse.json(
+            { message: "Same-origin request required." },
+            { status: 403 },
+          ),
+        );
+      const token = request.cookies.get(
+        authCookieName(learnerCookie, auth.secureCookies),
+      )?.value;
+      const upstream = await learnerBackend(
+        "auth/learner/logout",
+        { method: "POST" },
+        token,
+      );
+      if (!upstream.ok) throw new Error("Logout unavailable");
+      const response = secureResponse(
+        NextResponse.json({ id: null, email: null, auth }),
+      );
+      clearCookie(
+        response,
+        authCookieName(learnerCookie, auth.secureCookies),
+        auth.secureCookies,
+      );
+      response.cookies.delete(cookie);
+      return response;
+    }
+    const response = secureResponse(NextResponse.json({ email: null, auth }));
+    response.cookies.delete(cookie);
+    return response;
+  } catch {
+    return secureResponse(
+      NextResponse.json(
+        { message: "Unable to sign out. Try again." },
+        { status: 503 },
+      ),
+    );
+  }
 }

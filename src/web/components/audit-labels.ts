@@ -1,5 +1,7 @@
 // Plain-language wording for audit actions and system actors shown to staff.
 export const auditLabels: Record<string, string> = {
+  "learner.signed_in": "Learner signed in",
+  "learner.signed_out": "Learner signed out",
   "approval.requested": "Approval requested",
   "approval.approved": "Approval granted",
   "approval.declined": "Approval declined",
