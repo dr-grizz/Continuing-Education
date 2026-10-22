@@ -354,6 +354,8 @@ model collections {
   title            String
   summary          String
   published        Boolean            @default(false)
+  /// Public discovery preference, retained independently of publication.
+  listed           Boolean            @default(true)
   version          Int                @default(1)
   created_at       DateTime           @default(now()) @db.Timestamptz(6)
   updated_at       DateTime           @default(now()) @db.Timestamptz(6)

@@ -4,6 +4,7 @@ import { strict as assert } from "node:assert";
 import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
 import { migrate } from "../scripts/db-migrate";
+import { endPoolAndWaitForClients } from "./helpers/close-pool";
 
 // No worker or live provider: prove fulfillment/recovery against a fresh database.
 const base = new URL(process.env.DATABASE_URL!);
@@ -217,8 +218,8 @@ async function main() {
 main()
   .finally(async () => {
     await prisma?.$disconnect();
-    await pool?.end();
-    if (created) await admin.query(`DROP DATABASE ${database} WITH (FORCE)`);
+    if (pool) await endPoolAndWaitForClients(pool);
+    if (created) await admin.query(`DROP DATABASE ${database}`);
     await admin.end();
   })
   .catch((error) => {

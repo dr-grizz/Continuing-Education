@@ -32,3 +32,18 @@ After `npm run db:migrate`, the original column values, row counts and row hashe
 - Public unlisted links are shareable. They do not provide invitation-only access or a search-engine privacy guarantee.
 
 See [staff instructions](../offering-visibility.md), [ADR 0010](../adr/0010-independent-offering-visibility.md), and current functional case [OFF-10](use-cases.md#offering-administration).
+
+## Collection/pathway follow-up
+
+Executed locally October 21, 2026 after the offering commit `cc5aaca`, for the collection listing extension on the same branch. These results were recorded before the follow-up commit; PR #20's CI run does not cover this collection extension.
+
+- `npm run test:visibility` passed with additional collection/pathway assertions: default listing, draft/unpublished direct-link restrictions, public group/Explore/browse-filter/recommendation exclusion, direct published links, member/course/pick/follow preservation, audited before/after state, permissions, invalid boolean values, idempotent retries, stale/concurrent versions, omitted-field compatibility, relisting and republishing. Private following from a direct unlisted pathway link remains permitted. A group with no visible courses can still save a listing-only change.
+- `LEARNER_AUTH_MODE=mock npm run test:migrations` passed, including preservation, concurrent adoption/deploy and schema comparison (573 elements, no drift).
+- Before migration `023_collection_visibility`, backup `backups/pre-collection-visibility-20261021-c2f88e09.dump` was restored into a separate disposable database and verified. After applying the migration, original rows/columns/hashes across 31 application tables matched; all three existing groups default to listed. No existing listing/publication choices or memberships were changed by this backfill.
+- All 20 new focused browser cases passed in Chromium light/dark/mobile, Firefox and WebKit (`test:a11y -- --grep 'collection visibility'`, executed as four light cases and 16 other-project cases). Keyboard toggling/saving, focus return, reload persistence, stale-save error focus/input preservation, read-only state, draft defaults and retained Explore picks were checked with axe scans.
+- `npm run build`, `npm run typecheck`, `npm run format:check`, local documentation links and `git diff --check` passed.
+- Manual screen-reader acceptance remains pending. No live Canvas writes, real payment or deployment was exercised.
+
+## Demo-test cleanup follow-up
+
+The request-driven demo test now waits for PostgreSQL clients to close through the existing `endPoolAndWaitForClients` helper before normally dropping its disposable database. This addresses the cleanup race observed after all demo assertions passed in the older main-push CI run associated with PR #21. Three isolated `LEARNER_AUTH_MODE=mock npm run test:demo` runs, formatting and diff checks passed locally. No application/payment behavior changed. Remote CI verification is separate from these local results.

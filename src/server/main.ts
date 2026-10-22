@@ -125,7 +125,8 @@ class CatalogController {
   }
   @Get("collections")
   @ApiOperation({
-    summary: "Published collections and pathways with published course counts",
+    summary:
+      "Published, listed collections and pathways with visible course counts",
   })
   collections() {
     return this.portal.publicCollections();

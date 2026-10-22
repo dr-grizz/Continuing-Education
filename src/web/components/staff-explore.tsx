@@ -24,6 +24,7 @@ type CollectionRow = {
   kind: CollectionKind;
   title: string;
   published: boolean;
+  listed?: boolean;
 };
 const sections: {
   key: Section;
@@ -96,10 +97,24 @@ export function StaffExplore({
       })),
     collections: collections
       .filter((c) => c.published && c.kind === "collection")
-      .map((c) => ({ id: c.id, title: c.title })),
+      .map((c) => ({
+        id: c.id,
+        title: c.title,
+        note:
+          c.listed === false
+            ? "Unlisted; hidden from Explore until listed"
+            : undefined,
+      })),
     pathways: collections
       .filter((c) => c.published && c.kind === "pathway")
-      .map((c) => ({ id: c.id, title: c.title })),
+      .map((c) => ({
+        id: c.id,
+        title: c.title,
+        note:
+          c.listed === false
+            ? "Unlisted; hidden from Explore until listed"
+            : undefined,
+      })),
   };
   const changed =
     saved !== undefined &&
@@ -180,7 +195,7 @@ export function StaffExplore({
                   max={max}
                   onChange={(next) => setIds({ ...ids, [key]: next })}
                   emptyText="No picks; all spots fill automatically."
-                  helperText="Only published items can be picked. Unlisted courses stay hidden from Explore; their saved picks are retained."
+                  helperText="Only published items can be picked. Unlisted items stay hidden from Explore; their saved picks are retained."
                 />
               ) : (
                 <>

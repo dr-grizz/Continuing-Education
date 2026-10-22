@@ -294,6 +294,14 @@ export class DashboardQueryDto {
 
 // Collections and pathways (decisions F3 and F4). Kind and slug are fixed at creation.
 export class CollectionEditDto {
+  @ApiPropertyOptional({
+    default: true,
+    description:
+      "Public discovery preference. Published unlisted groups remain available by direct link; omission on edit retains the current value.",
+  })
+  @ValidateIf((_o, value) => value !== undefined)
+  @IsBoolean()
+  listed?: boolean;
   @ApiProperty() @IsInt() @Min(1) version!: number;
   @ApiProperty() @IsString() @MinLength(3) @MaxLength(120) title!: string;
   @ApiProperty() @IsString() @MinLength(10) @MaxLength(500) summary!: string;
@@ -309,6 +317,14 @@ export class CollectionEditDto {
   offeringIds!: string[];
 }
 export class CollectionDto {
+  @ApiPropertyOptional({
+    default: true,
+    description:
+      "Public discovery preference. Published unlisted groups remain available by direct link; omission on edit retains the current value.",
+  })
+  @ValidateIf((_o, value) => value !== undefined)
+  @IsBoolean()
+  listed?: boolean;
   @ApiProperty({ enum: Object.values(CollectionKind) })
   @IsIn(Object.values(CollectionKind))
   kind!: CollectionKind;
