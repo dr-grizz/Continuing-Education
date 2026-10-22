@@ -230,6 +230,167 @@ test.describe("T01 offering visibility", () => {
     ).toBeVisible();
     await scan(page, "Read-only offering visibility");
   });
+  async function collectionSetup(
+    page: Page,
+    kind = "collection",
+    editable = true,
+  ) {
+    const offering = await setup(page, { editable });
+    const collection = {
+      id: "00000000-0000-4000-8000-000000000304",
+      kind,
+      slug: "visibility-group",
+      title: "Visibility group",
+      summary: "A synthetic group for independent listing checks.",
+      published: true,
+      listed: true,
+      version: 2,
+      followers: kind === "pathway" ? 1 : 0,
+      courses: [{ id, title: offering.title, published: true, listed: true }],
+    };
+    await page.route("**/api/staff/collections", (route) =>
+      route.fulfill({ json: [collection] }),
+    );
+    await page.route("**/api/staff/explore", (route) =>
+      route.fulfill({
+        json: {
+          courses: [],
+          collections: kind === "collection" ? [collection] : [],
+          pathways: kind === "pathway" ? [collection] : [],
+        },
+      }),
+    );
+    return collection;
+  }
+  for (const kind of ["collection", "pathway"]) {
+    test(`collection visibility ${kind} keyboard save, reload and retained Explore pick`, async ({
+      page,
+    }) => {
+      const collection = await collectionSetup(page, kind);
+      const writes: any[] = [];
+      await page.route(
+        `**/api/collections/${collection.id}/edit`,
+        async (route) => {
+          const body = route.request().postDataJSON();
+          expect(body.version).toBe(collection.version);
+          expect(body.offeringIds).toEqual([id]);
+          writes.push(body);
+          Object.assign(collection, {
+            listed: body.listed,
+            version: collection.version + 1,
+          });
+          await route.fulfill({ json: collection });
+        },
+      );
+      await page.goto("/staff/collections");
+      const edit = page.getByRole("button", {
+        name: "Edit Visibility group",
+        exact: true,
+      });
+      await edit.click();
+      const dialog = page.getByRole("dialog");
+      const control = dialog.getByRole("switch", { name: listingName });
+      await expect(control).toBeChecked();
+      await control.focus();
+      await page.keyboard.press("Space");
+      await expect(control).not.toBeChecked();
+      await expect(dialog.getByText(/Unlisted: when published/)).toBeVisible();
+      await scan(page, `Unlisted ${kind} edit dialog`);
+      const save = dialog.getByRole("button", {
+        name: "Save changes",
+        exact: true,
+      });
+      await save.focus();
+      await page.keyboard.press("Enter");
+      await expect(dialog).not.toBeVisible();
+      expect(writes).toHaveLength(1);
+      expect(writes[0].listed).toBe(false);
+      await expect(edit).toBeFocused();
+      await expect(
+        page
+          .getByText("Published · Unlisted", { exact: true })
+          .filter({ visible: true }),
+      ).toBeVisible();
+      await page.reload();
+      await edit.click();
+      await expect(control).not.toBeChecked();
+      await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+      await expect(edit).toBeFocused();
+      await page.goto("/staff/explore");
+      await expect(
+        page.getByText("Unlisted; hidden from Explore until listed", {
+          exact: true,
+        }),
+      ).toBeVisible();
+      await scan(page, `Retained unlisted ${kind} pick`);
+      await page.goto("/staff/collections");
+      await edit.click();
+      await control.focus();
+      await page.keyboard.press("Space");
+      await save.click();
+      await expect(dialog).not.toBeVisible();
+      expect(writes).toHaveLength(2);
+      expect(writes[1].listed).toBe(true);
+      await scan(page, `Relisted ${kind} staff list`);
+    });
+  }
+  test("collection visibility stale save retains listing and returns focus on cancel", async ({
+    page,
+  }) => {
+    const collection = await collectionSetup(page);
+    await page.route(`**/api/collections/${collection.id}/edit`, (route) =>
+      route.fulfill({
+        status: 409,
+        json: { message: "Collection changed. Refresh and retry." },
+      }),
+    );
+    await page.goto("/staff/collections");
+    const edit = page.getByRole("button", {
+      name: "Edit Visibility group",
+      exact: true,
+    });
+    await edit.click();
+    const dialog = page.getByRole("dialog");
+    const control = dialog.getByRole("switch", { name: listingName });
+    await control.focus();
+    await page.keyboard.press("Space");
+    await dialog
+      .getByRole("button", { name: "Save changes", exact: true })
+      .click();
+    await expect(dialog.getByRole("alert")).toBeFocused();
+    await expect(control).not.toBeChecked();
+    await scan(page, "Collection listing conflict");
+    await page.keyboard.press("Escape");
+    await expect(dialog).not.toBeVisible();
+    await expect(edit).toBeFocused();
+  });
+  test("collection visibility read-only state and new draft defaults", async ({
+    page,
+  }) => {
+    const collection = await collectionSetup(page, "collection", false);
+    collection.listed = false;
+    await page.goto("/staff/collections");
+    await expect(
+      page
+        .getByText("Published · Unlisted", { exact: true })
+        .filter({ visible: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Edit Visibility group", exact: true }),
+    ).toHaveCount(0);
+    await scan(page, "Read-only unlisted collection");
+    await collectionSetup(page);
+    await page.reload();
+    await page
+      .getByRole("button", { name: "New collection", exact: true })
+      .click();
+    const dialog = page.getByRole("dialog");
+    await expect(
+      dialog.getByRole("switch", { name: listingName }),
+    ).toBeChecked();
+    await scan(page, "Collection draft listing default");
+    await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  });
   test("staff curation retains hidden membership and explains unlisted featured picks", async ({
     page,
   }) => {

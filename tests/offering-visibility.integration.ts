@@ -60,6 +60,8 @@ async function main() {
     OfferingDto,
     QueryDto,
     RegistrationDto,
+    CollectionDto,
+    CollectionEditDto,
   } = await import("../src/server/dto");
   // Decorator metadata needs runtime DTO classes, supplied below through explicit
   // pipes since the DTOs are dynamically imported after the isolated DB is set.
@@ -119,6 +121,27 @@ async function main() {
     ) {
       requireScope(req, "catalog:write");
       return service.create(req.principal, key, data);
+    }
+    @Post("collections")
+    @UseGuards(PrototypeGuard)
+    createCollection(
+      @Req() req: any,
+      @Headers("idempotency-key") key: string,
+      @Body(validate(CollectionDto)) data: any,
+    ) {
+      requireScope(req, "catalog:write");
+      return service.createCollection(req.principal, key, data);
+    }
+    @Post("collections/:id/edit")
+    @UseGuards(PrototypeGuard)
+    editCollection(
+      @Req() req: any,
+      @Headers("idempotency-key") key: string,
+      @Param("id", ParseUUIDPipe) id: string,
+      @Body(validate(CollectionEditDto)) data: any,
+    ) {
+      requireScope(req, "catalog:write");
+      return service.editCollection(req.principal, key, id, data);
     }
     @Post("registrations")
     @UseGuards(PrototypeGuard)
@@ -504,6 +527,217 @@ async function main() {
     service.publish(staff, randomUUID(), draft.id, incomplete.version),
   );
   assert.equal((await call(`offerings/${draft.id}`)).status, 404);
+  // Collection/pathway listing is independent of member-course listing.
+  const offeringsBefore = await prisma.offerings.findMany({
+    orderBy: { id: "asc" },
+  });
+  for (const original of [group, path]) {
+    const currentGroup = () =>
+      prisma.collections.findUniqueOrThrow({ where: { id: original.id } });
+    const originalRow = await currentGroup();
+    assert.equal(originalRow.listed, true);
+    const membership = await prisma.collection_items.findMany({
+      where: { collection_id: original.id },
+      orderBy: { position: "asc" },
+    });
+    const body = {
+      version: originalRow.version,
+      title: originalRow.title,
+      summary: originalRow.summary,
+      offeringIds: membership.map((item) => item.offering_id),
+      listed: false,
+    };
+    const route = `collections/${original.id}/edit`;
+    assert.equal((await call(route, body, support.id)).status, 403);
+    for (const listed of [null, "false"])
+      assert.equal((await call(route, { ...body, listed })).status, 400);
+    const retry = randomUUID();
+    assert.equal((await call(route, body, manager.id, retry)).status, 201);
+    assert.equal((await call(route, body, manager.id, retry)).status, 201);
+    assert.equal((await call(route, body)).status, 409);
+    const hidden = await currentGroup();
+    assert.equal(hidden.listed, false);
+    assert.equal(hidden.published, true);
+    assert.equal(hidden.featured_rank, originalRow.featured_rank);
+    assert.equal(hidden.version, originalRow.version + 1);
+    assert.deepEqual(
+      await prisma.collection_items.findMany({
+        where: { collection_id: original.id },
+        orderBy: { position: "asc" },
+      }),
+      membership,
+    );
+    assert.ok(
+      !(await service.publicCollections()).some(
+        (row) => row.id === original.id,
+      ),
+    );
+    const explore = await service.explore();
+    assert.ok(
+      ![...explore.collections, ...explore.pathways].some(
+        (row) => row.id === original.id,
+      ),
+    );
+    assert.ok(
+      !(await service.detail(b.id)).collections.some(
+        (row) => row.slug === originalRow.slug,
+      ),
+    );
+    assert.deepEqual(await service.list({ collection: originalRow.slug }), []);
+    assert.ok(
+      (await service.list({ collection: originalRow.slug }, true)).length > 0,
+    );
+    assert.equal((await call(`collections/${originalRow.slug}`)).status, 200);
+    assert.equal(
+      (await service.publicCollection(originalRow.slug)).offerings.length,
+      3,
+    );
+    assert.ok(
+      (await service.staffCollections()).some(
+        (row) => row.id === original.id && row.listed === false,
+      ),
+    );
+    if (original.kind === "pathway") {
+      assert.ok(
+        (await service.followedPathways(learnerPrincipal)).some(
+          (row) => row.id === original.id,
+        ),
+      );
+      await service.setFollowing(
+        otherPrincipal,
+        randomUUID(),
+        original.id,
+        true,
+      );
+      assert.ok(
+        (await service.followedPathways(otherPrincipal)).some(
+          (row) => row.id === original.id,
+        ),
+      );
+    }
+    const events = await prisma.audit_events.findMany({
+      where: { object_id: original.id, action: "collection.edited" },
+    });
+    assert.equal(events.length, 1);
+    assert.equal((events[0].details as any).before.listed, true);
+    assert.equal((events[0].details as any).after.listed, false);
+    // Legacy edit callers omit listed without relisting the group.
+    const { listed: omitted, ...legacy } = body;
+    await service.editCollection(staff, randomUUID(), original.id, {
+      ...legacy,
+      version: hidden.version,
+    });
+    let updated = await currentGroup();
+    assert.equal(updated.listed, false);
+    await service.setCollectionPublished(
+      staff,
+      randomUUID(),
+      original.id,
+      updated.version,
+      false,
+    );
+    await assert.rejects(service.publicCollection(originalRow.slug));
+    if (original.kind === "pathway")
+      assert.ok(
+        !(await service.followedPathways(learnerPrincipal)).some(
+          (row) => row.id === original.id,
+        ),
+      );
+    updated = await currentGroup();
+    await service.setCollectionPublished(
+      staff,
+      randomUUID(),
+      original.id,
+      updated.version,
+      true,
+    );
+    updated = await currentGroup();
+    assert.equal(updated.listed, false);
+    if (original.kind === "pathway")
+      assert.ok(
+        (await service.followedPathways(learnerPrincipal)).some(
+          (row) => row.id === original.id,
+        ),
+      );
+    // Competing edits must not both accept the same version.
+    const concurrent = await Promise.all([
+      call(route, { ...body, version: updated.version, listed: true }),
+      call(route, {
+        ...body,
+        version: updated.version,
+        listed: true,
+        title: `${body.title} revised`,
+      }),
+    ]);
+    assert.deepEqual(concurrent.map((r) => r.status).sort(), [201, 409]);
+    assert.equal((await currentGroup()).listed, true);
+    assert.ok(
+      (await service.publicCollections()).some((row) => row.id === original.id),
+    );
+    assert.ok(
+      (await service.detail(b.id)).collections.some(
+        (row) => row.slug === originalRow.slug,
+      ),
+    );
+    assert.ok(
+      (await service.list({ collection: originalRow.slug })).length > 0,
+    );
+    const restored = await service.explore();
+    assert.ok(
+      [...restored.collections, ...restored.pathways].some(
+        (row) => row.id === original.id,
+      ),
+    );
+  }
+  const draftGroupInput = {
+    kind: "collection",
+    title: "Unlisted draft collection",
+    summary: "Synthetic draft without public discovery",
+    offeringIds: [],
+    listed: false,
+  };
+  assert.equal(
+    (await call("collections", { ...draftGroupInput, listed: "false" })).status,
+    400,
+  );
+  assert.equal(
+    (await call("collections", { ...draftGroupInput, listed: null })).status,
+    400,
+  );
+  const draftGroup = await (await call("collections", draftGroupInput)).json();
+  assert.equal(draftGroup.listed, false);
+  assert.equal(draftGroup.published, false);
+  await assert.rejects(service.publicCollection(draftGroup.slug));
+  // A group with no remaining visible members can still be hidden without changing membership.
+  const emptyPublished = await prisma.collections.findUniqueOrThrow({
+    where: { id: onlyHidden.id },
+  });
+  await prisma.offerings.update({
+    where: { id: a.id },
+    data: { listed: false },
+  });
+  await service.editCollection(staff, randomUUID(), onlyHidden.id, {
+    version: emptyPublished.version,
+    title: emptyPublished.title,
+    summary: emptyPublished.summary,
+    offeringIds: [a.id],
+    listed: false,
+  });
+  assert.equal(
+    (await service.publicCollection(emptyPublished.slug)).offerings.length,
+    0,
+  );
+  await prisma.offerings.update({
+    where: { id: a.id },
+    data: { listed: true },
+  });
+  assert.deepEqual(
+    await prisma.offerings.findMany({ orderBy: { id: "asc" } }),
+    offeringsBefore,
+  );
+  console.log(
+    "PASS collection visibility: defaults, draft/unpublished access, listing filters/recommendations, direct links, preserved members/picks/follows, audit/idempotency/validation/permissions, stale and concurrent edits, republishing and omitted-field compatibility.",
+  );
   console.log(
     "PASS visibility: independent publication/listing, public discovery and aggregates, direct registration, paid/saved access, permissions, validation, stale versions, idempotency/audit, republishing and incomplete drafts (isolated DB; no Canvas writes).",
   );

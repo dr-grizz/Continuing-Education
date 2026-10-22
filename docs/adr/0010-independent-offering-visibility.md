@@ -20,3 +20,9 @@ Course managers change **Listed in course discovery** in offering Settings. Exis
 Unpublish/republish preserves listing. Sales-page publication, prices, capacity, image overrides, Canvas mappings and learner/payment records remain separate. Existing publication/eligibility checks continue to block new registrations and payments for unpublished offerings.
 
 Verification is recorded in [T01 checks](../testing/offering-visibility-verification.md). Manual screen-reader acceptance remains a separate release check.
+
+## Extension: collection and pathway listing
+
+Added October 21, 2026. Migration `023_collection_visibility` adds `collections.listed` defaulting to true. The shared group editor independently controls publication and discovery for both kinds. Public group summaries/Explore, browse filtering by group, and course-page recommendations require published and listed groups. A known published group URL remains available when unlisted, with the existing member-course visibility filter.
+
+Group listing does not change offerings. Private pathway follows, membership/order and saved featured ranks survive unlisting; direct-link following remains permitted. Unpublish/republish retains listing. Optional create/edit API fields default or retain listing; boolean validation, existing role checks, audited before/after state, idempotency and serialized version checks apply. Group edits retain their existing no-reason workflow. Listing-only edits are allowed after member visibility changes, while publishing or changing membership on a published group still enforces the one/two visible-course minimum.

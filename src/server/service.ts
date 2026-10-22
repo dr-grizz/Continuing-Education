@@ -285,7 +285,7 @@ export class PortalService {
     const rows = await sql<OfferingListing>(
       prisma,
       `${select} WHERE ($1 OR (o.published AND o.listed)) AND ($2='' OR o.title ILIKE $2 OR o.summary ILIKE $2) AND ($3='' OR o.category=$3)
-        AND ($4='' OR o.id IN (SELECT i.offering_id FROM collection_items i JOIN collections c ON c.id=i.collection_id WHERE c.slug=$4 AND c.published))
+        AND ($4='' OR o.id IN (SELECT i.offering_id FROM collection_items i JOIN collections c ON c.id=i.collection_id WHERE c.slug=$4 AND c.published AND ($1 OR c.listed)))
         ORDER BY o.start_date,o.title LIMIT 100`,
       staff,
       query.search ? `%${query.search}%` : "",
@@ -306,10 +306,11 @@ export class PortalService {
       id,
     );
     if (!offering) throw new NotFoundException("Offering not found.");
-    // Published collections and pathways that include this course.
+    // Discovery recommendations exclude unlisted collections and pathways.
     const collections = await prisma.collections.findMany({
       where: {
         published: true,
+        listed: true,
         collection_items: { some: { offering_id: id } },
       },
       select: { slug: true, title: true, kind: true },
@@ -2176,7 +2177,7 @@ export class PortalService {
          min(o.price_cents)::integer AS min_price_cents,max(o.price_cents)::integer AS max_price_cents
        FROM collections c JOIN collection_items i ON i.collection_id=c.id
        JOIN offerings o ON o.id=i.offering_id AND o.published AND o.listed
-       WHERE c.published GROUP BY c.id ORDER BY c.kind,c.title`,
+       WHERE c.published AND c.listed GROUP BY c.id ORDER BY c.kind,c.title`,
     );
   }
   async publicCollection(slug: string) {
@@ -2226,6 +2227,12 @@ export class PortalService {
     }));
   }
   private async staffCollection(tx: Tx, id: string) {
+    // Serialize edits and publication so stale versions cannot overwrite listing.
+    await sql(
+      tx,
+      "SELECT id FROM collections WHERE id=$1::uuid FOR UPDATE",
+      id,
+    );
     return (await this.staffCollectionsIn(tx)).find((c) => c.id === id);
   }
   private async staffCollectionsIn(tx: Tx) {
@@ -2296,6 +2303,7 @@ export class PortalService {
         const created = await tx.collections.create({
           data: {
             kind: data.kind,
+            listed: data.listed ?? true,
             slug,
             title: data.title.trim(),
             summary: data.summary.trim(),
@@ -2304,6 +2312,7 @@ export class PortalService {
         await this.setCollectionItems(tx, created.id, data.offeringIds);
         await audit(tx, principal.actor, "collection.created", created.id, {
           kind: data.kind,
+          listed: created.listed,
           title: created.title,
           offering_ids: data.offeringIds,
         });
@@ -2327,12 +2336,17 @@ export class PortalService {
           throw new ConflictException(
             "Collection changed or does not exist. Refresh and retry.",
           );
-        if (before.published)
+        if (
+          before.published &&
+          JSON.stringify(before.offeringIds) !==
+            JSON.stringify(data.offeringIds)
+        )
           await this.requirePublishable(tx, before.kind, data.offeringIds);
         await tx.collections.update({
           where: { id },
           data: {
             title: data.title.trim(),
+            listed: data.listed ?? before.listed,
             summary: data.summary.trim(),
             version: { increment: 1 },
             updated_at: new Date(),
@@ -2342,11 +2356,13 @@ export class PortalService {
         await audit(tx, principal.actor, "collection.edited", id, {
           title: data.title.trim(),
           before: {
+            listed: before.listed,
             title: before.title,
             summary: before.summary,
             offering_ids: before.offeringIds,
           },
           after: {
+            listed: data.listed ?? before.listed,
             title: data.title.trim(),
             summary: data.summary.trim(),
             offering_ids: data.offeringIds,

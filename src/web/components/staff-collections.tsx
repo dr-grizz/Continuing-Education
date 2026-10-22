@@ -11,6 +11,8 @@ import {
   DialogContentText,
   DialogTitle,
   Link,
+  FormControlLabel,
+  Switch,
   MenuItem,
   Paper,
   Stack,
@@ -36,6 +38,7 @@ type StaffCollection = {
   title: string;
   summary: string;
   published: boolean;
+  listed?: boolean;
   version: number;
   followers: number;
   courses: {
@@ -96,7 +99,7 @@ export function StaffCollections({
   }
   const status = (row: StaffCollection) => (
     <Chip
-      label={row.published ? "Published" : "Draft"}
+      label={`${row.published ? "Published" : "Draft"}${row.listed === false ? " · Unlisted" : ""}`}
       color={row.published ? "success" : "default"}
       variant="outlined"
     />
@@ -357,6 +360,7 @@ function CollectionDialog({
     [title, setTitle] = useState(""),
     [slug, setSlug] = useState(""),
     [summary, setSummary] = useState(""),
+    [listed, setListed] = useState(true),
     [courseIds, setCourseIds] = useState<string[]>([]),
     [errors, setErrors] = useState<Partial<Record<Field, string>>>({}),
     [failure, setFailure] = useState(""),
@@ -368,6 +372,7 @@ function CollectionDialog({
     setTitle(collection?.title ?? "");
     setSlug("");
     setSummary(collection?.summary ?? "");
+    setListed(collection?.listed !== false);
     setCourseIds(collection?.courses.map((c) => c.id) ?? []);
     setErrors({});
     setFailure("");
@@ -386,7 +391,11 @@ function CollectionDialog({
         "Use lowercase letters and numbers joined by hyphens, or leave it empty.";
     if (summary.trim().length < 10 || summary.trim().length > 500)
       found.summary = "Enter 10 to 500 characters.";
-    if (published) {
+    if (
+      published &&
+      JSON.stringify(courseIds) !==
+        JSON.stringify(collection?.courses.map((c) => c.id))
+    ) {
       const visible = courseIds.filter(
         (id) => byId.get(id)?.published && byId.get(id)?.listed !== false,
       ).length;
@@ -413,6 +422,7 @@ function CollectionDialog({
         title: title.trim(),
         summary: summary.trim(),
         offeringIds: courseIds,
+        listed,
       };
       if (collection)
         await api(`collections/${collection.id}/edit`, {
@@ -558,6 +568,32 @@ function CollectionDialog({
             }
             fullWidth
           />
+          <Box>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={listed}
+                  onChange={(_, checked) => setListed(checked)}
+                  slotProps={{
+                    input: { "aria-describedby": "collection-listed-help" },
+                  }}
+                />
+              }
+              label="Listed in course discovery"
+            />
+            <Typography
+              id="collection-listed-help"
+              variant="body2"
+              color="text.secondary"
+            >
+              {listed
+                ? "Listed: when published, this group can appear in Explore, browse filters and course recommendations."
+                : "Unlisted: when published, this group opens through its direct link and stays out of public discovery."}{" "}
+              Listing does not publish a draft or change the courses inside.
+              Direct links are shareable, not private access. Existing pathway
+              follows are kept.
+            </Typography>
+          </Box>
           <OrderedListEditor
             id="collection-courses"
             legend={
