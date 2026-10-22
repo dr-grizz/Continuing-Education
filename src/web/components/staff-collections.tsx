@@ -38,7 +38,12 @@ type StaffCollection = {
   published: boolean;
   version: number;
   followers: number;
-  courses: { id: string; title: string; published: boolean }[];
+  courses: {
+    id: string;
+    title: string;
+    published: boolean;
+    listed?: boolean;
+  }[];
 };
 const kindLabel = (kind: CollectionKind) =>
   kind === "pathway" ? "Pathway" : "Collection";
@@ -109,14 +114,16 @@ export function StaffCollections({
         {row.courses.map((course) => (
           <li key={course.id}>
             {course.title}
-            {!course.published && (
+            {(!course.published || course.listed === false) && (
               <Typography
                 component="span"
                 variant="body2"
                 color="text.secondary"
               >
                 {" "}
-                (not published, hidden from learners)
+                {course.published
+                  ? "(unlisted, hidden from this list)"
+                  : "(not published, hidden from learners)"}
               </Typography>
             )}
           </li>
@@ -380,12 +387,14 @@ function CollectionDialog({
     if (summary.trim().length < 10 || summary.trim().length > 500)
       found.summary = "Enter 10 to 500 characters.";
     if (published) {
-      const visible = courseIds.filter((id) => byId.get(id)?.published).length;
+      const visible = courseIds.filter(
+        (id) => byId.get(id)?.published && byId.get(id)?.listed !== false,
+      ).length;
       if (visible < minimumCourses(kind))
         found.courses =
           kind === "pathway"
-            ? "A published pathway needs at least two published courses."
-            : "A published collection needs at least one published course.";
+            ? "A published pathway needs at least two published, listed courses."
+            : "A published collection needs at least one published, listed course.";
     }
     return found;
   }
@@ -560,7 +569,9 @@ function CollectionDialog({
               id: o.id,
               title: o.title,
               note: o.published
-                ? undefined
+                ? o.listed === false
+                  ? "Unlisted; hidden from this list"
+                  : undefined
                 : "Not published; hidden from learners",
             }))}
             onChange={(next) => {
@@ -571,8 +582,8 @@ function CollectionDialog({
             error={errors.courses}
             helperText={
               kind === "pathway"
-                ? "Publishing needs at least two published courses."
-                : "Publishing needs at least one published course."
+                ? "Publishing needs at least two published, listed courses."
+                : "Publishing needs at least one published, listed course."
             }
           />
         </Stack>

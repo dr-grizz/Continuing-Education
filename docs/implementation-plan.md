@@ -14,7 +14,7 @@ The repository now contains a local prototype, `CONTEXT.md`, and the prototype a
 
 ### Local prototype status
 
-The local application uses Next.js/React and Material UI, a versioned NestJS REST API, PostgreSQL/Prisma and request-driven durable simulations (no always-running worker). Web/API ports are **3050/3051**. Prisma manages 22 migration directories, `000_baseline` through `021_canvas_learner_auth`; preserve migration history and existing data. This is an implemented local prototype, not an approved production deployment.
+The local application uses Next.js/React and Material UI, a versioned NestJS REST API, PostgreSQL/Prisma and request-driven durable simulations (no always-running worker). Web/API ports are **3050/3051**. Prisma manages 23 migration directories, `000_baseline` through `022_offering_visibility`; preserve migration history and existing data. This is an implemented local prototype, not an approved production deployment.
 
 | Area | Implemented behavior | Remaining boundary |
 | --- | --- | --- |
@@ -22,7 +22,7 @@ The local application uses Next.js/React and Material UI, a versioned NestJS RES
 | Canvas access | The same staff OAuth client/callback requests narrowly enforced GET scopes when course reads are enabled; per-staff encrypted API grants, serialized refresh and disconnect | OAuth scopes do not grant Canvas account permissions or portal roles; no Canvas enrollment/grade writes or learner grades/progress |
 | Course discovery | Automatic cached preview loading, manual Refresh from Canvas, on-demand reads with schedules deferred, configured subaccount and optional descendants, full pagination and on-page filters | Reads create private encrypted previews with 30-minute expiry; they never create offering drafts automatically |
 | Offering imports | Create offering draft / Refresh source details row actions, Import selected, Imported courses tab, stable installation/course-ID mappings and atomic duplicate/stale-preview guards | Existing-link conflicts need review; linking existing offerings, remapping, exclusions and live mapping health checks remain planned |
-| Offering administration | Required-information warnings; independent portal publication; immutable price history and quoted reservation prices; bounded or explicit Unlimited seats; audited edits/unpublication | Unlisted visibility is not implemented. Incomplete drafts cannot publish/register; published edits keep the existing protected-terms rules |
+| Offering administration | Required-information warnings; independent portal publication; immutable price history and quoted reservation prices; bounded or explicit Unlimited seats; audited edits/unpublication | Independent listed/unlisted visibility is implemented in Settings; public discovery requires published and listed, while published direct links remain registrable. Incomplete drafts cannot publish/register; published edits keep the existing protected-terms rules |
 | Payments and reversals | Stripe **test-mode** hosted Checkout, signed inbound webhooks, refunds processed externally by Finance, full-refund portal entitlement reversal and later re-registration | No live payments, real Canvas access removal, approved dispute/lifecycle policy or authoritative financial reconciliation |
 | Learners and enrollment | Configurable existing-account learner Canvas OAuth with independent revocable sessions; local mock email selection; approval/window rules; payment/access status; durable simulated identity and Canvas provisioning with retries and staff recovery | Existing-account login has mocked-provider coverage; live learner acceptance, pre-account guest login, paid Cedarville guest provisioning, SIS lookup and real Canvas enrollment remain open |
 | Content and reporting | Rich-text sales-page editing with media/preview/revisions, collections/pathways, saved courses, Explore picks, role-based enrollment/sales reports and CSV aggregates | Completion/grades, broader exports and production privacy/brand/accessibility acceptance remain open |
@@ -96,7 +96,7 @@ Saved staff grants remain after portal logout, but scheduled execution is deferr
 - Import uses the server-held owned preview, current authorization, preview freshness and saved revision. One default mapping per `(installation URL, Canvas course ID)` and one target offering are database-enforced. A conflicting existing manual course link stops the batch; no title matching, silent adoption or duplicate offering creation. Mapped links cannot be removed/changed through offering edits.
 - New drafts copy the Canvas title/link/valid dates and leave required sales information unset. Warnings and publication gates cover topic, summary, description, format, price, capacity mode and course type/schedule. A finite capacity is 1–10,000; explicit **Unlimited seats** stores a separate flag with null capacity. Blank capacity without that flag remains incomplete. A new finite limit must cover seats already in use.
 - Imported offering cards use the Canvas course image from source metadata; absent, unsafe or failed images use the existing CU CE white logo on navy. Discovery includes `course_image` using the same GET scope. Source refresh can change/remove this URL independently of staff-owned offering fields. Staff can upload a portal image, explicitly use CU CE, or return to the source image in offering Details. Migration 020 stores that versioned, audited portal choice separately; refresh never overwrites it and image editing never changes Canvas.
-- Later imports update **source metadata only**, preserving every staff-owned offering field, publication, version, price, capacity mode, dates, orders and entitlements. Portal publication never publishes/unpublishes Canvas. Listed/unlisted visibility and availability checks against previously mapped course IDs remain planned.
+- Later imports update **source metadata only**, preserving every staff-owned offering field, publication, version, price, capacity mode, dates, orders and entitlements. Portal publication never publishes/unpublishes Canvas. Listing preference is independent and retained by source refresh; availability checks against previously mapped course IDs remain planned.
 
 ```mermaid
 sequenceDiagram
@@ -520,10 +520,10 @@ sequenceDiagram
     alt Required information missing or version stale
         Portal-->>Manager: Keep draft, show required-information or conflict error
     else Ready
-        Portal->>DB: Set published, enforce DB readiness checks and audit
-        Portal-->>Manager: Offering available in public course browsing
+        Portal->>DB: Set published, retain listing preference, enforce readiness checks and audit
+        Portal-->>Manager: Published offering available by direct link, listed offerings appear in browsing
     end
-    Note over Portal,DB: Staff edits survive source refresh, unlisted visibility and live mapping checks remain planned
+    Note over Portal,DB: Staff edits and listing preference survive source refresh, live mapping checks remain planned
 ```
 
 
@@ -550,7 +550,7 @@ sequenceDiagram
     Web->>API: Complete learner flow with code, state and nonce
     API->>DB: Consume learner state once
     API->>Canvas: Exchange code over HTTPS with User-Agent
-    Canvas-->>API: Verified user ID and name; no API token
+    Canvas-->>API: Verified user ID and name, no API token
     API->>DB: Create or reuse active learner by Canvas origin and user ID
     API->>DB: Store learner session hash and audit sign-in
     API-->>Web: Opaque learner session and allowed return page
@@ -977,7 +977,7 @@ Exit: approved visual baseline; browser checks cover learner/staff access isolat
 
 **Implemented locally:** draft/publish/unpublish, course browsing/search, schedules, quoted prices and append-only price history, approval expiry, protected imports/mappings, required-field warnings and explicit Unlimited seats. Publication checks required portal data and version; it does not contact Canvas or Stripe.
 
-**Remaining:** source availability/section-health gates, explicit existing-offering linking/remapping and independent listed/unlisted visibility. These must be added before claiming live mapping validation on publication or payment. Portal dates belong to staff and are not overwritten by later Canvas discovery.
+**Remaining:** source availability/section-health gates and explicit existing-offering linking/remapping. These must be added before claiming live mapping validation on publication or payment. Listed/unlisted visibility is implemented; see [ADR 0010](adr/0010-independent-offering-visibility.md). Portal dates belong to staff and are not overwritten by later Canvas discovery.
 
 Deliver learner requests, staff approval queue and decision notices. Audit price, mapping, capacity, publication and approval changes.
 
@@ -1063,7 +1063,7 @@ Implemented for the local prototype. Support two explicit offering types: cohort
 | Interface | Brand review; desktop/mobile screenshots; functional verification of changed workflows |
 | Accessibility | Required in each UI review using the README review/test checklist; keyboard/focus, names/labels/semantics, contrast, targets, reflow/zoom and announcements; automated scan plus manual screen-reader review of registration, sign-in, errors, dialogs and staff tables before release; record unresolved findings and unperformed checks |
 | Authorization | Staff Canvas OAuth binding/state/session/CSRF and role isolation; portal permission plus Canvas permission plus GET scope checks; live MFA/deny/revocation cases; verified learner linking/recovery cannot claim another identity |
-| Canvas source/import | Full pagination and account boundary, owner-specific grants, deferred scheduling, revocation behavior, private-preview expiry, stale/concurrent import protection, duplicate conflicts, staff-edit preservation, publication independence and missing-field gates; unlisted and mapping health still require implementation |
+| Canvas source/import | Full pagination and account boundary, owner-specific grants, deferred scheduling, revocation behavior, private-preview expiry, stale/concurrent import protection, duplicate conflicts, staff-edit preservation, publication independence and missing-field gates; independent visibility is covered by the visibility suite and mapping health remains planned |
 | Payments/capacity | Success, decline, abandoned/expired checkout, final-seat concurrency and explicit Unlimited registration, safe return to finite capacity, duplicate/out-of-order webhook, crash/replay and unavailable Stripe reconciliation |
 | Provisioning | Ambiguous identities blocked before payment; existing identity reused safely; asynchronous IT/SIS delays; uncertain enrollment response and retry; reversal during provisioning |
 | Reversals/lifecycle | Full/partial/failed refund, dispute outcomes, transfer recovery, new purchase near expiry, notice rules, protected provisioning and existing-identity immunity |

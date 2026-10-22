@@ -306,6 +306,7 @@ async function main() {
   assert.equal(mapping.installation_url, "https://canvas.example.test");
   assert.equal(imported.title, "Course 101");
   assert.equal(imported.published, false);
+  assert.equal(imported.listed, true);
   assert.equal(imported.imported_from_canvas, true);
   assert.equal((mapping.source as any).image_url, cardImage);
   assert.equal(
@@ -357,8 +358,10 @@ async function main() {
     approvalValidDays: 14,
     enrollmentCloseDays: 7,
     canvasCourseUrl: imported.canvas_course_url,
+    listed: false,
   });
   const editFields = {
+    listed: false,
     title: "Staff-written course title",
     category: "Technology",
     summary: "Summary written by the course manager.",
@@ -994,9 +997,14 @@ async function main() {
         expectedImage,
       );
       assert.equal(
-        (await portal.list({})).find((o) => o.id === imported.id)!
+        (await portal.list({}, true)).find((o) => o.id === imported.id)!
           .canvas_image_url,
         expectedImage,
+      );
+      assert.equal(
+        (await portal.list({})).some((o) => o.id === imported.id),
+        false,
+        "source image refresh must not relist an unlisted offering",
       );
       assert.deepEqual(
         await prisma.offerings.findUniqueOrThrow({

@@ -47,12 +47,16 @@ type Values = {
   capacity: string;
   unlimitedSeats: boolean;
   approvalRequired: boolean;
+  listed: boolean;
   approvalValidDays: string;
   enrollmentCloseDays: string;
   canvasCourseUrl: string;
   reason: string;
 };
-type Field = Exclude<keyof Values, "approvalRequired" | "unlimitedSeats">;
+type Field = Exclude<
+  keyof Values,
+  "approvalRequired" | "unlimitedSeats" | "listed"
+>;
 const labels: Record<Field, string> = {
   title: "Course title",
   category: "Topic",
@@ -82,6 +86,7 @@ const blank: Values = {
   capacity: "20",
   unlimitedSeats: false,
   approvalRequired: false,
+  listed: true,
   approvalValidDays: "7",
   enrollmentCloseDays: "7",
   canvasCourseUrl: "",
@@ -100,6 +105,7 @@ const fromOffering = (o: StaffOffering): Values => ({
   capacity: o.capacity === null ? "" : String(o.capacity),
   unlimitedSeats: o.unlimited_seats ?? false,
   approvalRequired: o.approval_required,
+  listed: o.listed !== false,
   approvalValidDays: String(o.approval_valid_days),
   enrollmentCloseDays: String(o.enrollment_close_days),
   canvasCourseUrl: o.canvas_course_url ?? "",
@@ -261,6 +267,7 @@ export function OfferingForm({
       capacity: values.unlimitedSeats ? null : Number(values.capacity),
       unlimitedSeats: values.unlimitedSeats,
       approvalRequired: values.approvalRequired,
+      listed: values.listed,
       approvalValidDays: Number(values.approvalValidDays),
       enrollmentCloseDays: Number(values.enrollmentCloseDays),
       ...(values.canvasCourseUrl.trim()
@@ -279,6 +286,7 @@ export function OfferingForm({
             version: offering.version,
             approvalValidDays: body.approvalValidDays,
             enrollmentCloseDays: body.enrollmentCloseDays,
+            listed: body.listed,
             ...(body.canvasCourseUrl
               ? { canvasCourseUrl: body.canvasCourseUrl }
               : {}),
@@ -544,6 +552,35 @@ export function OfferingForm({
             ))}
           </ol>
         </div>
+      )}
+      {show("approvalValidDays") && (
+        <Box>
+          <FormControlLabel
+            control={
+              <Switch
+                checked={values.listed}
+                onChange={(_, checked) =>
+                  setValues({ ...values, listed: checked })
+                }
+                slotProps={{
+                  input: { "aria-describedby": "offering-listed-help" },
+                }}
+              />
+            }
+            label="Listed in course discovery"
+          />
+          <Typography
+            id="offering-listed-help"
+            variant="body2"
+            color="text.secondary"
+          >
+            {values.listed
+              ? "Listed: published courses appear in browsing, search, Explore, collections and pathways."
+              : "Unlisted: published courses can be opened and registered through their direct link, but do not appear in public discovery."}{" "}
+            Listing does not publish a draft. Direct links are shareable;
+            unlisted does not mean private.
+          </Typography>
+        </Box>
       )}
       {show("approvalValidDays") && (
         <FormControlLabel

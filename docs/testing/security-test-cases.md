@@ -24,6 +24,8 @@ Use the role, learner and offering fixtures from the [main guide](use-cases.md#e
 - Record endpoint, actor/role, case, commit, expected/actual outcome and sanitized evidence. Assert against synthetic canary secrets rather than printing real tokens, cookies, codes or environment contents.
 - A test-suite pass supports only its actual assertions. Where the matrix requires a new assertion or fixture, implement it in the isolated test suite or record the case as Not run/Blocked; a coverage pointer is not proof of completion.
 
+Unlisted offerings are public by direct link, not private resources. Verify that public discovery/aggregate responses exclude them, while private learner ownership and staff permissions still apply independently. See functional [OFF-10](use-cases.md#offering-administration) and [ADR 0010](../adr/0010-independent-offering-visibility.md); do not report unlisted visibility as access authorization.
+
 ## Identity and session boundaries
 
 | ID     | Priority and mode | Preconditions and steps                                                                                                                                                                                                                                                           | Security acceptance result                                                                                                                                                                                                                                                                                      |

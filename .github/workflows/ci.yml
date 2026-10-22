@@ -77,6 +77,8 @@ jobs:
         run: npm run db:migrate
       - name: Migration tests
         run: npm run test:migrations
+      - name: Offering visibility tests (disposable database)
+        run: npm run test:visibility
       - name: Canvas authentication tests (mock provider, disposable database)
         run: npm run test:auth
       - name: Learner Canvas authentication tests (mock provider, disposable database)

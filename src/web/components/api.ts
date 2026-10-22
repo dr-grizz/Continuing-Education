@@ -16,6 +16,8 @@ export type Offering = {
   seats_available: number | null;
   approval_required: boolean;
   published: boolean;
+  /** Independent public discovery preference; omitted by older fixtures means listed. */
+  listed?: boolean;
   version: number;
   approval_valid_days: number;
   enrollment_close_days: number;

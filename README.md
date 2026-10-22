@@ -10,6 +10,8 @@ The optional [badge and certificate service](docs/badges-and-certificates.md) is
 
 Start with the [next steps](docs/next-steps.md) for the current checkpoint and recommended work sequence. Open project decisions, their owners and due dates are tracked in the [M0 decision register](docs/decision-register.md). See the [prototype implementation progress](docs/prototype/implementation-progress.md) for completed tasks, remaining todos, recent changes and verification evidence. The [implementation plan](docs/implementation-plan.md) describes the broader delivery scope and production gates.
 
+Course managers can independently control [listed and unlisted visibility](docs/offering-visibility.md) in offering Settings. Published/unlisted offerings accept direct-link registrations but stay out of public discovery. Canvas refreshes and unpublish/republish preserve the preference; existing paid/saved learner records remain available.
+
 The [demo deployment plan](docs/hosting/deployment-plan.md) contains the Azure overview and detailed diagrams, the equivalent Railway diagram, and preparation and verification steps for the combined web/API container.
 
 ## Run locally
@@ -173,6 +175,7 @@ npm test
 npm run test:migrations
 npm run test:auth
 npm run test:learner-auth
+npm run test:visibility
 npm run test:canvas
 npm run test:demo
 npm run test:a11y
