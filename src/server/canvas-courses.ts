@@ -58,8 +58,9 @@ function sameCourse(a: CanvasCourse, b: CanvasCourse) {
       "start_at",
       "end_at",
       "url",
+      "image_url",
     ] as const
-  ).every((key) => a[key] === b[key]);
+  ).every((key) => (a[key] ?? null) === (b[key] ?? null));
 }
 function savedRevision(snapshot: { run_id: string; courses: unknown } | null) {
   return createHash("sha256")
@@ -362,9 +363,10 @@ export class CanvasCoursesService {
             : "saved",
       latest_run: latest ? this.publicRun(latest) : null,
       schedule: {
-        enabled: schedule?.enabled || false,
+        enabled: false,
+        deferred: true,
         interval_minutes: schedule?.interval_minutes || 60,
-        next_run_at: schedule?.next_run_at || null,
+        next_run_at: null,
         owner_name: owner?.display_name || null,
         owner_active: owner?.active || false,
         version: schedule?.version || 0,
@@ -734,6 +736,10 @@ export class CanvasCoursesService {
     });
   }
   async enqueue(staffId: string, key: string, trigger = "manual") {
+    if (trigger !== "manual")
+      throw new ConflictException(
+        "Scheduled previews are deferred in this demo.",
+      );
     const { config, member } = await this.authorizedStaff(staffId);
     const grant = await prisma.staff_canvas_grants.findUnique({
       where: { staff_id: staffId },
@@ -762,7 +768,7 @@ export class CanvasCoursesService {
         return this.publicRun(replay);
       }
       const running = await tx.canvas_course_runs.findFirst({
-        where: { status: { in: ["pending", "running"] } },
+        where: { trigger: "manual", status: { in: ["pending", "running"] } },
         orderBy: { created_at: "asc" },
       });
       if (running) {
@@ -783,15 +789,9 @@ export class CanvasCoursesService {
           configuration_hash: config.hash,
         },
       });
-      await audit(
-        tx,
-        trigger === "scheduled"
-          ? `canvas-schedule:${staffId}`
-          : `staff:${staffId}`,
-        "canvas.courses_queued",
-        run.id,
-        { trigger },
-      );
+      await audit(tx, `staff:${staffId}`, "canvas.courses_queued", run.id, {
+        trigger,
+      });
       return this.publicRun(run);
     });
   }
@@ -799,28 +799,10 @@ export class CanvasCoursesService {
     principal: Principal,
     input: { enabled: boolean; intervalMinutes: number; version: number },
   ) {
-    if (input.enabled) {
-      const { config, member } = await this.authorizedStaff(principal.staffId!);
-      const grant = await prisma.staff_canvas_grants.findUnique({
-        where: { staff_id: principal.staffId! },
-      });
-      if (
-        !grant ||
-        grant.configuration_hash !== config.fingerprint ||
-        grant.provider !== config.provider ||
-        grant.subject !== member.external_subject
-      )
-        throw new ConflictException(
-          "Sign in with Canvas again before enabling scheduled reads.",
-        );
-      const preview = await prisma.canvas_course_snapshots.findUnique({
-        where: { configuration_hash: config.hash },
-      });
-      if (!preview)
-        throw new ConflictException(
-          "Save a reviewed course preview before enabling scheduled reads.",
-        );
-    }
+    if (input.enabled)
+      throw new ConflictException(
+        "Scheduled course previews are deferred in this demo. Use Refresh from Canvas.",
+      );
     return transaction(async (tx) => {
       await lock(tx);
       const current = await tx.canvas_course_schedule.findUnique({
@@ -883,72 +865,24 @@ export class CanvasCoursesService {
     });
     return { disconnected: true };
   }
-  async workerStep() {
+  // Called only during a staff request. Ownership filters prevent one staff
+  // member's page from executing another member's private course read.
+  async readPendingPreview(staffId?: string, runId?: string) {
     await expireCoursePreviews();
-    // Disabled installations perform no connector database or Canvas work.
     let config: ReturnType<typeof settings>;
     try {
       config = settings();
     } catch {
       return;
     }
-    const schedule = await prisma.canvas_course_schedule.findUnique({
-      where: { id: "default" },
-    });
-    if (
-      schedule?.enabled &&
-      schedule.owner_staff_id &&
-      schedule.next_run_at &&
-      schedule.next_run_at <= new Date()
-    ) {
-      try {
-        const { member } = await this.authorizedStaff(schedule.owner_staff_id);
-        const grant = await prisma.staff_canvas_grants.findUnique({
-          where: { staff_id: schedule.owner_staff_id },
-        });
-        if (
-          !grant ||
-          grant.configuration_hash !== config.fingerprint ||
-          grant.subject !== member.external_subject
-        )
-          throw new CanvasReadError("authorization");
-        if (!scopesFor(member.roles).includes("canvas:manage"))
-          throw new ForbiddenException();
-        await this.enqueue(
-          schedule.owner_staff_id,
-          `scheduled:${schedule.next_run_at.toISOString()}`,
-          "scheduled",
-        );
-        await prisma.canvas_course_schedule.updateMany({
-          where: {
-            id: "default",
-            version: schedule.version,
-            next_run_at: schedule.next_run_at,
-          },
-          data: {
-            next_run_at: new Date(
-              Date.now() + schedule.interval_minutes * 60_000,
-            ),
-          },
-        });
-      } catch (error) {
-        if (!(error instanceof ConflictException)) {
-          await prisma.canvas_course_schedule.updateMany({
-            where: { id: "default", version: schedule.version },
-            data: {
-              enabled: false,
-              next_run_at: null,
-              version: { increment: 1 },
-            },
-          });
-        }
-      }
-    }
     const run = await transaction(async (tx) => {
       await lock(tx);
       // Fence abandoned attempts. Two crashed attempts require an explicit retry.
       await tx.canvas_course_runs.updateMany({
         where: {
+          ...(staffId ? { staff_id: staffId } : {}),
+          ...(runId ? { id: runId } : {}),
+          trigger: "manual",
           status: "running",
           lease_expires_at: { lte: new Date() },
           attempts: { gte: 2 },
@@ -961,11 +895,18 @@ export class CanvasCoursesService {
         },
       });
       const active = await tx.canvas_course_runs.findFirst({
-        where: { status: "running", lease_expires_at: { gt: new Date() } },
+        where: {
+          trigger: "manual",
+          status: "running",
+          lease_expires_at: { gt: new Date() },
+        },
       });
       if (active) return null;
       const next = await tx.canvas_course_runs.findFirst({
         where: {
+          ...(staffId ? { staff_id: staffId } : {}),
+          ...(runId ? { id: runId } : {}),
+          trigger: "manual",
           OR: [
             { status: "pending" },
             {
@@ -992,18 +933,6 @@ export class CanvasCoursesService {
     try {
       if (run.configuration_hash !== config.hash)
         throw new CanvasReadError("invalid");
-      if (run.trigger === "scheduled") {
-        const owner = await this.authorizedStaff(run.staff_id);
-        const currentSchedule = await prisma.canvas_course_schedule.findUnique({
-          where: { id: "default" },
-        });
-        if (
-          !currentSchedule?.enabled ||
-          currentSchedule.owner_staff_id !== run.staff_id ||
-          !scopesFor(owner.member.roles).includes("canvas:manage")
-        )
-          throw new CanvasReadError("authorization");
-      }
       const client = new CanvasCourseClient(
         config.origin,
         config.userAgent,
@@ -1051,17 +980,6 @@ export class CanvasCoursesService {
           grant.subject !== member.external_subject
         )
           throw new CanvasReadError("authorization");
-        if (run.trigger === "scheduled") {
-          const currentSchedule = await tx.canvas_course_schedule.findUnique({
-            where: { id: "default" },
-          });
-          if (
-            !currentSchedule?.enabled ||
-            currentSchedule.owner_staff_id !== run.staff_id ||
-            !scopesFor(member.roles).includes("canvas:manage")
-          )
-            throw new CanvasReadError("authorization");
-        }
         const valid = await tx.canvas_course_runs.updateMany({
           where: {
             id: run.id,

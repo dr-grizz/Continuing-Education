@@ -102,7 +102,40 @@ async function main() {
       ).status,
       400,
     );
-    console.log("PASS: authentication, scopes and request validation");
+    assert.equal(
+      (
+        await http(
+          "staff/transactions/reconcile",
+          process.env.LEARNER_API_TOKEN,
+          {},
+        )
+      ).status,
+      403,
+    );
+    assert.equal(
+      (
+        await http(
+          "staff/transactions/reconcile",
+          process.env.AUTOMATION_API_TOKEN,
+          {},
+        )
+      ).status,
+      403,
+    );
+    if (!(await service.paymentConfig()).provider.includes("stripe"))
+      assert.equal(
+        (
+          await http(
+            "staff/transactions/reconcile",
+            process.env.STAFF_API_TOKEN,
+            {},
+          )
+        ).status,
+        200,
+      );
+    console.log(
+      "PASS: authentication, scopes and request validation, including manual payment recovery",
+    );
     const draftResponse = await http("offerings", process.env.STAFF_API_TOKEN, {
       title: "Isolated staff creation test",
       category: "Technology",
@@ -545,6 +578,10 @@ async function main() {
     }
     async function waitFor(id: string, status: string) {
       for (let i = 0; i < 60; i++) {
+        assert.equal(
+          (await http("me/learning", process.env.LEARNER_API_TOKEN)).status,
+          200,
+        );
         const row = await db.query(
           "SELECT status FROM entitlements WHERE id=$1",
           [id],
@@ -2160,6 +2197,152 @@ async function main() {
         "1f15c4890000000d49444154789c6360000002000154a24f5d0000000049454e44ae426082",
       "hex",
     ).toString("base64");
+    // Offering covers use course-manager permission independently of sales pages.
+    const imageCourse = await seed(false);
+    const imagePath = `offerings/${imageCourse}/image`;
+    const imageUpload = {
+      version: 1,
+      mode: "upload",
+      fileName: "portal.png",
+      contentType: "image/png",
+      data: png,
+      reason: "Update the portal display image",
+    };
+    for (const actor of [approverId, contentId]) {
+      assert.equal(
+        (await http(imagePath, STAFF, imageUpload, actor)).status,
+        403,
+      );
+    }
+    assert.equal(
+      (await http(imagePath, process.env.LEARNER_API_TOKEN, imageUpload))
+        .status,
+      403,
+    );
+    const countMedia = async () =>
+      (await db.query("SELECT count(*)::int AS n FROM media_assets")).rows[0].n;
+    const beforeMedia = await countMedia();
+    for (const invalid of [
+      {
+        ...imageUpload,
+        data: Buffer.from("<html>not an image</html>").toString("base64"),
+      },
+      { ...imageUpload, contentType: "image/svg+xml" },
+      {
+        ...imageUpload,
+        data: Buffer.alloc(5 * 1024 * 1024 + 1).toString("base64"),
+      },
+      { ...imageUpload, reason: "short" },
+      { version: 1, mode: "upload", reason: imageUpload.reason },
+      { ...imageUpload, mode: "fallback" },
+      { version: 1, mode: "unknown", reason: imageUpload.reason },
+    ]) {
+      assert.equal(
+        (await http(imagePath, STAFF, invalid, catalogId)).status,
+        400,
+      );
+      assert.equal(
+        await countMedia(),
+        beforeMedia,
+        "failed changes must not create orphan media",
+      );
+    }
+    const changedImageResponse = await http(
+      imagePath,
+      STAFF,
+      imageUpload,
+      catalogId,
+    );
+    assert.equal(changedImageResponse.status, 200);
+    const changedImage = await changedImageResponse.json();
+    mediaIds.push(changedImage.image_media_id);
+    assert.equal(changedImage.image_override, true);
+    assert.equal(changedImage.version, 2);
+    assert.equal(await countMedia(), beforeMedia + 1);
+    const imagePublic = await (await http(`offerings/${imageCourse}`)).json();
+    assert.equal(imagePublic.image_media_id, changedImage.image_media_id);
+    const imageBytesResponse = await fetch(
+      `http://127.0.0.1:3050/media/${changedImage.image_media_id}`,
+    );
+    assert.equal(imageBytesResponse.headers.get("content-type"), "image/png");
+    assert.equal(
+      Buffer.from(await imageBytesResponse.arrayBuffer()).toString("base64"),
+      png,
+    );
+    assert.equal(
+      (await http(imagePath, STAFF, imageUpload, catalogId)).status,
+      409,
+      "stale versions cannot overwrite images",
+    );
+    assert.equal(await countMedia(), beforeMedia + 1);
+    const fallback = await (
+      await http(
+        imagePath,
+        STAFF,
+        { version: 2, mode: "fallback", reason: imageUpload.reason },
+        catalogId,
+      )
+    ).json();
+    assert.equal(fallback.image_override, true);
+    assert.equal(fallback.image_media_id, null);
+    const reset = await (
+      await http(
+        imagePath,
+        STAFF,
+        { version: 3, mode: "source", reason: imageUpload.reason },
+        catalogId,
+      )
+    ).json();
+    assert.equal(reset.image_override, false);
+    assert.equal(reset.image_media_id, null);
+    const imageActivity = (
+      await (await http(`staff/offerings/${imageCourse}`, STAFF)).json()
+    ).activity;
+    assert.equal(
+      imageActivity.filter((a: any) => a.action === "offering.image_changed")
+        .length,
+      3,
+    );
+    // Incomplete imported drafts can choose a cover without completing sales details.
+    await db.query(
+      "UPDATE offerings SET published=false, imported_from_canvas=true, price_cents=null, capacity=null, course_type=null, start_date=null, end_date=null WHERE id=$1",
+      [imageCourse],
+    );
+    const draftImage = await http(
+      imagePath,
+      STAFF,
+      { version: reset.version, mode: "fallback" },
+      catalogId,
+    );
+    assert.equal(draftImage.status, 200);
+    const imageKey = randomUUID();
+    httpKeys.push(imageKey);
+    const imagePrincipal = {
+      actor: `staff:${catalogId}`,
+      scopes: ["catalog:write"],
+    };
+    const draftVersion = (await draftImage.json()).version;
+    const imageCommand = { version: draftVersion, mode: "source" as const };
+    const firstImageSave = await service.changeOfferingImage(
+      imagePrincipal,
+      imageKey,
+      imageCourse,
+      imageCommand,
+    );
+    const repeatedImageSave = await service.changeOfferingImage(
+      imagePrincipal,
+      imageKey,
+      imageCourse,
+      imageCommand,
+    );
+    assert.deepEqual(
+      JSON.parse(JSON.stringify(firstImageSave)),
+      repeatedImageSave,
+      "idempotent retries reuse the first result",
+    );
+    console.log(
+      "PASS: portal course images: course-manager permission, validation, atomic uploads, stale versions, independent draft saves, reset, idempotency and activity",
+    );
     assert.equal(
       (
         await http(
@@ -2459,7 +2642,7 @@ async function main() {
             reservation.id,
           ])
         ).rows[0].status,
-        "provisioning",
+        "enrolled",
       );
       assert.equal(
         (
@@ -2507,7 +2690,7 @@ async function main() {
         "expired",
       );
       console.log(
-        "PASS: Stripe webhooks: signed events only, amount checked, paid once, enrollment queued, expiry recorded",
+        "PASS: Stripe webhooks: signed events only, amount checked, paid once, simulated enrollment completed, expiry recorded",
       );
 
       // Transactions are read-only; refunds are requested here and issued in Stripe.
@@ -2777,7 +2960,10 @@ async function main() {
         "UPDATE entitlements SET reserved_until=now()-interval '1 minute' WHERE id=$1",
         [held.id],
       );
-      await new Promise((resolve) => setTimeout(resolve, 2500));
+      assert.equal(
+        (await http("me/learning", process.env.LEARNER_API_TOKEN)).status,
+        200,
+      );
       assert.equal(
         (
           await db.query("SELECT status FROM entitlements WHERE id=$1", [
@@ -2785,13 +2971,16 @@ async function main() {
           ])
         ).rows[0].status,
         "reserved",
-        "the worker keeps the seat while Checkout is unresolved",
+        "request processing keeps the seat while Checkout is unresolved",
       );
       await db.query(
         "UPDATE checkout_sessions SET status='expired' WHERE id=$1",
         [heldSession],
       );
-      await new Promise((resolve) => setTimeout(resolve, 2500));
+      assert.equal(
+        (await http("me/learning", process.env.LEARNER_API_TOKEN)).status,
+        200,
+      );
       assert.equal(
         (
           await db.query("SELECT status FROM entitlements WHERE id=$1", [

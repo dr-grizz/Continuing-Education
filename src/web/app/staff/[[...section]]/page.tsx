@@ -1,6 +1,10 @@
 "use client";
 import { missingOfferingInfo } from "../../../../domain/offering-readiness";
-import { use, useEffect, useRef, useState } from "react";
+import { Suspense, use, useEffect, useRef, useState } from "react";
+import {
+  CredentialTools,
+  type CredentialTool,
+} from "../../../components/credential-tools";
 import { useRouter } from "next/navigation";
 import {
   Alert,
@@ -99,6 +103,7 @@ type AuditEntry = {
 type ApprovalRequest = Learning & {
   created_at: string;
   learner_email: string | null;
+  learner_name?: string | null;
   approval_valid_days: number;
 };
 const actorLabel = (entry: AuditEntry) =>
@@ -178,9 +183,21 @@ type TabName =
   | "activity"
   | "learners"
   | "users"
-  | "roles";
+  | "roles"
+  | "badge-designer"
+  | "badge-publishing"
+  | "badge-awards"
+  | "certificates"
+  | "badge-issuances";
 
 // Sidebar groups and section addresses. "users" is the Staff section, at /staff/staff.
+const credentialSections: Partial<Record<TabName, CredentialTool>> = {
+  "badge-designer": "issuer",
+  "badge-publishing": "publishing",
+  "badge-awards": "awards",
+  certificates: "certificates",
+  "badge-issuances": "issuances",
+};
 const sections: {
   tab: TabName;
   slug: string;
@@ -268,6 +285,46 @@ const sections: {
     group: "Courses",
     icon: <SchoolIcon />,
     scope: "canvas:read",
+  },
+  {
+    tab: "badge-designer",
+    slug: "badges",
+    label: "Badge designer",
+    group: "Credentials",
+    icon: <BadgeIcon />,
+    scope: "badges:manage",
+  },
+  {
+    tab: "badge-publishing",
+    slug: "badge-publishing",
+    label: "Publish and map badges",
+    group: "Credentials",
+    icon: <BadgeIcon />,
+    scope: "badges:manage",
+  },
+  {
+    tab: "badge-awards",
+    slug: "badge-awards",
+    label: "Award badges",
+    group: "Credentials",
+    icon: <BadgeIcon />,
+    scope: "badges:manage",
+  },
+  {
+    tab: "certificates",
+    slug: "certificates",
+    label: "Certificates",
+    group: "Credentials",
+    icon: <BadgeIcon />,
+    scope: "badges:manage",
+  },
+  {
+    tab: "badge-issuances",
+    slug: "badge-issuances",
+    label: "Issuance register",
+    group: "Credentials",
+    icon: <BadgeIcon />,
+    scope: "badges:manage",
   },
   {
     tab: "activity",
@@ -458,13 +515,17 @@ function StaffWorkspace({
   });
   const approvalsView = useTableView(requests, {
     compare: {
-      learner: (a, b) => byText(a.learner_email ?? "", b.learner_email ?? ""),
+      learner: (a, b) =>
+        byText(
+          a.learner_email ?? a.learner_name ?? "",
+          b.learner_email ?? b.learner_name ?? "",
+        ),
       title: (a, b) => byText(a.title, b.title),
       requested: (a, b) => byText(a.created_at, b.created_at),
     },
     initial: { key: "requested", direction: "asc" },
     matches: (r) =>
-      `${r.learner_email ?? ""} ${r.title}`
+      `${r.learner_email ?? r.learner_name ?? ""} ${r.title}`
         .toLowerCase()
         .includes(approvalQuery.toLowerCase()),
   });
@@ -495,12 +556,12 @@ function StaffWorkspace({
         : "Request declined.",
     );
   useEffect(() => {
-    if (tab === "canvas") {
+    if (tab === "canvas" || credentialSections[tab]) {
       setLoaded(true);
       return;
     }
     refresh().catch((e) => setError(e.message));
-  }, [tab === "canvas"]);
+  }, [tab === "canvas" || Boolean(credentialSections[tab])]);
   async function action(path: string, body: unknown, text: string) {
     setBusy(true);
     setError("");
@@ -840,7 +901,7 @@ function StaffWorkspace({
                       <OfferingLink offering={c} />
                     </Typography>
                     <Chip
-                      label={statusLabels[offeringStatus(c)]}
+                      label={`${statusLabels[offeringStatus(c)]}${c.listed === false ? " · Unlisted" : ""}`}
                       variant="outlined"
                       color={statusColors[offeringStatus(c)]}
                     />
@@ -933,7 +994,7 @@ function StaffWorkspace({
                       </TableCell>
                       <TableCell>
                         <Chip
-                          label={statusLabels[offeringStatus(c)]}
+                          label={`${statusLabels[offeringStatus(c)]}${c.listed === false ? " · Unlisted" : ""}`}
                           variant="outlined"
                           color={statusColors[offeringStatus(c)]}
                         />
@@ -1025,7 +1086,9 @@ function StaffWorkspace({
                         variant="body2"
                         sx={{ overflowWrap: "anywhere" }}
                       >
-                        {r.learner_email || "Legacy demo learner"}
+                        {r.learner_email ||
+                          r.learner_name ||
+                          "Legacy demo learner"}
                       </Typography>
                       <Typography variant="body2" color="text.secondary">
                         Requested {new Date(r.created_at).toLocaleDateString()}
@@ -1089,7 +1152,9 @@ function StaffWorkspace({
                       {approvalsView.visible.map((r) => (
                         <TableRow key={r.id}>
                           <TableCell sx={{ overflowWrap: "anywhere" }}>
-                            {r.learner_email || "Legacy demo learner"}
+                            {r.learner_email ||
+                              r.learner_name ||
+                              "Legacy demo learner"}
                             <Typography
                               variant="caption"
                               sx={{
@@ -1293,6 +1358,7 @@ function StaffWorkspace({
         )}
         {tab === "transactions" && can("payments:read") && (
           <StaffTransactions
+            canReconcile={can("payments:reconcile")}
             canRequest={can("refunds:request")}
             onChanged={setMessage}
           />
@@ -1321,6 +1387,11 @@ function StaffWorkspace({
             canManage={can("staff:manage")}
             onAssign={(role) => router.push(`/staff/staff?role=${role}`)}
           />
+        )}
+        {credentialSections[tab] && can("badges:manage") && (
+          <Suspense fallback={<LoadingCards label="Loading credentials" />}>
+            <CredentialTools tool={credentialSections[tab]!} />
+          </Suspense>
         )}
         <OfferingForm
           open={formOpen}

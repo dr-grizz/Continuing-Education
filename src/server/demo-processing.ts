@@ -1,12 +1,8 @@
 import type { operations } from "../generated/prisma/client";
-import { CanvasCoursesService } from "../server/canvas-courses";
-import { db } from "../domain/db";
-import { prisma, sql, transaction, Tx } from "../domain/prisma";
-import { audit, PortalService } from "../server/service";
-const portal = new PortalService();
-const canvasCourses = new CanvasCoursesService();
-let readingCourses = false;
-let stopped = false;
+import { sql, type Tx } from "../domain/prisma";
+type Audit = typeof import("./service").audit;
+
+// Bounded, database-only simulation. Requests resume due work; there is no timer.
 type Stage = "identity" | "canvas";
 const MAX_ATTEMPTS = 3;
 const failureReasons: Record<Stage, string> = {
@@ -29,13 +25,17 @@ function simulatedFailure(op: {
       op.attempts === 0)
   );
 }
-// One worker step in one transaction: claim at most one due job, then expire stale
-// reservations and lapsed approvals. Claiming uses FOR UPDATE SKIP LOCKED so several
-// workers never process the same job.
-async function step(tx: Tx) {
+// One transaction claims a due stage. Row locks let concurrent API requests
+// resume durable work without processing the same stage twice.
+export async function processDemoOperation(
+  tx: Tx,
+  audit: Audit,
+  entitlementId?: string,
+) {
   const [op] = await sql<operations>(
     tx,
-    "SELECT * FROM operations WHERE status IN ('pending','running') AND next_run<=now() ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1",
+    "SELECT p.* FROM operations p JOIN entitlements e ON e.id=p.entitlement_id WHERE p.status IN ('pending','running') AND p.next_run<=now() AND ($1::uuid IS NULL OR p.entitlement_id=$1::uuid) ORDER BY p.created_at FOR UPDATE OF e,p SKIP LOCKED LIMIT 1",
+    entitlementId ?? null,
   );
   if (op) {
     const [current] = await sql<{ status: string }>(
@@ -61,7 +61,7 @@ async function step(tx: Tx) {
       );
       await audit(
         tx,
-        "prototype-worker",
+        "prototype-request",
         "prototype.provisioning_delayed",
         op.entitlement_id,
         { stage: op.stage },
@@ -81,7 +81,7 @@ async function step(tx: Tx) {
         );
         await audit(
           tx,
-          "prototype-worker",
+          "prototype-request",
           "prototype.provisioning_retry_scheduled",
           op.entitlement_id,
           { stage: op.stage, attempt, reason },
@@ -102,7 +102,7 @@ async function step(tx: Tx) {
         );
         await audit(
           tx,
-          "prototype-worker",
+          "prototype-request",
           "prototype.provisioning_failed",
           op.entitlement_id,
           { stage: op.stage, attempts: attempt, reason },
@@ -111,12 +111,12 @@ async function step(tx: Tx) {
     } else if (op.stage === "identity") {
       await sql(
         tx,
-        "UPDATE operations SET status='running',stage='canvas',attempts=0,error=NULL,next_run=now()+interval '3 seconds' WHERE id=$1::uuid",
+        "UPDATE operations SET status='running',stage='canvas',attempts=0,error=NULL,next_run=now() WHERE id=$1::uuid",
         op.id,
       );
       await audit(
         tx,
-        "prototype-worker",
+        "prototype-request",
         "prototype.identity_simulated",
         op.entitlement_id,
       );
@@ -133,12 +133,15 @@ async function step(tx: Tx) {
       );
       await audit(
         tx,
-        "prototype-worker",
+        "prototype-request",
         "prototype.enrollment_simulated",
         op.entitlement_id,
       );
     }
   }
+  return Boolean(op);
+}
+export async function expireDemoReservations(tx: Tx, audit: Audit) {
   const expired = await sql<{ id: string }>(
     tx,
     // A seat is not released while a Stripe Checkout session for it is still
@@ -148,71 +151,11 @@ async function step(tx: Tx) {
      RETURNING e.id AS id`,
   );
   for (const row of expired)
-    await audit(tx, "prototype-worker", "seat.expired", row.id);
+    await audit(tx, "prototype-request", "seat.expired", row.id);
   const lapsed = await sql<{ id: string }>(
     tx,
     "UPDATE entitlements SET status='approval_expired' WHERE status='approved' AND approval_expires_at<=now() RETURNING id",
   );
   for (const row of lapsed)
-    await audit(tx, "prototype-worker", "approval.expired", row.id);
+    await audit(tx, "prototype-request", "approval.expired", row.id);
 }
-let lastReconciled = 0;
-async function tick() {
-  // Network reads run outside the enrollment transaction and never block its loop.
-  if (!readingCourses) {
-    readingCourses = true;
-    void canvasCourses
-      .workerStep()
-      .catch(() => {
-        console.error(
-          "Canvas course worker unavailable; retrying on the next tick.",
-        );
-      })
-      .finally(() => {
-        readingCourses = false;
-      });
-  }
-  try {
-    await transaction(step);
-  } catch (error) {
-    // The transaction rolled back; the job stays due and is retried next tick.
-    console.error(
-      "Worker retry:",
-      error instanceof Error ? error.message : "unknown error",
-    );
-  }
-  // Every 30 seconds, ask Stripe about Checkout sessions that expired without
-  // a webhook, so a missed notification neither loses a payment nor holds a seat.
-  if (Date.now() - lastReconciled >= 30_000) {
-    lastReconciled = Date.now();
-    try {
-      await portal.reconcileCheckouts();
-    } catch (error) {
-      console.error(
-        "Stripe reconciliation retry:",
-        error instanceof Error ? error.message : "unknown error",
-      );
-    }
-  }
-}
-async function main() {
-  console.log(
-    "Local worker running. Identity and Canvas outcomes are SIMULATED.",
-  );
-  while (!stopped) {
-    await tick();
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-  }
-  await prisma.$disconnect();
-  await db.end();
-}
-process.on("SIGINT", () => {
-  stopped = true;
-});
-process.on("SIGTERM", () => {
-  stopped = true;
-});
-main().catch((error) => {
-  console.error(error);
-  process.exitCode = 1;
-});

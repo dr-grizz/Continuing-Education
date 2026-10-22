@@ -1,0 +1,129 @@
+{
+  "at": "2026-10-15T15:25:55.549Z",
+  "environment": "Next.js 16.3.8 + actual Nest API + isolated Postgres WASM using reviewed migrations + real badge service",
+  "syntheticOnly": true,
+  "checks": [
+    {
+      "name": "Anonymous staff route denied",
+      "pass": true
+    },
+    {
+      "name": "Existing portal staff sign-in",
+      "pass": true
+    },
+    {
+      "name": "Native portal-authorized badge catalog",
+      "pass": true
+    },
+    {
+      "name": "Cross-origin mutation denied",
+      "pass": true
+    },
+    {
+      "name": "Browser-created draft read-back",
+      "pass": true
+    },
+    {
+      "name": "Publish immutable badge version",
+      "pass": true
+    },
+    {
+      "name": "Published actor comes from portal identity",
+      "pass": true
+    },
+    {
+      "name": "Certificate catalog via portal sign-in",
+      "pass": true
+    },
+    {
+      "name": "Header, centered logo and signature template saved",
+      "pass": true
+    },
+    {
+      "name": "Integrated certificate PDF preview",
+      "pass": true
+    },
+    {
+      "name": "PDF preview has correct magic",
+      "pass": true
+    },
+    {
+      "name": "Synthetic portal learner sign-in",
+      "pass": true
+    },
+    {
+      "name": "Manual award preview",
+      "pass": true
+    },
+    {
+      "name": "Manual issuance and certificate committed",
+      "pass": true
+    },
+    {
+      "name": "Issuance retry returns same batch",
+      "pass": true
+    },
+    {
+      "name": "CSV batch preview",
+      "pass": true
+    },
+    {
+      "name": "CSV batch committed",
+      "pass": true
+    },
+    {
+      "name": "Explicitly linked learner sees own award",
+      "pass": true
+    },
+    {
+      "name": "Learner certificate available",
+      "pass": true
+    },
+    {
+      "name": "Owner certificate PDF download",
+      "pass": true
+    },
+    {
+      "name": "Cross-learner PDF denied",
+      "pass": true
+    },
+    {
+      "name": "Query string cannot impersonate learner",
+      "pass": true
+    },
+    {
+      "name": "Learner cannot access issuer register",
+      "pass": true
+    },
+    {
+      "name": "Portal verification URL",
+      "pass": true
+    },
+    {
+      "name": "Explicitly shared award publicly verifiable",
+      "pass": true
+    },
+    {
+      "name": "Turning sharing off removes public verification",
+      "pass": true
+    },
+    {
+      "name": "Register contains both synthetic awards",
+      "pass": true
+    },
+    {
+      "name": "Both certificates attached in register",
+      "pass": true
+    },
+    {
+      "name": "Existing Approver role denied credential management",
+      "pass": true
+    },
+    {
+      "name": "Existing Course manager role allowed credential management",
+      "pass": true
+    }
+  ],
+  "awards": 2,
+  "certificates": 2
+}

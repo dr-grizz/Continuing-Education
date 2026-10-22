@@ -33,6 +33,7 @@ export type ExceptionRow = {
   id: string;
   title: string;
   learner_email: string | null;
+  learner_name?: string | null;
   stage: string;
   error: string | null;
   attempts: number;
@@ -56,7 +57,7 @@ const wideOnly = { display: { xs: "none", sm: "block" } };
 const phoneOnly = { display: { xs: "block", sm: "none" } };
 const when = (value: string) => new Date(value).toLocaleString();
 const learnerLabel = (row: ExceptionRow) =>
-  row.learner_email || "Legacy demo learner";
+  row.learner_email || row.learner_name || "Legacy demo learner";
 
 export function StaffExceptions({
   rows,

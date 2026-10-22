@@ -347,6 +347,24 @@ Mock sign-in. The Email field (`autoComplete="username"`) and Password field (`c
   - A server rejection, such as removing the last active staff administrator, appears in the error summary, which receives focus.
 - **Roles:** one card per role with its description, its permissions in plain language, and the people who hold it (inactive people are marked). Staff administrators get **Manage people**, which opens the Staff tab filtered to that role. Role permissions are read-only.
 
+## Badging and certificate interfaces
+
+The optional local credential subsystem follows the portal's existing navigation, theme, session and unsaved-change patterns. [Setup and authority](../badges-and-certificates.md) and [ADR 0008](../adr/0008-badges-and-certificates.md) define the service boundary; these interfaces do not establish a production issuer or institutional credential policy.
+
+| Interface | Required behavior |
+| --- | --- |
+| **Badge designer** (`/staff/badges`) | Create and revise drafts; select artwork, shape, symbol, typography and colors; upload a complete badge image or logo; edit title, description, criteria and issuer; preview and export artwork/definition. Saving a draft does not issue a credential. |
+| **Publish and map badges** (`/staff/badge-publishing`) | Approve immutable badge versions; define Canvas assessment/module earning rules; check mappings before activation and require fresh trusted evidence before issuing; archive versions without rewriting existing awards. |
+| **Award badges** (`/staff/badge-awards`) | Preview manual or CSV awards, show row errors/duplicates before confirmation, require an attestation reason, optionally include certificates, and return the same committed batch safely on retry. |
+| **Certificates** (`/staff/certificates`) | Save versioned templates with optional left-aligned header, centered custom logo, signature image, signer details, colors and paper style; preview/download a sample PDF; create a frozen PDF from an active earned award after confirming the recipient's printed name. |
+| **Issuance register** (`/staff/badge-issuances`) | Search/filter recorded awards, inspect evidence and history, export records and download attached certificates. A certificate belongs to its award. Wide tables have a named, focusable scroll region with visible focus and keyboard scrolling. |
+| **My badges** (`/badges`) | Show only the authenticated learner's explicitly linked awards; search/filter, inspect status, download credentials/certificates, and enable or withdraw public sharing. Signed-out, unlinked, empty and unavailable states provide clear guidance. Canvas learners remain signed in when email is absent. |
+| **Public verification** (`/verify/badges/:source/:id`) | Display only explicitly shared credentials and safe achievement/status fields. Exclude private learner IDs, grades, evidence, printed certificate names and PDFs; withdrawal removes public access. |
+
+Only current staff sessions with `badges:manage` can operate staff credential tools; course managers and staff administrators hold that scope. Learner requests independently validate the configured mock or Canvas learner session and resolve a private approved account link; a staff session or browser-supplied learner ID cannot substitute. All writes require same-origin JSON, service tokens stay on the server, and an unavailable/disabled service returns an actionable error.
+
+Each editor is a titled same-origin document in the staff workspace. Interfaces support light/dark themes, phone layouts, 320px reflow, labeled inputs, live status/error feedback, keyboard traversal and the existing unsaved-change dialog. [The October 21 validation record](badges-validation-2026-10-21.json) records actual coverage and outstanding checks, including manual screen-reader review.
+
 ## Known gaps
 
 - Focus and announcement behavior is verified by keyboard and DOM inspection; no screen-reader session, forced-colors, zoom or cross-browser review has been recorded for this baseline.

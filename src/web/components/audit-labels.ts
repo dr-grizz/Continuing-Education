@@ -1,5 +1,7 @@
 // Plain-language wording for audit actions and system actors shown to staff.
 export const auditLabels: Record<string, string> = {
+  "learner.signed_in": "Learner signed in",
+  "learner.signed_out": "Learner signed out",
   "approval.requested": "Approval requested",
   "approval.approved": "Approval granted",
   "approval.declined": "Approval declined",
@@ -20,6 +22,7 @@ export const auditLabels: Record<string, string> = {
   "offering.created": "Draft offering created",
   "prototype.offering_published": "Offering published",
   "offering.settings_changed": "Offering settings changed",
+  "offering.image_changed": "Portal course image changed",
   "offering.edited": "Offering edited",
   "offering.unpublished": "Offering unpublished",
   "staff.created": "Staff member added",
@@ -43,12 +46,14 @@ export const auditLabels: Record<string, string> = {
   "payment.refund_unmatched": "Stripe refund needs review",
   "refund.requested": "Refund requested",
   "access.ended": "Course access ended (refund)",
+  "payments.reconciled": "Stripe payments checked",
   "refund.request_cancelled": "Refund request cancelled",
 };
 export const actorLabels: Record<string, string> = {
   "demo-staff": "Staff (demo)",
   "demo-learner": "Legacy demo learner",
   "demo-automation": "Automation token",
+  "prototype-request": "Demo processing",
   "prototype-worker": "Background worker",
   "stripe-webhook": "Stripe (webhook)",
   "stripe-reconciliation": "Stripe (reconciliation)",

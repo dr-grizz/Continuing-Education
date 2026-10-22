@@ -1,0 +1,33 @@
+{
+  "specification": "Open Badges 3.0",
+  "documentVersion": "1.4.5",
+  "documentDate": "2026-06-29",
+  "specificationUrl": "https://www.imsglobal.org/spec/ob/v3p0/",
+  "files": [
+    {
+      "file": "achievementcredential.schema.json",
+      "url": "https://purl.imsglobal.org/spec/ob/v3p0/schema/json/ob_v3p0_achievementcredential_schema.json",
+      "resolvedUrl": "https://purl.imsglobal.org/spec/ob/v3p0/schema/json/ob_v3p0_achievementcredential_schema.json",
+      "sha256": "b7358e895f492e74055dc6bfc7ffc420d0e497f90c4579fb83d9519b86d393ea"
+    },
+    {
+      "file": "ob-context-3.0.3.json",
+      "url": "https://purl.imsglobal.org/spec/ob/v3p0/context-3.0.3.json",
+      "resolvedUrl": "https://purl.imsglobal.org/spec/ob/v3p0/context-3.0.3.json",
+      "sha256": "3d34f4d4ef1bce691106e63798beb5e7b862ba841423f5ee1e53ab7ddf3bca84"
+    },
+    {
+      "file": "vc-context-v2.json",
+      "url": "https://www.w3.org/ns/credentials/v2",
+      "resolvedUrl": "https://www.w3.org/ns/credentials/v2",
+      "sha256": "59955ced6697d61e03f2b2556febe5308ab16842846f5b586d7f1f7adec92734"
+    },
+    {
+      "file": "ob-extensions.json",
+      "url": "https://purl.imsglobal.org/spec/ob/v3p0/extensions.json",
+      "resolvedUrl": "https://purl.imsglobal.org/spec/ob/v3p0/extensions.json",
+      "sha256": "87c06c81bc2317663bf288d740d94fddd2818c4342b186270ff6371dfaa63f93"
+    }
+  ],
+  "retrievedAt": "2026-10-15T02:08:11.355295+00:00"
+}

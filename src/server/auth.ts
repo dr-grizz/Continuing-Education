@@ -3,6 +3,7 @@ import {
   ExecutionContext,
   ForbiddenException,
   Injectable,
+  Optional,
   UnauthorizedException,
 } from "@nestjs/common";
 export type Principal = {
@@ -16,6 +17,8 @@ import { prisma } from "../domain/prisma";
 import { scopesFor } from "./roles";
 import { CanvasStaffAuthService } from "./canvas-staff-auth";
 import { staffAuthMode } from "./staff-auth-config";
+import { learnerAuthMode } from "./learner-auth-config";
+import { CanvasLearnerAuthService } from "./canvas-learner-auth";
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -24,7 +27,10 @@ const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // a verified opaque session; prototype staff headers are rejected.
 @Injectable()
 export class PrototypeGuard implements CanActivate {
-  constructor(private readonly canvasAuth: CanvasStaffAuthService) {}
+  constructor(
+    private readonly canvasAuth: CanvasStaffAuthService,
+    @Optional() private readonly learnerAuth?: CanvasLearnerAuthService,
+  ) {}
   async canActivate(context: ExecutionContext) {
     const req = context.switchToHttp().getRequest();
     const token = req.headers.authorization?.replace(/^Bearer /, "");
@@ -49,6 +55,19 @@ export class PrototypeGuard implements CanActivate {
         "A local prototype bearer token is required.",
       );
     req.principal = { ...match[1] };
+    if (
+      req.principal.scopes.includes("learner") &&
+      learnerAuthMode() === "canvas"
+    ) {
+      if (req.headers["x-prototype-learner-id"] || !this.learnerAuth)
+        throw new UnauthorizedException(
+          "Mock learner identities are disabled.",
+        );
+      req.principal = await this.learnerAuth.principal(
+        req.headers["x-learner-session"],
+      );
+      return true;
+    }
     if (
       req.principal.scopes.includes("staff:session") &&
       staffAuthMode() === "canvas"

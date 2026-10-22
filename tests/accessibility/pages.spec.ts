@@ -11,6 +11,408 @@ const tags = [
   "wcag22a",
   "wcag22aa",
 ];
+
+test.describe("T01 offering visibility", () => {
+  const id = "00000000-0000-4000-8000-000000000301";
+  const listingName = "Listed in course discovery";
+  async function setup(
+    page: Page,
+    {
+      published = true,
+      listed = true,
+      editable = true,
+      incomplete = false,
+    } = {},
+  ) {
+    const offering = {
+      id,
+      title: "Visibility test course",
+      category: "Technology",
+      summary: "A synthetic course for visibility checks.",
+      description:
+        "A synthetic course description used to verify independent visibility settings.",
+      format: "Online",
+      course_type: incomplete ? null : "self_paced",
+      start_date: null,
+      end_date: null,
+      capacity: incomplete ? null : 20,
+      unlimited_seats: false,
+      price_cents: incomplete ? null : 1000,
+      published,
+      listed,
+      version: 1,
+      approval_required: false,
+      approval_valid_days: 7,
+      enrollment_close_days: 7,
+      canvas_course_url: null,
+      imported_from_canvas: incomplete,
+      unpublished_at: null,
+      seats_available: incomplete ? null : 20,
+      seats_in_use: 0,
+      active_registrations: 0,
+      sales_page_status: "none",
+      enrollment_open: true,
+      outcomes: [],
+      collections: [],
+      sales_page: null,
+    };
+    await page.route("**/api/demo-session", (route) =>
+      route.fulfill({
+        json: {
+          id: null,
+          email: null,
+          auth: { mode: "mock", configured: true },
+        },
+      }),
+    );
+    await page.route("**/api/staff-session", (route) =>
+      route.fulfill({
+        json: {
+          member: {
+            id: "00000000-0000-4000-8000-000000000302",
+            email: "visibility@example.test",
+            display_name: "Visibility tester",
+            active: true,
+            version: 1,
+            roles: [editable ? "catalog_manager" : "support"],
+            scopes: editable ? ["catalog:write"] : [],
+          },
+          auth: { mode: "canvas", configured: true },
+        },
+      }),
+    );
+    await page.route("**/api/staff/offerings", (route) =>
+      route.fulfill({ json: [offering] }),
+    );
+    await page.route(`**/api/staff/offerings/${id}`, (route) =>
+      route.fulfill({ json: { offering, registrations: {}, activity: [] } }),
+    );
+    await page.route(`**/api/offerings/${id}/prices`, (route) =>
+      route.fulfill({ json: [] }),
+    );
+    for (const endpoint of ["approval-requests", "exceptions"])
+      await page.route(`**/api/${endpoint}`, (route) =>
+        route.fulfill({ json: [] }),
+      );
+    await page.route("**/api/reconciliation", (route) =>
+      route.fulfill({ json: { audit: [] } }),
+    );
+    await page.route("**/api/prototype/simulation", (route) =>
+      route.fulfill({ json: { provisioningOutcome: "normal" } }),
+    );
+    return offering;
+  }
+  test("keyboard listing control saves independently and requires an audit reason", async ({
+    page,
+  }) => {
+    const offering = await setup(page);
+    const writes: any[] = [];
+    await page.route(`**/api/offerings/${id}/edit`, async (route) => {
+      const body = route.request().postDataJSON();
+      writes.push(body);
+      expect(body.version).toBe(offering.version);
+      expect(body.reason).toBe("Share course only by its direct link");
+      expect(body.priceCents).toBe(offering.price_cents);
+      Object.assign(offering, {
+        listed: body.listed,
+        version: offering.version + 1,
+      });
+      await route.fulfill({ json: { id } });
+    });
+    await page.goto(`/staff/offerings/${id}/settings`);
+    const listing = page.getByRole("switch", { name: listingName });
+    await expect(listing).toBeChecked();
+    await listing.focus();
+    await page.keyboard.press("Space");
+    await expect(listing).not.toBeChecked();
+    await expect(page.getByText(/Unlisted: published courses/)).toBeVisible();
+    const save = page.getByRole("button", {
+      name: "Save changes",
+      exact: true,
+    });
+    await save.click();
+    await expect(
+      page.getByRole("alert").filter({ hasText: "Fix these fields" }),
+    ).toBeFocused();
+    expect(writes).toHaveLength(0);
+    await page
+      .getByRole("textbox", { name: "Reason for change", exact: true })
+      .fill("Share course only by its direct link");
+    await save.click();
+    await expect.poll(() => writes.length).toBe(1);
+    expect(writes[0].listed).toBe(false);
+    await expect(
+      page.getByText("Published · Unlisted", { exact: true }),
+    ).toBeVisible();
+    await scan(page, "Published unlisted settings");
+    await page.reload();
+    await expect(listing).not.toBeChecked();
+    await listing.focus();
+    await page.keyboard.press("Space");
+    await page
+      .getByRole("textbox", { name: "Reason for change", exact: true })
+      .fill("Share course only by its direct link");
+    await save.click();
+    await expect.poll(() => writes.length).toBe(2);
+    expect(writes[1].listed).toBe(true);
+    await expect(listing).toBeChecked();
+    await scan(page, "Relisted offering settings");
+  });
+  test("stale visibility save preserves input and announces the conflict", async ({
+    page,
+  }) => {
+    await setup(page);
+    await page.route(`**/api/offerings/${id}/edit`, (route) =>
+      route.fulfill({
+        status: 409,
+        json: { message: "Offering changed. Refresh and retry." },
+      }),
+    );
+    await page.goto(`/staff/offerings/${id}/settings`);
+    const listing = page.getByRole("switch", { name: listingName });
+    await listing.uncheck();
+    await page
+      .getByRole("textbox", { name: "Reason for change", exact: true })
+      .fill("Restrict discovery to direct course links");
+    await page
+      .getByRole("button", { name: "Save changes", exact: true })
+      .click();
+    await expect(
+      page.getByRole("alert").filter({ hasText: "Offering changed" }),
+    ).toBeFocused();
+    await expect(listing).not.toBeChecked();
+    await scan(page, "Stale listing preference save");
+  });
+  test("incomplete imported draft saves listing without publishing or filling sales details", async ({
+    page,
+  }) => {
+    const offering = await setup(page, { published: false, incomplete: true });
+    let saved = false;
+    await page.route(`**/api/offerings/${id}/settings`, async (route) => {
+      const body = route.request().postDataJSON();
+      expect(body.listed).toBe(false);
+      expect(body.priceCents).toBeUndefined();
+      expect(body.version).toBe(1);
+      saved = true;
+      Object.assign(offering, { listed: false, version: 2 });
+      await route.fulfill({ json: { id } });
+    });
+    await page.goto(`/staff/offerings/${id}/settings`);
+    await page.getByRole("switch", { name: listingName }).uncheck();
+    await page
+      .getByRole("button", { name: "Save changes", exact: true })
+      .click();
+    await expect.poll(() => saved).toBe(true);
+    await expect(
+      page.getByText("Draft · Unlisted", { exact: true }),
+    ).toBeVisible();
+    await scan(page, "Incomplete draft listing settings");
+  });
+  test("view-only staff see unlisted state without an edit control", async ({
+    page,
+  }) => {
+    await setup(page, { listed: false, editable: false });
+    await page.goto(`/staff/offerings/${id}/settings`);
+    await expect(
+      page.getByText("Published · Unlisted", { exact: true }),
+    ).toBeVisible();
+    await expect(page.getByRole("switch", { name: listingName })).toHaveCount(
+      0,
+    );
+    await expect(
+      page.getByRole("button", { name: "Save changes", exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByText(
+        "Unlisted — published courses are available by direct link",
+        { exact: true },
+      ),
+    ).toBeVisible();
+    await scan(page, "Read-only offering visibility");
+  });
+  test("staff curation retains hidden membership and explains unlisted featured picks", async ({
+    page,
+  }) => {
+    const offering = await setup(page, { listed: false });
+    await page.route("**/api/staff/collections", (route) =>
+      route.fulfill({
+        json: [
+          {
+            id: "00000000-0000-4000-8000-000000000303",
+            kind: "collection",
+            slug: "visibility-group",
+            title: "Visibility group",
+            summary: "A collection with an unlisted course",
+            published: true,
+            version: 1,
+            followers: 0,
+            courses: [
+              { id, title: offering.title, published: true, listed: false },
+            ],
+          },
+        ],
+      }),
+    );
+    await page.route("**/api/staff/explore", (route) =>
+      route.fulfill({
+        json: {
+          courses: [{ id, title: offering.title, published: true }],
+          collections: [],
+          pathways: [],
+        },
+      }),
+    );
+    await page.goto("/staff/collections");
+    await expect(
+      page.locator("li:visible").filter({ hasText: offering.title }),
+    ).toContainText("unlisted, hidden from this list");
+    await scan(page, "Staff collection unlisted membership");
+    await page.goto("/staff/explore");
+    await expect(
+      page.getByText("Unlisted; hidden from Explore until listed", {
+        exact: true,
+      }),
+    ).toBeVisible();
+    await scan(page, "Staff retained unlisted featured pick");
+  });
+});
+
+test.describe("CU learner OAuth", () => {
+  async function sessions(page: Page, signedIn = false, staff = false) {
+    await page.route("**/api/demo-session", (route) =>
+      route.fulfill({
+        json: {
+          id: signedIn ? "00000000-0000-4000-8000-000000000099" : null,
+          email: null,
+          display_name: signedIn ? "CU Test Learner" : null,
+          auth: { mode: "canvas", configured: true },
+        },
+      }),
+    );
+    await page.route("**/api/staff-session", (route) =>
+      route.fulfill({
+        json: {
+          member: staff
+            ? {
+                id: "test-staff",
+                email: "test@example.test",
+                display_name: "Test Staff",
+                roles: ["staff_admin"],
+                scopes: [],
+              }
+            : null,
+          auth: { mode: "canvas", configured: true },
+        },
+      }),
+    );
+  }
+  test("existing-account sign-in and error are accessible without password fields", async ({
+    page,
+  }) => {
+    await sessions(page);
+    await page.goto("/sign-in?returnTo=%2Flearning");
+    const link = page.getByRole("link", {
+      name: "Sign in with CU account",
+      exact: true,
+    });
+    await expect(link).toBeVisible();
+    await expect(page.getByLabel("Password", { exact: true })).toHaveCount(0);
+    await expect(page.getByLabel("Email", { exact: true })).toHaveCount(0);
+    await expect(link).toHaveAttribute(
+      "href",
+      "/api/auth/learner/canvas/start?returnTo=%2Flearning",
+    );
+    for (
+      let i = 0;
+      i < 25 &&
+      !(await link.evaluate((element) => element === document.activeElement));
+      i++
+    )
+      await page.keyboard.press("Tab");
+    await expect(link).toBeFocused();
+    await scan(page, "CU learner sign-in");
+    await page.goto("/sign-in?authError=invalid");
+    await expect(
+      page.getByRole("alert").filter({ hasText: "Sign-in expired" }),
+    ).toBeVisible();
+    await scan(page, "CU learner sign-in error");
+  });
+  test("Canvas identity without email stays signed in after checkout return", async ({
+    page,
+  }) => {
+    await sessions(page, true, true);
+    await page.route("**/api/me/**", (route) => route.fulfill({ json: [] }));
+    await page.goto("/settings");
+    await expect(
+      page.getByText("Your CU account is linked through Canvas.", {
+        exact: false,
+      }),
+    ).toBeVisible();
+    await scan(page, "CU learner account settings");
+    await page.goto("/learning?checkout=success");
+    await expect(
+      page.getByRole("heading", { name: "My learning", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: "Sign in", exact: true }),
+    ).toHaveCount(0);
+    await scan(page, "CU learner checkout return");
+  });
+  test("staff can reach the separate learner login", async ({
+    page,
+    isMobile,
+  }) => {
+    await sessions(page, false, true);
+    await page.goto("/settings");
+    if (isMobile)
+      await page.getByRole("button", { name: "Open navigation menu" }).click();
+    const link = page.getByRole(isMobile ? "menuitem" : "link", {
+      name: "Use as learner",
+      exact: true,
+    });
+    await expect(link).toBeVisible();
+    await expect(link).toHaveAttribute("href", "/sign-in");
+    if (isMobile) await page.keyboard.press("Escape");
+    await scan(page, "staff-to-learner navigation");
+  });
+  test("staff learner list identifies Canvas learners by name without email", async ({
+    page,
+  }) => {
+    await sessions(page, false, true);
+    await page.route("**/api/staff/learners", (route) =>
+      route.fulfill({
+        json: [
+          {
+            id: "00000000-0000-4000-8000-000000000099",
+            email: null,
+            display_name: "CU Test Learner",
+            created_at: "2026-10-21T12:00:00Z",
+            active: true,
+            version: 1,
+            registrations: 0,
+            enrolled: 0,
+            in_progress: 0,
+            last_activity: null,
+          },
+        ],
+      }),
+    );
+    await page.goto("/staff/learners");
+    await expect(
+      page
+        .getByRole("button", { name: "View learner CU Test Learner" })
+        .first(),
+    ).toBeVisible();
+    const search = page.getByRole("textbox", { name: "Search learners" });
+    await search.fill("CU Test");
+    await expect(
+      page
+        .getByRole("button", { name: "View learner CU Test Learner" })
+        .first(),
+    ).toBeVisible();
+    await scan(page, "Canvas learner name in staff directory");
+  });
+});
 async function scan(page: Page, name: string) {
   // Wait for loading placeholders to be replaced before scanning.
   await page.waitForLoadState("networkidle");
@@ -845,6 +1247,7 @@ test.describe("Canvas course connector", () => {
         version: 1,
         approvalValidDays: 14,
         enrollmentCloseDays: 7,
+        listed: true,
         canvasCourseUrl: draft.canvas_course_url,
       });
       settingsSaved = true;
@@ -1096,21 +1499,15 @@ test.describe("Canvas course connector", () => {
     await expect(
       page.getByRole("button", { name: "Hide schedule settings" }),
     ).toHaveAttribute("aria-expanded", "true");
-    await page
-      .getByRole("button", { name: "Enable using my Canvas account" })
-      .press("Enter");
-    const pause = page.getByRole("button", { name: "Pause schedule" });
-    await expect(pause).toBeVisible();
-    await scan(page, "Canvas course preview and schedule");
-    await page.screenshot({
-      path: `/tmp/ce-canvas-courses-${test.info().project.name}.png`,
-      fullPage: true,
-    });
-    await pause.press("Enter");
-    await expect(pause).toHaveCount(0);
+    await expect(
+      page.getByText("Scheduled synchronization is deferred in this demo.", {
+        exact: false,
+      }),
+    ).toBeVisible();
     await expect(
       page.getByRole("button", { name: "Enable using my Canvas account" }),
-    ).toBeFocused();
+    ).toHaveCount(0);
+    await scan(page, "Canvas course preview and deferred schedule");
   });
   test("cached preview is reused and refresh stays in the filter toolbar", async ({
     page,
@@ -1821,4 +2218,583 @@ test.describe("Canvas staff sign-in", () => {
     ).toBeVisible();
     await scan(page, "Canvas identity not authorized");
   });
+});
+
+test("manual Stripe reconciliation keyboard action and status", async ({
+  page,
+}) => {
+  await page.route("**/api/staff-session", (route) =>
+    route.fulfill({
+      json: {
+        member: {
+          id: "00000000-0000-4000-8000-000000000001",
+          email: "support@example.test",
+          display_name: "Payment test",
+          roles: ["support"],
+          active: true,
+          version: 1,
+          scopes: [
+            "staff:read",
+            "payments:read",
+            "payments:reconcile",
+            "refunds:request",
+          ],
+        },
+        auth: { mode: "canvas", configured: true },
+      },
+    }),
+  );
+  for (const endpoint of ["staff/offerings", "approval-requests", "exceptions"])
+    await page.route(`**/api/${endpoint}`, (route) =>
+      route.fulfill({ json: [] }),
+    );
+  await page.route("**/api/reconciliation", (route) =>
+    route.fulfill({
+      json: {
+        audit: [],
+        simulated_orders: 0,
+        simulated_enrollments: 0,
+        pending_operations: 0,
+        open_exceptions: 0,
+      },
+    }),
+  );
+  await page.route("**/api/prototype/simulation", (route) =>
+    route.fulfill({ json: { provisioningOutcome: "normal" } }),
+  );
+  await page.route("**/api/staff/transactions", (route) =>
+    route.fulfill({ json: [] }),
+  );
+  let checks = 0;
+  await page.route("**/api/staff/transactions/reconcile", (route) => {
+    checks++;
+    if (checks === 1)
+      return route.fulfill({
+        status: 503,
+        json: { message: "Stripe check unavailable. Try again." },
+      });
+    expect(route.request().headers()["idempotency-key"]).toBeTruthy();
+    return route.fulfill({ json: { checked: 2, failed: 1 } });
+  });
+  await page.goto("/staff/transactions");
+  const check = page.getByRole("button", {
+    name: "Check Stripe payments",
+    exact: true,
+  });
+  await check.focus();
+  await check.press("Enter");
+  await expect(
+    page
+      .getByRole("alert")
+      .filter({ hasText: "Stripe check unavailable. Try again." }),
+  ).toBeVisible();
+  await expect(check).toBeFocused();
+  await scan(page, "Manual Stripe recovery error");
+  await check.press("Enter");
+  await expect(
+    page.getByRole("status").filter({
+      hasText: "2 Checkout sessions reconciled; 1 could not be verified",
+    }),
+  ).toBeVisible();
+  await expect(check).toBeFocused();
+  expect(checks).toBe(2);
+  await expect(page.getByRole("main").getByRole("alert")).toHaveCount(0);
+  await scan(page, "Manual Stripe reconciliation");
+  await page.screenshot({
+    path: `/tmp/ce-request-demo-transactions-${test.info().project.name}.png`,
+    fullPage: true,
+  });
+});
+
+test("portal offering image editor keyboard, upload, validation and reset", async ({
+  page,
+}) => {
+  const id = "00000000-0000-4000-8000-000000000601";
+  const mediaId = "00000000-0000-4000-8000-000000000602";
+  let offering = {
+    id,
+    title: "Portal image test",
+    category: "Technology",
+    summary: "Synthetic course summary for image checks",
+    description: "Synthetic description for course image verification.",
+    outcomes: [],
+    format: "Online",
+    course_type: "self_paced",
+    start_date: null,
+    end_date: null,
+    price_cents: 100,
+    capacity: 25,
+    unlimited_seats: false,
+    seats_available: 25,
+    published: true,
+    version: 1,
+    approval_required: false,
+    approval_valid_days: 7,
+    enrollment_close_days: 7,
+    canvas_course_url: "https://canvas.example.test/courses/1",
+    imported_from_canvas: true,
+    canvas_image_url: null,
+    image_override: false,
+    image_media_id: null as string | null,
+    unpublished_at: null,
+    active_registrations: 0,
+    seats_in_use: 0,
+    sales_page_status: "none",
+  };
+  await page.route("**/api/staff-session", (route) =>
+    route.fulfill({
+      json: {
+        member: {
+          id,
+          email: "manager@example.test",
+          display_name: "Image test",
+          roles: ["catalog_manager"],
+          active: true,
+          version: 1,
+          scopes: ["staff:read", "catalog:write"],
+        },
+        auth: { mode: "canvas", configured: true },
+      },
+    }),
+  );
+  for (const endpoint of ["approval-requests", "exceptions"])
+    await page.route(`**/api/${endpoint}`, (route) =>
+      route.fulfill({ json: [] }),
+    );
+  await page.route("**/api/staff/offerings", (route) =>
+    route.fulfill({ json: [offering] }),
+  );
+  await page.route(`**/api/staff/offerings/${id}`, (route) =>
+    route.fulfill({ json: { offering, registrations: {}, activity: [] } }),
+  );
+  await page.route(`**/api/offerings/${id}/prices`, (route) =>
+    route.fulfill({ json: [] }),
+  );
+  await page.route("**/api/reconciliation", (route) =>
+    route.fulfill({
+      json: {
+        audit: [],
+        simulated_orders: 0,
+        simulated_enrollments: 0,
+        pending_operations: 0,
+        open_exceptions: 0,
+      },
+    }),
+  );
+  await page.route("**/api/prototype/simulation", (route) =>
+    route.fulfill({ json: { provisioningOutcome: "normal" } }),
+  );
+  const { readFile } = await import("node:fs/promises");
+  const cover = await readFile(
+    "src/web/public/course-images/data-analysis.jpg",
+  );
+  await page.route(`**/media/${mediaId}`, (route) =>
+    route.fulfill({ contentType: "image/jpeg", body: cover }),
+  );
+  const modes: string[] = [];
+  await page.route(`**/api/offerings/${id}/image`, async (route) => {
+    const body = route.request().postDataJSON();
+    expect(body.version).toBe(offering.version);
+    expect(body.reason).toBe("Choose a portal course image");
+    expect(route.request().headers()["idempotency-key"]).toBeTruthy();
+    modes.push(body.mode);
+    if (body.mode === "upload") {
+      expect(body.fileName).toBe("portal-cover.jpg");
+      expect(body.contentType).toBe("image/jpeg");
+      expect(body.data).toBe(cover.toString("base64"));
+    }
+    offering = {
+      ...offering,
+      version: offering.version + 1,
+      image_override: body.mode !== "source",
+      image_media_id: body.mode === "upload" ? mediaId : null,
+    };
+    await route.fulfill({ json: offering });
+  });
+  await page.goto(`/staff/offerings/${id}/details`);
+  const change = page.getByRole("button", {
+    name: "Change image",
+    exact: true,
+  });
+  // Unsaved text changes must not be lost by an independent image save.
+  const summary = page.getByRole("textbox", {
+    name: "Short summary",
+    exact: true,
+  });
+  await summary.fill("Unsaved portal summary");
+  await expect(change).toBeDisabled();
+  await summary.fill(offering.summary);
+  await expect(change).toBeEnabled();
+  for (const mode of ["upload", "fallback", "source"]) {
+    await change.focus();
+    await change.press("Enter");
+    const dialog = page.getByRole("dialog", { name: "Change course image" });
+    const choice = dialog.getByRole("radio", {
+      name:
+        mode === "upload"
+          ? "Upload a portal image"
+          : mode === "fallback"
+            ? "Use CU CE image"
+            : "Use Canvas course image",
+      exact: true,
+    });
+    await choice.focus();
+    await choice.press("Space");
+    if (mode === "upload") {
+      await dialog
+        .getByLabel("Choose image (PNG, JPEG, WebP or GIF; up to 5 MB)")
+        .setInputFiles({
+          name: "wrong.svg",
+          mimeType: "image/svg+xml",
+          buffer: Buffer.from("<svg/>"),
+        });
+      await expect(dialog.getByRole("alert")).toContainText("Choose a PNG");
+      await expect(dialog.getByRole("alert")).toBeFocused();
+      await scan(page, "Course image validation");
+      await dialog
+        .getByLabel("Choose image (PNG, JPEG, WebP or GIF; up to 5 MB)")
+        .setInputFiles({
+          name: "portal-cover.jpg",
+          mimeType: "image/jpeg",
+          buffer: cover,
+        });
+      await expect(
+        dialog.getByAltText("Course display image preview"),
+      ).toHaveAttribute("src", /^data:image\/jpeg/);
+    }
+    await dialog
+      .getByRole("textbox", { name: "Reason for image change" })
+      .fill("Choose a portal course image");
+    await scan(page, `Portal image ${mode} dialog`);
+    if (mode === "upload")
+      await page.screenshot({
+        path: `/tmp/ce-portal-image-dialog-${test.info().project.name}.png`,
+      });
+    const save = dialog.getByRole("button", {
+      name: "Save image",
+      exact: true,
+    });
+    await save.focus();
+    await save.press("Enter");
+    await expect(dialog).toBeHidden();
+    await expect(change).toBeFocused();
+    await expect(
+      page
+        .getByRole("alert")
+        .filter({ hasText: "Course image saved in the portal" }),
+    ).toBeVisible();
+  }
+  expect(modes).toEqual(["upload", "fallback", "source"]);
+  await change.press("Enter");
+  await page.getByRole("dialog").press("Escape");
+  await expect(page.getByRole("dialog")).toBeHidden();
+  await expect(change).toBeFocused();
+  await scan(page, "Portal course image saved");
+  await page.screenshot({
+    path: `/tmp/ce-portal-image-editor-${test.info().project.name}.png`,
+    fullPage: true,
+  });
+});
+
+for (const layout of ["list", "grid"] as const)
+  test(`Canvas course card images and CU CE fallback in ${layout} layout`, async ({
+    page,
+  }) => {
+    const rows = [
+      {
+        id: "00000000-0000-4000-8000-000000000501",
+        title: "Imported course with Canvas image",
+        canvas_image_url: "https://images.example.test/course-cover.jpg",
+      },
+      {
+        id: "00000000-0000-4000-8000-000000000502",
+        title: "Imported course without image",
+        canvas_image_url: null,
+      },
+      {
+        id: "00000000-0000-4000-8000-000000000503",
+        title: "Imported course with unavailable image",
+        canvas_image_url: "https://images.example.test/unavailable.jpg",
+      },
+      {
+        id: "00000000-0000-4000-8000-000000000504",
+        title: "Imported course with portal image",
+        canvas_image_url: "https://images.example.test/should-not-load.jpg",
+        image_override: true,
+        image_media_id: "00000000-0000-4000-8000-000000000506",
+      },
+      {
+        id: "00000000-0000-4000-8000-000000000505",
+        title: "Imported course with explicit CU CE choice",
+        canvas_image_url: "https://images.example.test/should-not-load.jpg",
+        image_override: true,
+        image_media_id: null,
+      },
+      {
+        id: "00000000-0000-4000-8000-000000000507",
+        title: "Imported course with unavailable portal image",
+        canvas_image_url: "https://images.example.test/should-not-load.jpg",
+        image_override: true,
+        image_media_id: "00000000-0000-4000-8000-000000000508",
+      },
+    ].map((row) => ({
+      ...row,
+      imported_from_canvas: true,
+      category: "Technology",
+      summary: "Synthetic image verification course",
+      format: "Online",
+      course_type: "self_paced",
+      start_date: null,
+      end_date: null,
+      price_cents: 100,
+      published: true,
+      approval_required: false,
+      enrollment_open: true,
+    }));
+    const { readFile } = await import("node:fs/promises");
+    const cover = await readFile(
+      "src/web/public/course-images/data-analysis.jpg",
+    );
+    await page.route("**/media/00000000-0000-4000-8000-000000000506", (route) =>
+      route.fulfill({ contentType: "image/jpeg", body: cover }),
+    );
+    await page.route("**/media/00000000-0000-4000-8000-000000000508", (route) =>
+      route.fulfill({ status: 404, body: "Missing portal image" }),
+    );
+    let imageRequests = 0;
+    await page.route("https://images.example.test/*", (route) => {
+      expect(route.request().headers()["authorization"]).toBeUndefined();
+      expect(route.request().url()).not.toContain("should-not-load");
+      imageRequests++;
+      return route.request().url().includes("unavailable")
+        ? route.fulfill({ status: 404, body: "Image not found" })
+        : route.fulfill({ contentType: "image/jpeg", body: cover });
+    });
+    await page.route("**/api/offerings", (route) =>
+      route.fulfill({ json: rows }),
+    );
+    await page.route("**/api/explore", (route) =>
+      route.fulfill({ json: { courses: rows, collections: [], pathways: [] } }),
+    );
+    await page.goto("/?tab=courses");
+    const toggle = page.getByRole("button", {
+      name: `${layout === "grid" ? "Grid" : "List"} layout`,
+      exact: true,
+    });
+    await toggle.focus();
+    await toggle.press("Enter");
+    for (const [index, row] of rows.entries()) {
+      const card = page.locator(".MuiPaper-root").filter({
+        has: page.getByRole("heading", { name: row.title, exact: true }),
+      });
+      await card.scrollIntoViewIfNeeded();
+      const image = card.locator("img");
+      await expect(image).toHaveAttribute("alt", "");
+      await expect(image).toHaveAttribute(
+        "src",
+        row.image_override && row.image_media_id && index !== 5
+          ? new RegExp(`/media/${row.image_media_id}$`)
+          : index === 0
+            ? row.canvas_image_url!
+            : /cedarville-continuing-education-white/,
+      );
+      await expect(image).toHaveJSProperty("complete", true);
+      expect(
+        await image.evaluate(
+          (element: HTMLImageElement) => element.naturalWidth,
+        ),
+      ).toBeGreaterThan(0);
+      await expect(
+        card.getByRole("link", { name: `View course: ${row.title}` }),
+      ).toBeVisible();
+    }
+    expect(imageRequests).toBeGreaterThanOrEqual(2);
+    await scan(page, `Canvas images and CU CE fallback (${layout})`);
+    await page.screenshot({
+      path: `/tmp/ce-course-images-${layout}-${test.info().project.name}.png`,
+      fullPage: true,
+    });
+  });
+// Credential documents keep the pilot editor behavior and participate in the
+// existing portal theme, session, keyboard and accessibility checks.
+test.describe("credential integration", () => {
+  for (const [slug, title] of [
+    ["badges", "Badge designer"],
+    ["badge-publishing", "Publish and map badges"],
+    ["badge-awards", "Award badges"],
+    ["certificates", "Certificates"],
+    ["badge-issuances", "Issuance register"],
+  ]) {
+    test(`${title} workspace`, async ({ page }) => {
+      const signIn = await page.request.post("/api/staff-session", {
+        data: { email: "admin@cuce.test" },
+      });
+      expect(signIn.ok()).toBeTruthy();
+      await page.goto(`/staff/${slug}`);
+      await expect(
+        page
+          .locator("main > div")
+          .getByRole("heading", { name: title, exact: true }),
+      ).toBeVisible();
+      const frame = page.frameLocator("iframe");
+      await expect(frame.locator("main")).toBeVisible();
+      if (slug === "certificates")
+        await expect(frame.locator("#cc-tools")).toBeVisible();
+      if (slug === "badge-awards")
+        await expect(frame.locator("#ca-tools")).toBeVisible();
+      if (slug === "badge-issuances")
+        await expect(frame.locator("#register-content")).toBeVisible();
+      if (slug === "badge-publishing")
+        await expect(frame.locator("#workspace")).toBeVisible();
+      await scan(page, `${title} integrated document`);
+    });
+  }
+  test("signed-out learner badges", async ({ page }) => {
+    await page.goto("/badges");
+    await expect(
+      page.getByRole("heading", { name: "My badges and certificates" }),
+    ).toBeVisible();
+    await scan(page, "Signed-out learner badges");
+  });
+  test("Canvas learner without email can open earned credentials", async ({
+    page,
+  }) => {
+    await page.route("**/api/demo-session", (route) =>
+      route.fulfill({
+        json: {
+          id: "00000000-0000-4000-8000-000000000099",
+          email: null,
+          display_name: "CU Test Learner",
+          auth: { mode: "canvas", configured: true },
+        },
+      }),
+    );
+    await page.route("**/api/badges/me/badges", (route) =>
+      route.fulfill({ json: { badges: [] } }),
+    );
+    await page.goto("/badges");
+    await expect(page.locator("iframe")).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: "Sign in", exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      page
+        .frameLocator("iframe")
+        .getByText("Your achievements will appear here.", { exact: true }),
+    ).toBeVisible();
+    await scan(page, "Canvas learner credentials without email");
+  });
+  test("unlinked learner account fails closed", async ({ page }) => {
+    await page.request.post("/api/demo-session", {
+      data: { email: "a11y-scan@example.test" },
+    });
+    await page.goto("/badges");
+    await expect(
+      page
+        .frameLocator("iframe")
+        .getByText(
+          "Your badge account has not been linked. Contact portal support.",
+          { exact: true },
+        ),
+    ).toBeVisible();
+    await scan(page, "Unlinked learner badges");
+  });
+});
+
+test("credential integration: keyboard, unsaved design and 320px reflow", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.request.post("/api/staff-session", {
+    data: { email: "admin@cuce.test" },
+  });
+  await page.goto("/staff/certificates");
+  const frame = page.frameLocator("iframe");
+  await expect(frame.locator("#cc-tools")).toBeVisible();
+  await frame.locator("#cc-header").focus();
+  await page.keyboard.press("Tab");
+  await expect(frame.locator("#cc-logo")).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(frame.locator("#cc-header")).toBeFocused();
+  await frame.locator("#cc-header").fill("Unsaved accessibility exercise");
+  await page
+    .getByRole("link", { name: "Issuance register", exact: true })
+    .click();
+  const dialog = page.getByRole("dialog", { name: "Leave without saving?" });
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: "Stay", exact: true }).click();
+  await expect(frame.locator("#cc-header")).toHaveValue(
+    "Unsaved accessibility exercise",
+  );
+  await page
+    .getByRole("link", { name: "Issuance register", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Discard changes", exact: true })
+    .click();
+  await expect(page).toHaveURL(/\/staff\/badge-issuances$/);
+  await page.setViewportSize({ width: 320, height: 800 });
+  for (const slug of [
+    "badges",
+    "badge-publishing",
+    "badge-awards",
+    "certificates",
+    "badge-issuances",
+  ]) {
+    await page.goto(`/staff/${slug}`);
+    await expect(page.locator("iframe")).toBeVisible();
+    await page.waitForLoadState("networkidle");
+    expect(
+      await page.evaluate(
+        () =>
+          document.documentElement.scrollWidth <=
+          document.documentElement.clientWidth + 1,
+      ),
+      `${slug} portal reflow`,
+    ).toBe(true);
+    if (slug === "badge-issuances") {
+      const region = page
+        .frameLocator("iframe")
+        .getByRole("region", { name: "Issuance register table", exact: true });
+      await region.focus();
+      await expect(region).toBeFocused();
+      await page.keyboard.press("ArrowRight");
+      await expect
+        .poll(() => region.evaluate((el) => el.scrollLeft))
+        .toBeGreaterThan(0);
+    }
+    const overflow = await page
+      .frameLocator("iframe")
+      .locator("html")
+      .evaluate((el) => ({
+        width: el.clientWidth,
+        scroll: el.scrollWidth,
+        regions: [
+          ...el.querySelectorAll("main,.records,.table-wrap,.table-footer"),
+        ].map((n) => ({
+          cls: String(n.className),
+          width: n.getBoundingClientRect().width,
+          overflow: getComputedStyle(n).overflow,
+          display: getComputedStyle(n).display,
+        })),
+        widest: [...el.querySelectorAll("body *")]
+          .filter(
+            (n) =>
+              !n.closest(".table-wrap") &&
+              n.getBoundingClientRect().right > el.clientWidth + 1,
+          )
+          .slice(0, 8)
+          .map((n) => ({
+            tag: n.tagName,
+            id: n.id,
+            cls: String(n.className),
+            right: n.getBoundingClientRect().right,
+            width: n.getBoundingClientRect().width,
+          })),
+      }));
+    expect(
+      overflow.scroll <= overflow.width + 1,
+      `${slug} editor reflow: ${JSON.stringify(overflow)}`,
+    ).toBe(true);
+  }
 });

@@ -23,6 +23,7 @@ import { arrive, focusOnArrival } from "./arrival-focus";
 import { actorLabels, auditLabels } from "./audit-labels";
 import { LoadingCards } from "./loading";
 import { OfferingForm, StaffOffering, UnpublishDialog } from "./offering-form";
+import { OfferingImageEditor } from "./offering-image-editor";
 import { SalesPageEditor } from "./staff-sales-pages";
 import { registrationStatusLabels } from "./staff-learners";
 import { useUnsavedChanges } from "./unsaved-changes";
@@ -64,7 +65,7 @@ export const offeringTabs = [
   { slug: "activity", label: "Activity" },
 ] as const;
 const statusOf = (o: StaffOffering) =>
-  o.published ? "Published" : o.unpublished_at ? "Unpublished" : "Draft";
+  `${o.published ? "Published" : o.unpublished_at ? "Unpublished" : "Draft"}${o.listed === false ? " · Unlisted" : ""}`;
 const statusColor = (o: StaffOffering) =>
   o.published ? "success" : o.unpublished_at ? "warning" : "default";
 const when = (value: string) =>
@@ -102,6 +103,7 @@ export function StaffOfferingPage({
   const title = useRef<HTMLHeadingElement>(null);
   const panel = useRef<HTMLHeadingElement>(null);
   const canCatalog = can("catalog:write");
+  const [detailsDirty, setDetailsDirty] = useState(false);
   const load = useCallback(
     () =>
       api<Detail>(`staff/offerings/${id}`, { role: "staff" })
@@ -126,6 +128,13 @@ export function StaffOfferingPage({
   }, [detail]);
   // Links ask first when a tab has unsaved changes (UnsavedChangesProvider).
   const { setDirty: reportDirty, guard } = useUnsavedChanges();
+  const reportDetailsDirty = useCallback(
+    (dirty: boolean) => {
+      setDetailsDirty(dirty);
+      reportDirty(dirty);
+    },
+    [reportDirty],
+  );
   const go =
     (href: string, target: string) => (event: React.MouseEvent<HTMLElement>) =>
       guard(href, event, () => arrive(target));
@@ -264,14 +273,23 @@ export function StaffOfferingPage({
         )}
         {(current.slug === "details" || current.slug === "settings") &&
           (canCatalog ? (
-            <OfferingForm
-              open
-              offering={o}
-              section={current.slug}
-              onClose={() => undefined}
-              onSaved={saved}
-              onDirtyChange={reportDirty}
-            />
+            <>
+              {current.slug === "details" && (
+                <OfferingImageEditor
+                  offering={o}
+                  disabled={detailsDirty}
+                  onSaved={saved}
+                />
+              )}
+              <OfferingForm
+                open
+                offering={o}
+                section={current.slug}
+                onClose={() => undefined}
+                onSaved={saved}
+                onDirtyChange={reportDetailsDirty}
+              />
+            </>
           ) : (
             <>
               <Alert severity="info" role="note" sx={{ mb: 2 }}>
@@ -296,6 +314,12 @@ export function StaffOfferingPage({
                         ],
                       ]
                     : [
+                        [
+                          "Discovery",
+                          o.listed === false
+                            ? "Unlisted — published courses are available by direct link"
+                            : "Listed when published",
+                        ],
                         [
                           "Approval",
                           o.approval_required

@@ -30,6 +30,7 @@ import { StripeTestCardsButton } from "./stripe-test-cards";
 const navLinks = [
   ["/", "Courses"],
   ["/learning", "My learning"],
+  ["/badges", "My badges"],
   ["/staff", "Admin"],
 ];
 export default function Shell({ children }: { children: React.ReactNode }) {
@@ -42,8 +43,8 @@ export default function Shell({ children }: { children: React.ReactNode }) {
   const auth = useDemoAuth();
   const staffSession = useStaffSession();
   const showSignIn =
-    auth.ready && staffSession.ready && !auth.email && !staffSession.member;
-  const showSignOut = auth.ready && Boolean(auth.email);
+    auth.ready && staffSession.ready && !auth.signedIn && !staffSession.member;
+  const showSignOut = auth.ready && Boolean(auth.signedIn);
   const router = useRouter();
   const [sessionError, setSessionError] = useState("");
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
@@ -146,6 +147,11 @@ export default function Shell({ children }: { children: React.ReactNode }) {
                   Sign in
                 </Button>
               )}
+              {auth.ready && staffSession.member && !auth.signedIn && (
+                <Button color="inherit" href="/sign-in">
+                  Use as learner
+                </Button>
+              )}
             </Stack>
             {/* Settings sits at the right of the bar at every width; the
                 gold underline marks it as the current page, like the links. */}
@@ -188,7 +194,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
               onClose={() => setMenuAnchor(null)}
               slotProps={{ list: { "aria-label": "Main navigation" } }}
             >
-              {auth.email && (
+              {auth.signedIn && (
                 <ListSubheader
                   sx={{
                     lineHeight: 1.5,
@@ -197,10 +203,10 @@ export default function Shell({ children }: { children: React.ReactNode }) {
                     overflowWrap: "anywhere",
                   }}
                 >
-                  Demo session: {auth.email}
+                  Signed in as {auth.displayName}
                 </ListSubheader>
               )}
-              {auth.email && <Divider />}
+              {auth.signedIn && <Divider />}
               {navLinks.map(([href, label]) => (
                 <MenuItem
                   key={href}
@@ -224,9 +230,14 @@ export default function Shell({ children }: { children: React.ReactNode }) {
                   Sign in
                 </MenuItem>
               )}
+              {auth.ready && staffSession.member && !auth.signedIn && (
+                <MenuItem component="a" href="/sign-in" sx={{ minHeight: 48 }}>
+                  Use as learner
+                </MenuItem>
+              )}
             </Menu>
           </Toolbar>
-          {auth.email && (
+          {auth.signedIn && (
             <Typography
               variant="caption"
               sx={{
@@ -236,7 +247,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
                 overflowWrap: "anywhere",
               }}
             >
-              Demo session: {auth.email}
+              Signed in as {auth.displayName}
             </Typography>
           )}
         </Container>
@@ -274,8 +285,8 @@ export default function Shell({ children }: { children: React.ReactNode }) {
         sx={{ py: staff ? 0 : { xs: 3, md: 5 }, minHeight: "75vh" }}
       >
         {pathname === "/learning" && !auth.ready ? (
-          <CircularProgress aria-label="Loading demo session" />
-        ) : pathname === "/learning" && !auth.email ? (
+          <CircularProgress aria-label="Loading learner session" />
+        ) : pathname === "/learning" && !auth.signedIn ? (
           <Paper variant="outlined" sx={{ p: 4 }}>
             <Typography component="h1" variant="h4">
               My learning

@@ -1,0 +1,29 @@
+{
+  "issuerName": "CU Portal \u2014 LOCAL DEMONSTRATION",
+  "course": {
+    "id": "demo-faith-work",
+    "title": "Foundations of Faith and Work",
+    "ruleVersion": "pilot-v1",
+    "requiredModuleIds": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+    ],
+    "minimumPercent": 80,
+    "canvasCourseId": null,
+    "canvasAssignmentId": null
+  },
+  "learners": {
+    "demo-alex": {
+      "canvasUserId": null,
+      "demonstration": true
+    },
+    "demo-jordan": {
+      "canvasUserId": null,
+      "demonstration": true
+    }
+  }
+}

@@ -5,6 +5,7 @@ import {
   staffAuthInfo,
   staffCookie,
 } from "../../../server/staff-auth";
+import { learnerAuthInfo, learnerCookie } from "../../../server/learner-auth";
 async function proxy(
   request: NextRequest,
   context: { params: Promise<{ path: string[] }> },
@@ -66,11 +67,37 @@ async function proxy(
     }
   }
   const learnerId = request.cookies.get("ce-demo-learner")?.value;
-  if (role !== "staff" && learnerId)
-    headers["X-Prototype-Learner-Id"] = learnerId;
+  let learnerAuthenticated = Boolean(learnerId);
+  if (role !== "staff") {
+    try {
+      const auth = await learnerAuthInfo();
+      if (auth.mode === "canvas") {
+        const session = request.cookies.get(
+          authCookieName(learnerCookie, auth.secureCookies),
+        )?.value;
+        learnerAuthenticated = Boolean(session);
+        if (session) {
+          if (
+            request.method !== "GET" &&
+            !sameOrigin(request, auth.portalOrigin)
+          )
+            return NextResponse.json(
+              { message: "Same-origin request required." },
+              { status: 403 },
+            );
+          headers["X-Learner-Session"] = session;
+        }
+      } else if (learnerId) headers["X-Prototype-Learner-Id"] = learnerId;
+    } catch {
+      return NextResponse.json(
+        { message: "Learner authentication unavailable." },
+        { status: 503 },
+      );
+    }
+  }
   if (
     role !== "staff" &&
-    !learnerId &&
+    !learnerAuthenticated &&
     (path[0] === "me" ||
       path[0] === "registrations" ||
       path[0] === "operations" ||
@@ -91,7 +118,15 @@ async function proxy(
         body: request.method === "GET" ? undefined : await request.text(),
         cache: "no-store",
         redirect: "error",
-        signal: AbortSignal.timeout(10000),
+        // A manual Canvas preview runs within this request, with a bounded
+        // 120-second provider budget. Other API calls retain a short timeout.
+        signal: AbortSignal.timeout(
+          ["staff/canvas/courses", "staff/transactions/reconcile"].includes(
+            path.join("/"),
+          )
+            ? 135_000
+            : 10_000,
+        ),
       },
     );
     return new NextResponse(await response.text(), {

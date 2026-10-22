@@ -9,7 +9,7 @@ on:
       - "docs/**"
       - "**/*.md"
   push:
-    branches: [main, prototype-checkpoint]
+    branches: [main, prototype-checkpoint, Badges-and-Certificates]
     paths-ignore:
       - "docs/**"
       - "**/*.md"
@@ -40,7 +40,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
       - name: Write the local environment
         run: |
@@ -50,6 +50,11 @@ jobs:
           DATABASE_URL=postgresql://portal:ci-only-password@127.0.0.1:5433/continuing_education
           POSTGRES_PASSWORD=ci-only-password
           API_URL=http://127.0.0.1:3051
+          WEB_URL=http://127.0.0.1:3050
+          BADGES_ENABLED=true
+          BADGE_SERVICE_URL=http://127.0.0.1:4178
+          BADGE_DATA_DIR=badge-service/data
+          CERTIFICATE_PYTHON=python3
           LEARNER_API_TOKEN=$(token)
           STAFF_API_TOKEN=$(token)
           AUTOMATION_API_TOKEN=$(token)
@@ -57,6 +62,13 @@ jobs:
           ENV
           cp .env src/web/.env.local
       - run: npm ci
+      - run: npm ci --prefix badge-service
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python3 -m pip install -r badge-service/certificate-renderer/requirements.txt pypdf==6.10.0
+      - name: Badge service and portal broker tests
+        run: npm run test:badges
       - name: Format check
         run: npm run format:check
       - name: Typecheck
@@ -65,17 +77,23 @@ jobs:
         run: npm run db:migrate
       - name: Migration tests
         run: npm run test:migrations
+      - name: Offering visibility tests (disposable database)
+        run: npm run test:visibility
       - name: Canvas authentication tests (mock provider, disposable database)
         run: npm run test:auth
+      - name: Learner Canvas authentication tests (mock provider, disposable database)
+        run: npm run test:learner-auth
       - name: Canvas course connector tests (mock provider, disposable database)
         run: npm run test:canvas
+      - name: Request-driven demo tests (disposable database, no worker)
+        run: npm run test:demo
       - name: Build
         run: npm run build
-      - name: Start the API, worker and website
+      - name: Start the API and website (no worker)
         run: |
           mkdir -p logs
+          nohup npm run dev:badges > logs/badges.log 2>&1 &
           nohup npm run dev:api > logs/api.log 2>&1 &
-          nohup npm run dev:worker > logs/worker.log 2>&1 &
           nohup npm run start:web > logs/web.log 2>&1 &
           for url in http://127.0.0.1:3051/api/docs http://127.0.0.1:3050/; do
             for i in $(seq 1 60); do

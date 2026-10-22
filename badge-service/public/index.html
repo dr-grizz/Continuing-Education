@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>CU Portal | Badge pilot</title><link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script></head>
+<body><header><a href="/" class="brand">CU <span>PORTAL</span></a><nav><a class="studio-link" href="/issuer">ISSUER STUDIO</a> · <a class="studio-link" href="/certificates">Certificates</a><a href="/awards">AWARD BADGES</a> · <a class="studio-link" href="/issuances">ISSUANCE REGISTER</a></nav></header>
+<main><p class="eyebrow">RECOGNIZE LEARNING · CARRY IT FORWARD</p><h1>Achievement, made visible.</h1><p class="lead">A separate credential service for the CU Portal.</p>
+<p class="notice"><strong>Local pilot.</strong> Alex is a fictional learner; no Canvas records or production systems are connected.</p>
+<div class="layout"><section class="card"><p class="eyebrow">STAFF WORKFLOW</p><h2>Check completion</h2><p>Foundations of Faith and Work</p><p>Proposed rule: complete six required modules and earn at least 80% on the final assessment.</p>
+<label for="scenario">Choose sample completion evidence</label><select id="scenario"><option value="complete">All modules complete · assessment 90%</option><option value="incomplete">One required module incomplete · assessment 90%</option><option value="below-threshold">All modules complete · assessment 79%</option></select>
+<button id="issue">Check eligibility and issue</button><p id="result" role="status" aria-live="polite"></p>
+<details><summary>What this pilot checks</summary><p>The service evaluates evidence on the server, prevents duplicate awards, signs the credential, and records issuance and revocation in its database.</p><p>These exports use a CU pilot format; Open Badges 3.0 validation and a production issuer are still required.</p></details></section>
+<section aria-labelledby="badges-title"><p class="eyebrow">LEARNER VIEW · ALEX</p><h2 id="badges-title">My Badges</h2><div id="badges"><p>Loading credentials…</p></div></section></div>
+<section class="next"><h2>The connection to your portal</h2><p>Canvas evidence → eligibility check → credential service → My Badges</p><p>Connect the portal through its server using the private read API; learner identifiers and service tokens stay out of browser code.</p></section>
+<footer>CU Portal badging pilot · Fictional awards only · Public sharing is off until enabled</footer></main></body></html>

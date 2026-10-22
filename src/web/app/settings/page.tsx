@@ -43,10 +43,12 @@ export default function Settings() {
           <Typography variant="h5" component="h2" id="settings-account">
             Account
           </Typography>
-          {!auth.ready ? null : auth.email ? (
+          {!auth.ready ? null : auth.signedIn ? (
             <Typography sx={{ mt: 1.5, overflowWrap: "anywhere" }}>
-              Signed in to the demo as <strong>{auth.email}</strong>. Demo
-              sign-in has no password or profile to change.
+              Signed in as <strong>{auth.displayName}</strong>.{" "}
+              {auth.mode === "canvas"
+                ? "Your CU account is linked through Canvas. Manage your password through your CU account."
+                : "This is a mock learner session."}
             </Typography>
           ) : (
             <>

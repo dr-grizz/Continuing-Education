@@ -1,4 +1,8 @@
 import {
+  processDemoOperation,
+  expireDemoReservations,
+} from "./demo-processing";
+import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
@@ -40,6 +44,7 @@ import {
   StaffUpdateDto,
   OfferingDto,
   OfferingEditDto,
+  OfferingImageDto,
   OfferingSettingsDto,
   ProvisioningOutcome,
   QueryDto,
@@ -61,6 +66,26 @@ import {
   webUrl,
 } from "./stripe";
 
+function imageBytes(data: { data: string; contentType: string }) {
+  const bytes = Buffer.from(data.data, "base64");
+  if (!bytes.length || bytes.length > 5 * 1024 * 1024)
+    throw new BadRequestException("Images must be 5 MB or smaller.");
+  const signatures: Record<string, (b: Buffer) => boolean> = {
+    "image/png": (b) =>
+      b.subarray(0, 8).equals(Buffer.from("89504e470d0a1a0a", "hex")),
+    "image/jpeg": (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff,
+    "image/gif": (b) => b.subarray(0, 4).toString("latin1") === "GIF8",
+    "image/webp": (b) =>
+      b.subarray(0, 4).toString("latin1") === "RIFF" &&
+      b.subarray(8, 12).toString("latin1") === "WEBP",
+  };
+  if (!signatures[data.contentType]?.(bytes))
+    throw new BadRequestException(
+      "The file is not a PNG, JPEG, WebP or GIF image.",
+    );
+  return bytes;
+}
+
 function salesPageStatus(
   page: { draft: unknown; published: unknown } | null,
 ): "none" | "draft" | "published" | "changes" {
@@ -76,7 +101,9 @@ const enrollmentWindow = `CASE WHEN o.course_type='cohort' THEN to_char(o.start_
   CASE WHEN o.course_type='cohort' THEN to_char(o.start_date+o.enrollment_close_days,'Mon FMDD, YYYY') END AS enrollment_closes_label,
   (o.course_type<>'cohort' OR current_date<=o.start_date+o.enrollment_close_days) AS enrollment_open`;
 const scheduleText = `to_char(o.start_date,'YYYY-MM-DD') AS start_date, to_char(o.end_date,'YYYY-MM-DD') AS end_date`;
-const listing = `SELECT ${offeringColumns("o")},${enrollmentWindow},${scheduleText},
+const listing = `SELECT ${offeringColumns("o")},
+  (SELECT m.source->>'image_url' FROM canvas_offering_mappings m WHERE m.offering_id=o.id) AS canvas_image_url,
+  ${enrollmentWindow},${scheduleText},
   (o.capacity - (SELECT count(*) FROM entitlements e WHERE e.offering_id=o.id AND
     (e.status IN ('provisioning','enrolled','exception') OR (e.status='reserved' AND e.reserved_until>now()))))::integer AS seats_available
   FROM offerings o`;
@@ -100,6 +127,7 @@ type EnrollmentWindow = {
 export type OfferingListing = Omit<offerings, "start_date" | "end_date"> &
   ScheduleText &
   EnrollmentWindow & {
+    canvas_image_url: string | null;
     seats_available: number | null;
     active_registrations?: number;
     seats_in_use?: number;
@@ -210,7 +238,19 @@ const asJson = (value: unknown) =>
 
 @Injectable()
 export class PortalService {
+  // Authenticated requests resume due simulations and apply elapsed deadlines.
+  // No external API calls and no processing after an HTTP response is sent.
+  async processDemo() {
+    await transaction(async (tx) => {
+      for (let i = 0; i < 32; i++)
+        if (!(await processDemoOperation(tx, audit))) break;
+      await expireDemoReservations(tx, audit);
+    });
+  }
+
   async demoUser(email: string) {
+    if ((process.env.LEARNER_AUTH_MODE || "mock") !== "mock")
+      throw new ForbiddenException("Mock learner sign-in is disabled.");
     const normalized = email.trim().toLowerCase();
     // Matching where/create/update values let Prisma use a native ON CONFLICT upsert.
     const learner = await prisma.learners.upsert({
@@ -229,7 +269,7 @@ export class PortalService {
   async me(principal: Principal) {
     const learner = await prisma.learners.findUnique({
       where: { id: principal.learnerId },
-      select: { id: true, email: true, created_at: true },
+      select: { id: true, email: true, display_name: true, created_at: true },
     });
     if (!learner) throw new NotFoundException("Demo learner not found.");
     return learner;
@@ -244,7 +284,7 @@ export class PortalService {
       : listing;
     const rows = await sql<OfferingListing>(
       prisma,
-      `${select} WHERE ($1 OR o.published) AND ($2='' OR o.title ILIKE $2 OR o.summary ILIKE $2) AND ($3='' OR o.category=$3)
+      `${select} WHERE ($1 OR (o.published AND o.listed)) AND ($2='' OR o.title ILIKE $2 OR o.summary ILIKE $2) AND ($3='' OR o.category=$3)
         AND ($4='' OR o.id IN (SELECT i.offering_id FROM collection_items i JOIN collections c ON c.id=i.collection_id WHERE c.slug=$4 AND c.published))
         ORDER BY o.start_date,o.title LIMIT 100`,
       staff,
@@ -511,6 +551,8 @@ export class PortalService {
     const op = await tx.operations.create({
       data: {
         entitlement_id: entitlementId,
+        // Ready in this transaction even if the client's clock is ahead of DB now().
+        next_run: new Date(0),
         // Set only through the validated simulation command; the enum column rejects anything else.
         simulated_outcome: (setting?.value ?? "normal") as SimulatedOutcome,
       },
@@ -519,7 +561,11 @@ export class PortalService {
       amount_cents: amountCents,
       ...(payment.details ?? {}),
     });
-    return op;
+    // Complete the normal two-stage simulation before acknowledging payment.
+    // Delays/failures retain next_run and resume on subsequent authenticated requests.
+    for (let i = 0; i < 2; i++)
+      if (!(await processDemoOperation(tx, audit, entitlementId))) break;
+    return tx.operations.findUniqueOrThrow({ where: { id: op.id } });
   }
   paymentConfig() {
     return { provider: stripeEnabled ? "stripe" : "simulated" };
@@ -821,6 +867,7 @@ export class PortalService {
       stored?.entitlement_id ?? null,
       { checkout_session_id: sessionId },
     );
+    await expireDemoReservations(tx, audit);
   }
   // charge.refunded from Stripe: Finance refunded in the Stripe Dashboard.
   // Records the refunded amount and closes any open portal request. A full
@@ -931,7 +978,7 @@ export class PortalService {
     }>(
       prisma,
       `SELECT o.id,o.created_at,o.amount_cents,o.refunded_cents,o.refunded_at,o.provider,o.stripe_payment_intent_id,
-         l.email AS learner_email,f.title AS offering_title,e.status AS registration_status,
+         l.email AS learner_email,l.display_name AS learner_name,f.title AS offering_title,e.status AS registration_status,
          r.id AS request_id,r.status AS request_status,r.reason AS request_reason,r.created_at AS request_created_at,
          s.email AS requested_by_email
        FROM orders o JOIN entitlements e ON e.id=o.entitlement_id
@@ -1045,8 +1092,8 @@ export class PortalService {
   // Sessions past their expiry that no webhook resolved (the listener was
   // down, or a delivery was lost) are checked with Stripe directly. Paid ones
   // are recorded exactly as the webhook would; expired ones release their hold.
-  async reconcileCheckouts(limit = 10) {
-    if (!stripeEnabled) return 0;
+  async reconcileCheckouts(limit = 5) {
+    if (!stripeEnabled) return { checked: 0, failed: 0 };
     const due = await prisma.checkout_sessions.findMany({
       where: {
         status: "open",
@@ -1056,18 +1103,61 @@ export class PortalService {
       take: limit,
       select: { id: true },
     });
+    let checked = 0,
+      failed = 0;
     for (const { id } of due) {
-      let session = await stripe.checkout.sessions.retrieve(id);
-      // Stripe normally expires sessions itself; force it if one is still open.
-      if (session.status === "open")
-        session = await stripe.checkout.sessions.expire(id);
-      await transaction(async (tx) => {
-        if (session.status === "complete")
-          await this.applyPaidSession(tx, session, "stripe-reconciliation");
-        else await this.applyExpiredSession(tx, id, "stripe-reconciliation");
-      });
+      try {
+        const options = { timeout: 10_000, maxNetworkRetries: 0 };
+        let session = await stripe.checkout.sessions.retrieve(id, {}, options);
+        if (session.status === "open")
+          session = await stripe.checkout.sessions.expire(id, {}, options);
+        await transaction(async (tx) => {
+          if (session.status === "complete")
+            await this.applyPaidSession(tx, session, "stripe-reconciliation");
+          else if (session.status === "expired")
+            await this.applyExpiredSession(tx, id, "stripe-reconciliation");
+          else throw new Error("Unresolved Stripe session");
+        });
+        checked++;
+      } catch {
+        // An uncertain provider response must retain its unresolved payment hold.
+        failed++;
+      }
     }
-    return due.length;
+    return { checked, failed };
+  }
+  async reconcilePayments(principal: Principal, key: string) {
+    // Validate the command key before making any external calls.
+    if (
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        key || "",
+      )
+    )
+      throw new BadRequestException("A UUID Idempotency-Key is required.");
+    const input = { action: "payments.reconcile" };
+    const fingerprint = createHash("sha256")
+      .update(JSON.stringify(input))
+      .digest("hex");
+    const previous = await prisma.commands.findUnique({
+      where: { actor_key: { actor: principal.actor, key } },
+    });
+    if (previous) {
+      if (previous.fingerprint !== fingerprint)
+        throw new ConflictException(
+          "Idempotency key was already used for a different command.",
+        );
+      return previous.response;
+    }
+    const result = await this.reconcileCheckouts();
+    return this.command(
+      principal,
+      key,
+      { action: "payments.reconcile" },
+      async (tx) => {
+        await audit(tx, principal.actor, "payments.reconciled", null, result);
+        return result;
+      },
+    );
   }
   async learning(principal: Principal) {
     return sql<LearningRow>(
@@ -1096,7 +1186,7 @@ export class PortalService {
       where: { status: "awaiting_approval" },
       include: {
         offerings: { select: { title: true, approval_valid_days: true } },
-        learners: { select: { email: true } },
+        learners: { select: { email: true, display_name: true } },
       },
       orderBy: { created_at: "asc" },
     });
@@ -1105,6 +1195,7 @@ export class PortalService {
       title: offering.title,
       approval_valid_days: offering.approval_valid_days,
       learner_email: learners.email,
+      learner_name: learners.display_name,
     }));
   }
   async decide(
@@ -1160,6 +1251,7 @@ export class PortalService {
             approval_valid_days: data.approvalValidDays ?? 7,
             enrollment_close_days: data.enrollmentCloseDays ?? 7,
             canvas_course_url: data.canvasCourseUrl || null,
+            listed: data.listed ?? true,
           },
         });
         await tx.offering_prices.create({
@@ -1193,10 +1285,13 @@ export class PortalService {
             | "approval_valid_days"
             | "enrollment_close_days"
             | "canvas_course_url"
+            | "listed"
+            | "published"
+            | "unpublished_at"
           >
         >(
           tx,
-          "SELECT approval_valid_days,enrollment_close_days,canvas_course_url FROM offerings WHERE id=$1::uuid AND version=$2 FOR UPDATE",
+          "SELECT approval_valid_days,enrollment_close_days,canvas_course_url,listed,published,unpublished_at FROM offerings WHERE id=$1::uuid AND version=$2 FOR UPDATE",
           id,
           data.version,
         );
@@ -1204,10 +1299,20 @@ export class PortalService {
           throw new ConflictException(
             "Offering changed or does not exist. Refresh and retry.",
           );
+        if (
+          data.listed !== undefined &&
+          data.listed !== before.listed &&
+          (before.published || before.unpublished_at) &&
+          (!data.reason || data.reason.trim().length < 10)
+        )
+          throw new BadRequestException(
+            "Give a reason of at least 10 characters to change a published offering's listing.",
+          );
         const after = {
           approval_valid_days: data.approvalValidDays,
           enrollment_close_days: data.enrollmentCloseDays,
           canvas_course_url: data.canvasCourseUrl || null,
+          listed: data.listed ?? before.listed,
         };
         const offering = await tx.offerings.update({
           where: { id },
@@ -1217,6 +1322,7 @@ export class PortalService {
         await audit(tx, principal.actor, "offering.settings_changed", id, {
           before,
           after,
+          reason: data.reason?.trim() || null,
         });
         return offering;
       },
@@ -1302,6 +1408,7 @@ export class PortalService {
           enrollment_close_days:
             fields.enrollmentCloseDays ?? before.enrollment_close_days,
           canvas_course_url: fields.canvasCourseUrl || null,
+          listed: fields.listed ?? before.listed,
         };
         const previous = before as Record<string, unknown>;
         const changes = Object.fromEntries(
@@ -1463,7 +1570,7 @@ export class PortalService {
       where: { status: "exception" },
       include: {
         offerings: { select: { title: true } },
-        learners: { select: { email: true } },
+        learners: { select: { email: true, display_name: true } },
         // The current enrollment job is the latest one.
         operations: { orderBy: { created_at: "desc" }, take: 1 },
       },
@@ -1507,6 +1614,7 @@ export class PortalService {
       offering_id: row.offering_id,
       title: row.offerings.title,
       learner_email: row.learners.email,
+      learner_name: row.learners.display_name,
       operation_id: row.operations[0]?.id ?? null,
       stage: row.operations[0]?.stage ?? null,
       error: row.operations[0]?.error ?? null,
@@ -1561,7 +1669,7 @@ export class PortalService {
               error: null,
               failed_at: null,
               simulated_outcome: "normal",
-              next_run: new Date(),
+              next_run: new Date(0),
             },
           });
         } else {
@@ -1583,6 +1691,9 @@ export class PortalService {
           id,
           { reason, stage: found.stage },
         );
+        if (action === "retry")
+          for (let i = 0; i < 2; i++)
+            if (!(await processDemoOperation(tx, audit, id))) break;
         return tx.entitlements.findUniqueOrThrow({ where: { id } });
       },
     );
@@ -1754,14 +1865,14 @@ export class PortalService {
       last_activity: Date | null;
     }>(
       prisma,
-      `SELECT l.id,l.email,l.created_at,l.active,l.deactivated_at,l.version,
+      `SELECT l.id,l.email,l.display_name,l.created_at,l.active,l.deactivated_at,l.version,
         count(e.id)::integer AS registrations,
         count(e.id) FILTER (WHERE e.status='enrolled')::integer AS enrolled,
         count(e.id) FILTER (WHERE e.status IN ('awaiting_approval','approved','reserved','provisioning','exception'))::integer AS in_progress,
-        (SELECT max(a.created_at) FROM audit_events a WHERE a.actor='demo-learner:'||l.id::text
+        (SELECT max(a.created_at) FROM audit_events a WHERE a.actor='demo-learner:'||l.id::text OR a.actor='learner:'||l.id::text
           OR a.object_id IN (SELECT x.id FROM entitlements x WHERE x.learner_id=l.id)) AS last_activity
       FROM learners l LEFT JOIN entitlements e ON e.learner_id=l.id
-      WHERE ($1='' OR l.email ILIKE $1)
+      WHERE ($1='' OR l.email ILIKE $1 OR l.display_name ILIKE $1)
       GROUP BY l.id ORDER BY l.created_at DESC LIMIT 500`,
       term,
     );
@@ -1772,6 +1883,7 @@ export class PortalService {
       select: {
         id: true,
         email: true,
+        display_name: true,
         created_at: true,
         active: true,
         deactivated_at: true,
@@ -1807,6 +1919,7 @@ export class PortalService {
       where: {
         OR: [
           { actor: `demo-learner:${id}` },
+          { actor: `learner:${id}` },
           { object_id: { in: [id, ...registrationIds] } },
         ],
       },
@@ -2054,7 +2167,7 @@ export class PortalService {
     };
   }
   // Collections and pathways (decisions F3 and F4). Learners see only published
-  // collections and their published courses; pathway steps are numbered in that order.
+  // collections and their published, listed courses; pathway steps use that order.
   async publicCollections() {
     return sql<CollectionSummary>(
       prisma,
@@ -2062,7 +2175,7 @@ export class PortalService {
          array_agg(DISTINCT o.category ORDER BY o.category) AS topics,
          min(o.price_cents)::integer AS min_price_cents,max(o.price_cents)::integer AS max_price_cents
        FROM collections c JOIN collection_items i ON i.collection_id=c.id
-       JOIN offerings o ON o.id=i.offering_id AND o.published
+       JOIN offerings o ON o.id=i.offering_id AND o.published AND o.listed
        WHERE c.published GROUP BY c.id ORDER BY c.kind,c.title`,
     );
   }
@@ -2081,7 +2194,7 @@ export class PortalService {
     return sql<OfferingListing & { position: number }>(
       prisma,
       `${listing.replace("FROM offerings o", ",i.position FROM offerings o JOIN collection_items i ON i.offering_id=o.id")}
-       WHERE i.collection_id=$1::uuid AND o.published ORDER BY i.position`,
+       WHERE i.collection_id=$1::uuid AND o.published AND o.listed ORDER BY i.position`,
       collectionId,
     );
   }
@@ -2093,7 +2206,9 @@ export class PortalService {
           orderBy: { position: "asc" },
           select: {
             offering_id: true,
-            offerings: { select: { title: true, published: true } },
+            offerings: {
+              select: { title: true, published: true, listed: true },
+            },
           },
         },
         _count: { select: { pathway_follows: true } },
@@ -2106,6 +2221,7 @@ export class PortalService {
         id: item.offering_id,
         title: item.offerings.title,
         published: item.offerings.published,
+        listed: item.offerings.listed,
       })),
     }));
   }
@@ -2149,13 +2265,13 @@ export class PortalService {
   ) {
     const minimum = kind === "pathway" ? 2 : 1;
     const visible = await tx.offerings.count({
-      where: { id: { in: offeringIds }, published: true },
+      where: { id: { in: offeringIds }, published: true, listed: true },
     });
     if (visible < minimum)
       throw new BadRequestException(
         kind === "pathway"
-          ? "A published pathway needs at least two published courses."
-          : "A published collection needs at least one published course.",
+          ? "A published pathway needs at least two published, listed courses."
+          : "A published collection needs at least one published, listed course.",
       );
   }
   async createCollection(
@@ -2566,12 +2682,12 @@ export class PortalService {
     }>(
       prisma,
       `SELECT a.actor,a.action,a.object_id,a.created_at,
-        CASE WHEN a.actor LIKE 'demo-learner:%' THEN coalesce(actor_learner.email,'Legacy demo learner')
+        CASE WHEN a.actor LIKE 'demo-learner:%' OR a.actor LIKE 'learner:%' THEN coalesce(actor_learner.email,actor_learner.display_name,'Legacy demo learner')
           WHEN a.actor LIKE 'staff:%' THEN actor_staff.email END AS actor_email,
         coalesce(o.title,eo.title,col.title) AS offering_title,
-        coalesce(subject_learner.email,subject_staff.email) AS subject_email
+        coalesce(subject_learner.email,subject_learner.display_name,subject_staff.email) AS subject_email
       FROM audit_events a
-      LEFT JOIN learners actor_learner ON a.actor='demo-learner:'||actor_learner.id::text
+      LEFT JOIN learners actor_learner ON a.actor='demo-learner:'||actor_learner.id::text OR a.actor='learner:'||actor_learner.id::text
       LEFT JOIN staff_members actor_staff ON a.actor='staff:'||actor_staff.id::text
       LEFT JOIN staff_members subject_staff ON subject_staff.id=a.object_id
       LEFT JOIN offerings o ON o.id=a.object_id
@@ -2599,22 +2715,7 @@ export class PortalService {
     key: string,
     data: { fileName: string; contentType: string; data: string },
   ) {
-    const bytes = Buffer.from(data.data, "base64");
-    if (!bytes.length || bytes.length > 5 * 1024 * 1024)
-      throw new BadRequestException("Images must be 5 MB or smaller.");
-    const signatures: Record<string, (b: Buffer) => boolean> = {
-      "image/png": (b) =>
-        b.subarray(0, 8).equals(Buffer.from("89504e470d0a1a0a", "hex")),
-      "image/jpeg": (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff,
-      "image/gif": (b) => b.subarray(0, 4).toString("latin1") === "GIF8",
-      "image/webp": (b) =>
-        b.subarray(0, 4).toString("latin1") === "RIFF" &&
-        b.subarray(8, 12).toString("latin1") === "WEBP",
-    };
-    if (!signatures[data.contentType]?.(bytes))
-      throw new BadRequestException(
-        "The file is not a PNG, JPEG, WebP or GIF image.",
-      );
+    const bytes = imageBytes(data);
     return this.command(
       principal,
       key,
@@ -2639,6 +2740,93 @@ export class PortalService {
           size: bytes.length,
         });
         return { id: media.id, url: `/media/${media.id}` };
+      },
+    );
+  }
+  // This choice belongs to the portal offering, never to the Canvas source.
+  // Commit media and the versioned choice together; failed saves leave no upload.
+  async changeOfferingImage(
+    principal: Principal,
+    key: string,
+    id: string,
+    data: OfferingImageDto,
+  ) {
+    const bytes =
+      data.mode === "upload"
+        ? imageBytes({ data: data.data!, contentType: data.contentType! })
+        : undefined;
+    if (
+      data.mode !== "upload" &&
+      (data.data !== undefined ||
+        data.fileName !== undefined ||
+        data.contentType !== undefined)
+    )
+      throw new BadRequestException(
+        "Image file fields are only accepted for an upload.",
+      );
+    return this.command(
+      principal,
+      key,
+      {
+        action: "offering.image",
+        id,
+        version: data.version,
+        mode: data.mode,
+        reason: data.reason,
+        fileName: data.fileName,
+        contentType: data.contentType,
+        sha: bytes
+          ? createHash("sha256").update(bytes).digest("hex")
+          : undefined,
+      },
+      async (tx) => {
+        const [before] = await sql<offerings>(
+          tx,
+          "SELECT * FROM offerings WHERE id=$1::uuid AND version=$2 FOR UPDATE",
+          id,
+          data.version,
+        );
+        if (!before)
+          throw new ConflictException(
+            "Offering changed or does not exist. Refresh and retry.",
+          );
+        if (
+          (before.published || before.unpublished_at) &&
+          (!data.reason || data.reason.trim().length < 10)
+        )
+          throw new BadRequestException(
+            "Give a reason of at least 10 characters to change a published offering.",
+          );
+        const media = bytes
+          ? await tx.media_assets.create({
+              data: {
+                content_type: data.contentType!,
+                file_name: data.fileName!,
+                size: bytes.length,
+                bytes,
+                created_by: principal.actor,
+              },
+              select: { id: true },
+            })
+          : undefined;
+        const after = {
+          image_override: data.mode !== "source",
+          image_media_id: media?.id ?? null,
+        };
+        const offering = await tx.offerings.update({
+          where: { id },
+          data: { ...after, version: { increment: 1 } },
+        });
+        await audit(tx, principal.actor, "offering.image_changed", id, {
+          before: {
+            image_override: before.image_override,
+            image_media_id: before.image_media_id,
+          },
+          after,
+          mode: data.mode,
+          reason: data.reason?.trim(),
+        });
+        return offering;
       },
     );
   }

@@ -33,6 +33,7 @@ import {
 type LearnerRow = {
   id: string;
   email: string | null;
+  display_name?: string | null;
   created_at: string;
   active: boolean;
   version: number;
@@ -44,6 +45,7 @@ type LearnerRow = {
 type LearnerDetail = {
   id: string;
   email: string | null;
+  display_name?: string | null;
   created_at: string;
   active: boolean;
   deactivated_at: string | null;
@@ -84,8 +86,10 @@ const wideOnly = { display: { xs: "none", md: "block" } };
 const phoneOnly = { display: { xs: "block", md: "none" } };
 const day = (value: string | null) =>
   value ? new Date(value).toLocaleDateString() : "—";
-const learnerName = (row: { email: string | null }) =>
-  row.email ?? "Legacy sample learner";
+const learnerName = (row: {
+  email: string | null;
+  display_name?: string | null;
+}) => row.email ?? row.display_name ?? "Legacy sample learner";
 const accessChip = (active: boolean) => (
   <Chip
     label={active ? "Active" : "Deactivated"}
@@ -147,7 +151,7 @@ export function StaffLearners({
       <Stack direction={{ xs: "column", sm: "row" }} sx={{ gap: 2, mb: 2 }}>
         <TextField
           label="Search learners"
-          placeholder="Email address"
+          placeholder="Name or email address"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           sx={{ flex: 1 }}
@@ -156,7 +160,7 @@ export function StaffLearners({
           view={view}
           options={{
             "joined:desc": "Newest first",
-            "email:asc": "Email A–Z",
+            "email:asc": "Learner A–Z",
             "registrations:desc": "Most registrations",
             "activity:desc": "Recently active",
           }}

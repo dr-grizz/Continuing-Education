@@ -4,12 +4,18 @@ import { StaffRole } from "../generated/prisma/enums";
 // endpoints apply current portal scopes independently of Canvas API permissions.
 export const roleScopes: Record<StaffRole, readonly string[]> = {
   approver: ["approvals:decide"],
-  catalog_manager: ["catalog:write", "canvas:read", "canvas:sync"],
+  catalog_manager: [
+    "catalog:write",
+    "canvas:read",
+    "canvas:sync",
+    "badges:manage",
+  ],
   support: [
     "exceptions:resolve",
     "prototype:simulate",
     "learners:manage",
     "payments:read",
+    "payments:reconcile",
     "refunds:request",
   ],
   it_canvas_admin: [
@@ -22,12 +28,14 @@ export const roleScopes: Record<StaffRole, readonly string[]> = {
   // Also holds the former Finance role's permissions (removed October 8, 2026):
   // the university Finance department works in Stripe, not in the portal.
   staff_admin: [
+    "badges:manage",
     "canvas:read",
     "canvas:sync",
     "canvas:manage",
     "staff:manage",
     "reports:sales",
     "payments:read",
+    "payments:reconcile",
     "refunds:request",
   ],
   // Sales pages (built October 8, 2026) and, with catalog managers, the Explore tab picks.
@@ -69,6 +77,10 @@ export const roleDescriptions: Record<StaffRole, string> = {
     "Edits, previews and publishes course sales pages, and chooses the learner Explore tab picks. Cannot change prices, dates or course publication.",
 };
 export const scopeDescriptions: Record<string, string> = {
+  "payments:reconcile":
+    "Manually check unresolved Stripe sandbox Checkout sessions",
+  "badges:manage":
+    "Design and publish badges, map earning rules, award manually or by CSV, manage certificates and view the issuance register",
   "canvas:read":
     "View Canvas course connection status and the last successful course preview",
   "canvas:sync":

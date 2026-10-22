@@ -1,6 +1,6 @@
 # ADR 0001: Local API-first prototype
 
-Status: accepted for local prototyping only, October 1, 2026. Staff sign-in, Stripe sandbox payments and read-only Canvas access were subsequently amended by ADRs 0004, 0005 and 0007; the original limitations below describe the initial baseline. Data access and migrations superseded by [ADR 0002](0002-prisma-orm.md) on October 6, 2026.
+Status: accepted for local prototyping only, October 1, 2026. Staff sign-in, Stripe sandbox payments and read-only Canvas access were subsequently amended by ADRs 0004, 0005 and 0007; [ADR 0008](0008-request-driven-demo.md) replaces the separate worker with request-driven demo processing; the original limitations below describe the initial baseline. Data access and migrations superseded by [ADR 0002](0002-prisma-orm.md) on October 6, 2026.
 
 Use Next.js/React, MIT-licensed Material UI components, a NestJS REST API with OpenAPI documentation, PostgreSQL in Docker Compose, and a separate database-backed worker. Keep source in this repository under `src/`. Pin dependency versions and commit the lockfile.
 
