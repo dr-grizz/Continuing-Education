@@ -115,7 +115,15 @@ export function canvasStaffConfig(env = process.env) {
 export function staffAuthInfo() {
   const mode = staffAuthMode();
   if (mode === "mock")
-    return { mode, configured: true, secureCookies: false, portalOrigin: null };
+    return {
+      mode,
+      configured: true,
+      secureCookies: process.env.HOSTED_DEMO === "true",
+      portalOrigin:
+        process.env.HOSTED_DEMO === "true"
+          ? new URL(process.env.WEB_URL!).origin
+          : null,
+    };
   try {
     const config = canvasStaffConfig();
     return {

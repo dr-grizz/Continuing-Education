@@ -20,7 +20,15 @@ export function canvasLearnerConfig(env = process.env) {
 export function learnerAuthInfo() {
   const mode = learnerAuthMode();
   if (mode === "mock")
-    return { mode, configured: true, secureCookies: false, portalOrigin: null };
+    return {
+      mode,
+      configured: true,
+      secureCookies: process.env.HOSTED_DEMO === "true",
+      portalOrigin:
+        process.env.HOSTED_DEMO === "true"
+          ? new URL(process.env.WEB_URL!).origin
+          : null,
+    };
   try {
     const settings = canvasLearnerConfig();
     return {

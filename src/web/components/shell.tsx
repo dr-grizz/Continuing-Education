@@ -317,7 +317,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
               Continuing Education · Non-credit learning
             </Typography>
             <Link
-              href="http://localhost:3051/api/docs"
+              href="/api/docs"
               target="_blank"
               rel="noreferrer"
               variant="body2"

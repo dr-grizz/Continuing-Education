@@ -20,3 +20,20 @@ playwright-report/
 
 # Generated UI verification screenshots
 artifacts/
+
+# Private environment variants; only redacted examples belong in Git
+.env.*
+!.env.example
+!.env.*.example
+*.env
+!*.env.example
+
+# Filled deployment parameters and private key material
+*.bicepparam
+*.tfvars
+*.tfvars.json
+*.pem
+*.key
+*.pfx
+*.p12
+.azure/*.local.*

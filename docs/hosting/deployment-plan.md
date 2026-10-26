@@ -1,5 +1,7 @@
 # Continuing Education portal: demo deployment plan
 
+**October 23 update:** the [Azure F1 + Neon template](azure-f1-neon.md) is the current free-tier preparation. The container diagrams below remain historical alternatives; no cloud deployment has occurred.
+
 Updated October 15, 2026. Proposed deployment of the current request-driven demo. These diagrams describe the target hosting setup; the local implementation has not been deployed by this plan.
 
 Use **one application container running web and API**, with **PostgreSQL outside the container**. Apply pending migrations at startup before serving traffic. There is no always-running worker, and scheduled Canvas synchronization is deferred. This follows [ADR 0008](../adr/0008-request-driven-demo.md).

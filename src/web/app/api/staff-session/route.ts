@@ -97,7 +97,11 @@ export async function POST(request: NextRequest) {
       NextResponse.json(data, { status: upstream.status }),
     );
     if (upstream.ok)
-      response.cookies.set(mockCookie, data.id, cookieOptions(false, 28800));
+      response.cookies.set(
+        mockCookie,
+        data.id,
+        cookieOptions(process.env.HOSTED_DEMO === "true", 28800),
+      );
     return response;
   } catch {
     return unreachable();

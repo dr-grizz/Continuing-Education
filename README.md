@@ -10,6 +10,10 @@ Course managers can independently control [listed and unlisted visibility](docs/
 
 The [demo deployment plan](docs/hosting/deployment-plan.md) contains the Azure overview and detailed diagrams, the equivalent Railway diagram, and preparation and verification steps for the combined web/API container.
 
+## Azure demo template
+
+For a small hosted demonstration, use the [Azure F1 + Neon guide](docs/hosting/azure-f1-neon.md) and [deployment environment reference](deploy/README.md). The current demo uses Canvas OAuth without a shared audience password gate and a minimal prebuilt Linux runtime on Azure F1. Deployment is manual; CI/CD is deferred.
+
 ## Run locally
 
 Requires Node.js 22+ and running Docker Desktop. From the repository root:
@@ -109,7 +113,7 @@ Canvas previews run during staff page requests, with the existing bounded provid
 
 For a missed Stripe webhook, Support or a Staff administrator can use **Admin → Transactions → Check Stripe payments**. It checks up to five unresolved sessions past expiry, fulfills verified payments, releases confirmed expired reservations and leaves uncertain results pending. Repeat if more sessions remain. This is manual recovery, not automatic reconciliation. Production account provisioning/enrollment will need an on-demand durable job runner.
 
-This change does not deploy the demo or remove the local-only guard. See [ADR 0008](docs/adr/0008-request-driven-demo.md).
+Local mode retains its guard. A configured `HOSTED_DEMO=true` explicitly permits the gated hosted demo; see [ADR 0011](docs/adr/0011-azure-f1-demo.md).
 
 ## Seat capacity
 
@@ -148,7 +152,7 @@ For the university Finance department and whoever hosts the portal, [How the por
 
 ## Automation
 
-The API uses `/api/v1`, server-side scope checks and `Idempotency-Key` on writes. Three random prototype tokens live in `.env`: learner, staff and read-only automation. Staff act as a mock-signed-in demo staff member whose roles decide their scopes; this is local convenience, not production security. Never expose this prototype publicly or add real learner data. The API refuses `NODE_ENV=production`.
+The API uses `/api/v1`, server-side scope checks and `Idempotency-Key` on writes. Three random prototype tokens live in `.env`: learner, staff and read-only automation. Staff act as a mock-signed-in demo staff member whose roles decide their scopes; this is local convenience, not production security. Do not add real learner data or expose an ungated demo. Production mode requires explicit hosted-demo configuration; local mode is unchanged.
 
 Read the automation token locally into a shell variable without printing it, then request:
 
@@ -174,6 +178,7 @@ npm run test:learner-auth
 npm run test:visibility
 npm run test:canvas
 npm run test:demo
+npm run test:hosting
 npm run test:a11y
 ```
 

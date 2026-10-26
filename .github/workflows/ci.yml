@@ -59,6 +59,8 @@ jobs:
       - run: npm ci
       - name: Format check
         run: npm run format:check
+      - name: Hosted demo boundary tests
+        run: npm run test:hosting
       - name: Typecheck
         run: npm run typecheck
       - name: Migrate the database

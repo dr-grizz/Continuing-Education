@@ -34,6 +34,23 @@ export async function staffAuthInfo(): Promise<StaffAuthInfo> {
   if (!response.ok) throw new Error("Staff authentication unavailable.");
   return response.json();
 }
+/** Canonical HTTPS origin when TLS terminates at Azure's reverse proxy. */
+export function portalOrigin(request: NextRequest) {
+  return process.env.HOSTED_DEMO === "true" && process.env.WEB_URL
+    ? new URL(process.env.WEB_URL).origin
+    : request.nextUrl.origin;
+}
+export function isPortalRequest(request: NextRequest, expected: string) {
+  if (request.nextUrl.origin === expected) return true;
+  // Trust only the configured host, never an arbitrary forwarded-host value.
+  // App Service enforces HTTPS; Node receives an internal origin behind it.
+  return (
+    process.env.HOSTED_DEMO === "true" &&
+    portalOrigin(request) === expected &&
+    request.headers.get("host") === new URL(expected).host &&
+    request.headers.get("x-forwarded-proto") === "https"
+  );
+}
 export function sameOrigin(request: NextRequest, expected: string | null) {
   return Boolean(
     expected &&

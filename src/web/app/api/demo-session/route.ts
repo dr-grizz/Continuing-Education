@@ -91,6 +91,7 @@ async function session(request: NextRequest) {
     if (upstream.ok && body)
       response.cookies.set(cookie, data.id, {
         httpOnly: true,
+        secure: process.env.HOSTED_DEMO === "true",
         sameSite: "lax",
         path: "/",
         maxAge: 60 * 60 * 24 * 30,

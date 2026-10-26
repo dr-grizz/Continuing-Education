@@ -887,8 +887,11 @@ async function main() {
   SwaggerModule.setup("api/docs", app, document, {
     jsonDocumentUrl: "api/openapi.json",
   });
-  await app.listen(3051, "127.0.0.1");
-  console.log("API: http://localhost:3051/api/docs");
+  const port = Number(process.env.API_PORT || "3051");
+  if (!Number.isInteger(port) || port < 1 || port > 65535)
+    throw new Error("API_PORT must be a valid TCP port.");
+  await app.listen(port, "127.0.0.1");
+  console.log(`API: http://127.0.0.1:${port}/api/docs`);
 }
 main().catch((error) => {
   console.error(error);

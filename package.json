@@ -27,7 +27,11 @@
     "test:canvas": "ts-node -P tsconfig.server.json tests/canvas-courses.integration.ts",
     "test:a11y": "playwright test",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,mjs}\" \"tests/**/*.ts\" \"scripts/**/*.{ts,mjs}\" \"*.{ts,json}\"",
-    "test:demo": "ts-node -P tsconfig.server.json tests/request-demo.integration.ts"
+    "test:demo": "ts-node -P tsconfig.server.json tests/request-demo.integration.ts",
+    "start": "node scripts/start-demo.mjs",
+    "package:demo": "node scripts/package-demo.mjs",
+    "test:hosting": "ts-node -P tsconfig.server.json tests/hosting.test.ts",
+    "verify:demo": "node scripts/verify-demo.mjs"
   },
   "engines": {
     "node": ">=22"

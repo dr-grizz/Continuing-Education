@@ -1,97 +1,30 @@
-# Azure demo deployment and verified learner login
+# Azure F1 + Neon demo deployment
 
-Status: Planning — not approved for implementation or deployment.
+Status: Deployed and smoke-tested, October 26, 2026.
 
-Updated: October 21, 2026. This is a requirements draft, not a completed or quota-validated deployment plan.
+## Scope
 
-## Workspace analysis
+One Linux Azure App Service F1 plan runs the compiled web and API processes. Neon PostgreSQL is external and uses TLS. No paid fallback, automatic deployment or real Canvas provisioning is enabled. CI/CD remains deferred.
 
-- Mode: MODERNIZE an existing non-Azure application; do not initialize a replacement application.
-- Proposed recipe: Azure Developer CLI with Bicep, subject to existing institutional deployment standards.
-- Detected components: Next.js/React/MUI in `src/web`, NestJS in `src/server`, Prisma/PostgreSQL in `prisma` and `src/domain`.
-- No application Dockerfile, Azure infrastructure or compiled API start command was found.
-- `src/domain/db.ts` rejects production mode. Hosted-demo mode needs an explicit reviewed amendment, not a removed safety check.
-- Learner sign-in now supports existing-account Canvas OAuth and hashed revocable sessions (ADR 0009). Arbitrary email, UUID selection and the legacy default learner remain mock-only; hosted configuration must explicitly choose Canvas mode.
-- The current shell cannot find `az` or `azd`; Azure account, policy and capacity checks have not run.
+## Configuration and deployment
 
-## Demo requirements
+- Use [the environment reference](../deploy/README.md) and [hosting guide](../docs/hosting/azure-f1-neon.md).
+- Keep subscription/account details, runtime secrets, database backups, deployment output and release ZIPs in private ignored storage. The detailed operator journal is local-only.
+- Public demo mode requires Canvas OAuth for learners and staff; registration/payment requires a verified learner session and staff operations require explicit roles.
+- Build the minimal Linux/amd64 runtime outside Azure. The verified release was approximately 31 MiB compressed / 80 MiB unpacked; it excludes source, development tools, dotenv files and build caches.
+- Apply reviewed migrations explicitly through a direct database connection, after backup. The app uses the pooled connection and never migrates at startup.
+- Configure Stripe test keys and the dedicated hosted webhook secret. Live keys/events are rejected. Canvas enrollment remains simulated.
 
-- Classification: restricted proof of concept with synthetic learner/payment/enrollment data.
-- Proposed scale: small, single region, one application replica.
-- Proposed cost profile: cost-optimized; spending ceiling requires user input.
-- Subscription, tenant and location: awaiting user confirmation; no defaults assumed.
-- Institutional Azure Policy, region availability and quotas: not checked; infrastructure execution is blocked on confirmed Azure context and tool access.
+## Verification
 
-## Confirmed scope
+- Formatting, type checking, hosting boundary tests, staff and learner OAuth integration checks passed.
+- The isolated Linux production package passed startup, database and access-boundary checks before deployment.
+- Hosted catalog and five course photos load without a browser password gateway. Anonymous staff access and mock sign-in are refused. Same-origin write protection remains enabled.
+- Real Canvas learner and linked administrator OAuth completed in the browser. The hosted staff roster contains only the owner-approved administrator; synthetic seed staff were removed after a private full backup. Local fixtures and historical migrations were preserved.
+- Stripe sandbox Checkout completed; the signed webhook persisted one paid order and an enrolled demo entitlement. No real charge or Canvas enrollment occurred.
+- Hosted catalog and learner/staff sign-in screens reported no axe A/AA violations. Keyboard skip navigation and 320 px catalog reflow passed. Manual screen-reader review remains pending.
+- Final cloud readback confirmed F1/Free, HTTPS Only and Running/Normal. Free-tier quota/cold-start limits still apply.
 
-- Existing Continuing Education portal; modify the existing repository.
-- Host a restricted demo on Azure.
-- Current login: reuse existing Canvas OAuth for people with a CU account, including staff as learners.
-- Future: course registration and payment precede Cedarville guest account creation; guest pre-account login/provisioning details are deferred.
-- Keep staff Canvas OAuth and portal role checks separate from learner login.
-- Preserve current local data, staff changes and the issue-tracking draft.
+## Rollback and limits
 
-## Architecture under review
-
-- One Azure Container App containing the compiled Next.js website and NestJS API.
-- External PostgreSQL database dedicated to the demo.
-- Azure Container Registry, managed identity, Key Vault and diagnostic logging.
-- Existing-account learner Canvas OAuth; separate verified learner sessions, with mock learner selectors rejected in Canvas mode.
-- Stripe sandbox and simulated Canvas account provisioning/enrollment only.
-- One demo replica; manual Canvas previews; no always-running worker or scheduler.
-
-### Proposed resource inventory
-
-| Resource                                     | Quantity                              | Capacity verification                                        |
-| -------------------------------------------- | ------------------------------------- | ------------------------------------------------------------ |
-| Resource group                               | 1                                     | Not performed; requires confirmed subscription               |
-| Container Apps environment                   | 1                                     | Not performed; requires confirmed region and subscription    |
-| Container App                                | 1                                     | Not performed; requires confirmed region and subscription    |
-| Container Registry                           | 1                                     | Not performed; requires confirmed subscription               |
-| PostgreSQL Flexible Server and demo database | 1 server, 1 database                  | Not performed; requires confirmed region and subscription    |
-| VNet/private database networking and DNS     | As required by selected network model | Not performed; network design depends on subscription policy |
-| Key Vault and app managed identity           | 1 each                                | Not performed; requires confirmed subscription               |
-| Log Analytics and Application Insights       | 1 each                                | Not performed; requires confirmed subscription               |
-
-No capacity or SKU availability is asserted. Complete the Azure quota checks before presenting a final deployment plan for approval.
-
-## Decisions still required
-
-- No additional learner authentication provider is needed for current existing-CU-account scope. Future guest pre-account login is deferred.
-- Azure tenant/subscription, permitted region, resource ownership and budget.
-- Demo audience/access gate, public hostname and email sender configuration.
-
-The project owner clarified on October 21 that existing CU accounts should use the existing Canvas OAuth now. This supersedes the proposed email-link/email-code provider choice for current scope. Staff can independently act as learners. Guest account creation after payment remains future work, with no additional details requested now.
-
-Learner identity should use the verified provider issuer/subject binding, with server-side revocable portal sessions. Provision new demo records or explicitly review migration of existing mocked records; do not silently claim historical records based on matching email. Login does not grant Canvas permissions or create Canvas accounts.
-
-## Planned work
-
-1. Record existing-account Canvas OAuth in ADR 0009; defer guest account details. Complete Azure context/capacity checks and obtain approval of the completed hosting plan before hosting implementation.
-2. Implement verified learner identity, secure revocable sessions and access checks.
-3. Add portable container packaging, startup, migrations, health and shutdown handling.
-4. Prepare Azure infrastructure, secrets and hosted OAuth/Stripe configuration.
-5. Validate login, authorization, payment return, accessibility and container recovery.
-6. Deploy only after Azure validation and confirmed deployment context; record readback.
-
-## Verification gates
-
-- Expired/reused OAuth state and wrong browser nonces rejected; learner identity forgery rejected.
-- Logout, expiry and deactivation revoke learner access server-side.
-- No automatic linking to existing demo records or Canvas accounts from untrusted email.
-- Stripe return preserves login; signed webhook alone confirms payment.
-- Staff OAuth, Canvas previews and portal roles continue to work.
-- API and database remain private; demo audience restrictions cover protected routes.
-- Migrations preserve data; failed migrations prevent startup; recovery is rehearsed.
-- UI changes receive keyboard/automated accessibility checks and recorded screen-reader review gaps.
-
-## Existing references
-
-- [Hosting architecture and demo boundaries](../docs/hosting/deployment-plan.md)
-- [Request-driven demo](../docs/adr/0008-request-driven-demo.md)
-- [Authentication decisions](../docs/decision-register.md)
-- [Functional and security cases](../docs/testing/use-cases.md)
-- [Microsoft Entra customer sign-up/sign-in methods](https://learn.microsoft.com/en-us/entra/external-id/customers/how-to-user-flow-sign-up-sign-in-customers)
-- [OWASP session management](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html)
-
-No infrastructure, authentication implementation or deployment has been created by this plan.
+Retain the previous known-good release and database backup privately. Code rollback does not undo database changes; restore into a separate database and verify before deliberately switching connections. The manual release-build workflow has no cloud credentials and has not been exercised remotely. See [the historical local verification record](../docs/hosting/azure-f1-verification.md) for the earlier gated-package checks.

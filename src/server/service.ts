@@ -741,6 +741,10 @@ export class PortalService {
   // event is handled once; only Stripe (by webhook or reconciliation) marks a
   // Stripe payment paid.
   async stripeEvent(event: Stripe.Event) {
+    if (event.livemode)
+      throw new BadRequestException(
+        "Live Stripe events are not allowed in the demo.",
+      );
     // Newer API versions omit the refund list from charge.refunded; look up
     // the latest refund ID first (best effort, outside the transaction).
     let refundId: string | null = null;

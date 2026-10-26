@@ -3,6 +3,8 @@ generator client {
   output       = "../src/generated/prisma"
   // The server and worker compile to CommonJS (tsconfig.server.json).
   moduleFormat = "cjs"
+  // Extensionless imports work in both ts-node and compiled CommonJS.
+  importFileExtension = ""
 }
 
 datasource db {

@@ -19,6 +19,7 @@ async function proxy(
   // Broker routes issue sessions and must never be exposed by this generic proxy.
   if (
     path[0]?.toLowerCase() === "auth" ||
+    path[0]?.toLowerCase() === "webhooks" ||
     path.some((segment) => !/^[a-zA-Z0-9_-]+$/.test(segment))
   )
     return NextResponse.json({ message: "Not found." }, { status: 404 });
@@ -138,7 +139,7 @@ async function proxy(
     });
   } catch {
     return NextResponse.json(
-      { message: "The local API is unavailable. Start it with npm run dev." },
+      { message: "The service is temporarily unavailable. Try again." },
       { status: 503 },
     );
   }
