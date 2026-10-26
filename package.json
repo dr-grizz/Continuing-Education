@@ -18,7 +18,7 @@
     "dev:api": "ts-node -P tsconfig.server.json src/server/main.ts",
     "start:web": "next start src/web --hostname 127.0.0.1 --port 3050",
     "typecheck": "tsc -p tsconfig.server.json --noEmit && tsc -p src/web/tsconfig.json --noEmit",
-    "build": "tsc -p tsconfig.server.json && next build src/web",
+    "build": "npm run badges:build && tsc -p tsconfig.server.json && next build src/web",
     "test": "ts-node -P tsconfig.server.json tests/api.integration.ts",
     "test:migrations": "ts-node -P tsconfig.server.json tests/migrations.integration.ts",
     "test:auth": "ts-node -P tsconfig.server.json tests/canvas-auth.integration.ts",
@@ -31,10 +31,15 @@
     "start": "node scripts/start-demo.mjs",
     "package:demo": "node scripts/package-demo.mjs",
     "test:hosting": "ts-node -P tsconfig.server.json tests/hosting.test.ts",
-    "verify:demo": "node scripts/verify-demo.mjs"
+    "verify:demo": "node scripts/verify-demo.mjs",
+    "badges:build": "node scripts/build-badge-workspace.mjs",
+    "badges:setup": "npm ci --prefix badge-service && node scripts/build-badge-workspace.mjs",
+    "dev:badges": "node --env-file-if-exists=.env badge-service/server.mjs",
+    "test:badges": "npm test --prefix badge-service && ts-node -P tsconfig.server.json tests/badges.integration.ts",
+    "badges:link-learner": "ts-node -P tsconfig.server.json scripts/link-badge-learner.ts"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=24"
   },
   "dependencies": {
     "@emotion/cache": "11.14.0",

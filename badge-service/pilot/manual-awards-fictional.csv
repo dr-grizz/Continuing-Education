@@ -1,0 +1,5 @@
+learner_id,reason,evidence_url
+demo-alex,"Fictional CSV test, reviewed by local QA.",https://example.edu/fictional-evidence
+demo-jordan,Fictional duplicate check after manual award.,
+demo-alex,Fictional repeated row.,
+not-a-real-learner,Fictional unknown account check.,

@@ -2,12 +2,14 @@
 
 Prepared October 23, 2026. **Current state, October 26:** the public demo is deployed at https://cuce-demo.azurewebsites.net on the East US F1 plan, connected to Neon. The browser password gateway is removed (`DEMO_ACCESS_GATE=none`); Canvas OAuth is required for learner actions and staff access. Real learner and administrator sign-in were verified. The sole hosted staff member is `hye@cedarville.edu`. Course photos are public, and Stripe uses test keys with a dedicated hosted webhook. Real charges and Canvas enrollment remain disabled. Deployment is manual; CI/CD is deferred. See [ADR 0012](../adr/0012-public-demo-canvas-oauth.md). Manual screen-reader review remains pending.
 
+The next release template uses Node 24 to match the current main branch. The previously deployed demo was built on Node 22; merging this branch does not redeploy it. Badge-service hosting remains a separate configuration and is not added to the minimal demo runtime.
+
 ## What is included
 
-- `infra/main.bicep`: a Linux App Service **F1** plan and Node 22 Web App. HTTPS only; FTP and SCM basic publishing credentials disabled. It never falls back to a paid plan. No Azure database, registry, Key Vault or paid monitoring resource.
+- `infra/main.bicep`: a Linux App Service **F1** plan and Node 24 Web App. HTTPS only; FTP and SCM basic publishing credentials disabled. It never falls back to a paid plan. No Azure database, registry, Key Vault or paid monitoring resource.
 - `deploy/azure-demo.env.example`: runtime setting names and placeholders. Secrets stay in App Service settings, never in source control or the release archive.
 - `infra/demo.bicepparam.example`: parameters read sensitive values from the operator's environment. Copy it to the ignored `artifacts/demo.bicepparam` before editing.
-- `.github/workflows/azure-demo.yml`: manually builds a Linux/Node 22 ZIP artifact. It has read-only repository permission, receives no cloud secrets and **does not deploy or migrate**.
+- `.github/workflows/azure-demo.yml`: manually builds a Linux/Node 24 ZIP artifact. It has read-only repository permission, receives no cloud secrets and **does not deploy or migrate**.
 - `npm start`: checks the hosted-demo settings, starts the compiled API on `127.0.0.1:3051`, waits for its liveness endpoint and then starts Next.js on `0.0.0.0:$PORT` (8080 if unset). Either child failing stops both. SIGTERM/SIGINT stop both. Heap limits are 256 MB for API and 384 MB for web; native allocations still count toward the host's RAM limit.
 - `npm run package:demo`: combines Next.js standalone output with the traced compiled API dependencies in ignored `artifacts/azure-demo`. It omits `.env`, source, tests and build caches, and refuses packages above 600 MiB. Build/package on Ubuntu for Azure; a macOS package is for local verification only.
 

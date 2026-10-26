@@ -37,3 +37,5 @@ artifacts/
 *.pfx
 *.p12
 .azure/*.local.*
+# Isolated local validation tooling and private badge runtime
+tmp/

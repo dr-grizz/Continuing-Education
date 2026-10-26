@@ -1,0 +1,210 @@
+{
+  "checkedAt": "2026-10-21T20:02:40.721815+00:00",
+  "repository": "/Users/jfrieling/Documents/GitHub/Continuing-Education",
+  "branch": "codex/badges-certificates-integration",
+  "baseHead": "0a547c2fc9ce3e74399858d3b03c8b75767a3833",
+  "mainBefore": "dd67f93af90b1d689c22d9f3cfa4305484a9bed7",
+  "mainAfter": "dd67f93af90b1d689c22d9f3cfa4305484a9bed7",
+  "committed": false,
+  "pushed": false,
+  "conflictsRemaining": 0,
+  "checks": {
+    "portalAndServerTypecheck": "passed",
+    "format": "passed",
+    "finalBuild": "passed",
+    "badgeService": {
+      "passed": 46,
+      "failed": 0,
+      "command": "node --test badge-service/test/*.test.mjs"
+    },
+    "portalBroker": {
+      "passed": 63,
+      "failed": 0,
+      "command": "node node_modules/ts-node/dist/bin.js -P tsconfig.server.json tests/badges.integration.ts",
+      "identityProvider": "explicit mock boundary; real badge service, signing, SQLite and PDF renderer",
+      "newCoverage": [
+        "Canvas learner opaque session",
+        "no email required",
+        "stale mock cookie rejected in Canvas mode",
+        "staff session rejected for learner access",
+        "revoked/inactive learner denied",
+        "unconfigured provider denied",
+        "secure __Host- cookie required when configured",
+        "mismatched mock learner denied"
+      ]
+    },
+    "liveWorkflow": {
+      "passed": 30,
+      "failed": 0,
+      "checks": [
+        {
+          "name": "Anonymous staff route denied",
+          "pass": true
+        },
+        {
+          "name": "Existing portal staff sign-in",
+          "pass": true
+        },
+        {
+          "name": "Native portal-authorized badge catalog",
+          "pass": true
+        },
+        {
+          "name": "Cross-origin mutation denied",
+          "pass": true
+        },
+        {
+          "name": "Browser-created draft read-back",
+          "pass": true
+        },
+        {
+          "name": "Publish immutable badge version",
+          "pass": true
+        },
+        {
+          "name": "Published actor comes from portal identity",
+          "pass": true
+        },
+        {
+          "name": "Certificate catalog via portal sign-in",
+          "pass": true
+        },
+        {
+          "name": "Header, centered logo and signature template saved",
+          "pass": true
+        },
+        {
+          "name": "Integrated certificate PDF preview",
+          "pass": true
+        },
+        {
+          "name": "PDF preview has correct magic",
+          "pass": true
+        },
+        {
+          "name": "Synthetic portal learner sign-in",
+          "pass": true
+        },
+        {
+          "name": "Manual award preview",
+          "pass": true
+        },
+        {
+          "name": "Manual issuance and certificate committed",
+          "pass": true
+        },
+        {
+          "name": "Issuance retry returns same batch",
+          "pass": true
+        },
+        {
+          "name": "CSV batch preview",
+          "pass": true
+        },
+        {
+          "name": "CSV batch committed",
+          "pass": true
+        },
+        {
+          "name": "Explicitly linked learner sees own award",
+          "pass": true
+        },
+        {
+          "name": "Learner certificate available",
+          "pass": true
+        },
+        {
+          "name": "Owner certificate PDF download",
+          "pass": true
+        },
+        {
+          "name": "Cross-learner PDF denied",
+          "pass": true
+        },
+        {
+          "name": "Query string cannot impersonate learner",
+          "pass": true
+        },
+        {
+          "name": "Learner cannot access issuer register",
+          "pass": true
+        },
+        {
+          "name": "Portal verification URL",
+          "pass": true
+        },
+        {
+          "name": "Explicitly shared award publicly verifiable",
+          "pass": true
+        },
+        {
+          "name": "Turning sharing off removes public verification",
+          "pass": true
+        },
+        {
+          "name": "Register contains both synthetic awards",
+          "pass": true
+        },
+        {
+          "name": "Both certificates attached in register",
+          "pass": true
+        },
+        {
+          "name": "Existing Approver role denied credential management",
+          "pass": true
+        },
+        {
+          "name": "Existing Course manager role allowed credential management",
+          "pass": true
+        }
+      ],
+      "environment": "Built Next.js 16.3.8 + actual Nest API + isolated in-memory Postgres WASM + real badge service",
+      "database": "22 repository SQL migrations executed sequentially; checksums recorded in the disposable migration ledger; this is not a Prisma Migrate or PostgreSQL concurrency test",
+      "syntheticOnly": true,
+      "awards": 2,
+      "certificates": 2
+    },
+    "accessibility": {
+      "passed": 27,
+      "failed": 0,
+      "projects": [
+        "light",
+        "dark",
+        "phone"
+      ],
+      "command": "node node_modules/@playwright/test/cli.js test --project=light --project=dark --project=phone --grep \"credential integration\"",
+      "coverage": [
+        "Five staff credential workspaces",
+        "Signed-out learner",
+        "Unlinked learner",
+        "Canvas learner without email",
+        "Certificate keyboard focus order",
+        "Unsaved-design Stay/Discard behavior",
+        "All five staff editors at 320px",
+        "Issuance table keyboard horizontal scrolling"
+      ],
+      "findingFixed": "The empty mobile issuance table scrolled horizontally without a focusable region. Added a named focusable table region, visible focus and an ArrowRight scrolling regression check."
+    },
+    "browserReview": "Saved and read back a fictional badge draft; opened certificate tools, loaded the saved header/logo/signature template and inspected preview and issued certificate controls."
+  },
+  "preserved": [
+    "Request-driven demo script and tests",
+    "Manual Stripe reconciliation permission",
+    "Canvas learner authentication",
+    "Existing main branch reference",
+    "Private historical pilot data and issuer keys"
+  ],
+  "limits": [
+    "Docker was stopped; functional browser verification used disposable Postgres WASM, not standard PostgreSQL.",
+    "Full PostgreSQL migration/concurrency and unrelated API/auth suites were not rerun.",
+    "Live Canvas OAuth/MFA, Firefox/WebKit, forced-colors and manual screen-reader review were not performed.",
+    "Badge service remains optional and disabled until configured in the user runtime.",
+    "Historical pilot data was not migrated; this remains a local credential pilot."
+  ],
+  "artifacts": {
+    "screenshot": "../../artifacts/credential-interface-2026-10-21.png",
+    "buildLog": "../../artifacts/credentials-final-build-2026-10-21.log",
+    "accessibilityLog": "../../artifacts/credentials-accessibility-2026-10-21.log"
+  },
+  "temporaryValidationServers": "stopped"
+}

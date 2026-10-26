@@ -27,7 +27,7 @@ resource app 'Microsoft.Web/sites@2024-11-01' = {
     httpsOnly: true
     clientAffinityEnabled: false
     siteConfig: {
-      linuxFxVersion: 'NODE|22-lts'
+      linuxFxVersion: 'NODE|24-lts'
       appCommandLine: 'node scripts/start-demo.mjs'
       alwaysOn: false
       ftpsState: 'Disabled'

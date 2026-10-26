@@ -12,7 +12,7 @@ import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 const { nodeFileTrace } = require("next/dist/compiled/@vercel/nft");
 
-// Build on Ubuntu/Node 22 for Linux App Service. Next traces its own runtime;
+// Build on Ubuntu/Node 24 for Linux App Service. Next traces its own runtime;
 // trace the compiled API separately so build tools and unused UI modules do not
 // consume F1's 1 GB disk. Never ship local dotenv files, data or caches.
 const destination = path.resolve("artifacts/azure-demo");

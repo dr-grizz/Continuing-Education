@@ -29,7 +29,7 @@ if (!existsSync("src/web/.env.local"))
     readFileSync(".env", "utf8")
       .split("\n")
       .filter((line) =>
-        /^(PROTOTYPE_MODE|API_URL|LEARNER_API_TOKEN|STAFF_API_TOKEN)=/.test(
+        /^(PROTOTYPE_MODE|API_URL|LEARNER_API_TOKEN|STAFF_API_TOKEN|WEB_URL|BADGES_ENABLED|BADGE_SERVICE_URL|BADGE_DATA_DIR|BADGE_LEARNER_MAP_FILE)=/.test(
           line,
         ),
       )
