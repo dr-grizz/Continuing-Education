@@ -81,13 +81,15 @@ export async function completeLearnerLogin(request: NextRequest) {
     });
     if (!upstream.ok)
       return redirect(
-        upstream.status === 403
-          ? "unauthorized"
-          : upstream.status === 503
-            ? "unavailable"
-            : params.has("error")
-              ? "denied"
-              : "invalid",
+        upstream.status === 429
+          ? "rate_limited"
+          : upstream.status === 403
+            ? "unauthorized"
+            : upstream.status === 503
+              ? "unavailable"
+              : params.has("error")
+                ? "denied"
+                : "invalid",
       );
     const data = await upstream.json();
     // Only accept application-owned return destinations, even from the API.

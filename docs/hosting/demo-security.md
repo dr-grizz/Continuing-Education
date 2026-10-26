@@ -17,16 +17,19 @@ Hosted OAuth starts and browser mutations additionally use fixed 60-second rate 
 | Scope | OAuth starts | Mutations |
 | --- | --- | --- |
 | Whole web process | 120 | 240 |
-| Peer address | 20 | 120 |
+| Peer address | No OAuth quota | 120 |
+| Verified Canvas account | 20 completed identity checks, shared by staff/learner callbacks | — |
 | Portal session | — | 60; expensive Checkout/Canvas-course/reconciliation actions use a separate 10-request bucket |
 
-Limits return HTTP 429 with `Retry-After` and `Cache-Control: no-store`. Peer addresses and opaque session values are hashed in memory, not logged or persisted by the limiter. The map has at most 4,096 entries and rejects new buckets if full; expired entries are reclaimed. Shared campus/VPN addresses share the peer budget.
+Web-proxy limits return HTTP 429 with `Retry-After` and `Cache-Control: no-store`. After Canvas verifies an identity, account limits return 429 to the trusted broker; the browser returns to sign-in with a message to wait one minute and start again. Peer addresses and opaque session values are hashed in memory, not logged or persisted by the limiter. The map has at most 4,096 entries and rejects new buckets if full; expired entries are reclaimed. Shared campus/VPN addresses share only the mutation peer budget, not an OAuth sign-in quota.
+
+The portal cannot verify a username/email before OAuth completes. The API therefore keys the account quota by a hash of the verified Canvas installation and user ID. Email/display name are not used, and the quota is shared across fresh sessions and both staff/learner login flows. One user cannot exhaust another account’s allowance by entering its email. Failed password attempts are handled by Canvas/Cedarville. The site-wide start ceiling remains a demo capacity safeguard.
 
 Only when `WEBSITE_SITE_NAME` identifies the Azure deployment does the code use the rightmost address in Azure's appended `X-Forwarded-For` chain. Caller-controlled leftmost entries are ignored. Without a usable trusted peer address, requests share an `unattributed` bucket. A separate process-wide ceiling remains effective even if clients rotate cookies/addresses.
 
 These counters reset on process restart, are process-local and are not a distributed service. Reassess limits and use a shared trusted edge/store before scaling to multiple instances or a larger audience. They reduce bounded demo abuse; they do not prevent every denial-of-service attack.
 
-Signed Stripe webhook POSTs are exempt from browser-origin/rate checks so payment delivery is not blocked by audience quotas. Signature verification, live-event refusal, replay deduplication and the body budget still apply. OAuth callbacks and ordinary GET browsing do not consume these write/start quotas.
+Signed Stripe webhook POSTs are exempt from browser-origin/rate checks so payment delivery is not blocked by audience quotas. Signature verification, live-event refusal, replay deduplication and the body budget still apply. OAuth callbacks and ordinary GET browsing do not consume these web-proxy write/start quotas; verified callbacks have the separate account quota above.
 
 ## Bounded bodies
 
@@ -49,7 +52,7 @@ All portal routes set SAMEORIGIN framing, nosniff, a referrer policy and a basel
 
 ## Verification and remaining limits
 
-- `npm run test:security`: valid token roundtrip; tampered/wrong-owner/truncated/noncanonical ciphertext refusal; oversized/chunked/slow/concurrent body handling and slot recovery; bounded quota storage/expiry; proxy throttling despite forged leftmost forwarding headers; webhook exception; baseline header configuration.
+- `npm run test:security`: valid token roundtrip; tampered/wrong-owner/truncated/noncanonical ciphertext refusal; oversized/chunked/slow/concurrent body handling and slot recovery; bounded quota storage/expiry; shared-IP OAuth starts, verified account isolation, shared staff/learner quotas, and process-wide ceilings; webhook exception; baseline header configuration.
 - Hosting, staff OAuth, learner OAuth, Canvas connector and request-driven payment/recovery regressions pass with disposable databases and mocked providers.
 - Badge service: 46 tests and 63 portal integration checks pass, including real PDF rendering using the updated Python requirements.
 - Build, typecheck, formatting, workflow linting and isolated packaged production verification pass. Actual production responses preserve the portal baseline and stricter embedded CSP; the packaged HTTPS catalog passes axe, keyboard skip navigation and 320 px reflow checks.

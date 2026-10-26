@@ -211,7 +211,7 @@ try {
       ?.includes("default-src 'self'"),
   );
   // Exercise the compiled production proxy, not only its unit-test import.
-  for (let attempt = 0; attempt < 20; attempt++) {
+  for (let attempt = 0; attempt < 120; attempt++) {
     const response = await fetch(`${url}/api/auth/canvas/start`, {
       headers: { authorization },
       redirect: "manual",
@@ -384,6 +384,18 @@ try {
       results.violations.map((item) => item.id),
       [],
     );
+    await page.goto(`${env.WEB_URL}/sign-in?authError=rate_limited`);
+    await expect(page.getByRole("main").getByRole("alert")).toContainText(
+      "Wait a minute",
+    );
+    const signInScan = await new AxeBuilder({ page })
+      .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
+      .analyze();
+    assert.deepEqual(
+      signInScan.violations.map((item) => item.id),
+      [],
+    );
+    await page.goto(env.WEB_URL);
     await page.setViewportSize({ width: 320, height: 800 });
     assert.equal(
       await page.evaluate(

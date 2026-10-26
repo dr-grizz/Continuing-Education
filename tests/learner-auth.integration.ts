@@ -532,6 +532,59 @@ async function main() {
     ).status,
     403,
   );
+  // Hosted quotas use the verified Canvas subject, not a submitted email or IP.
+  // Both staff and learner callbacks share a subject's quota across fresh sessions.
+  process.env.HOSTED_DEMO = "true";
+  subject = 9001;
+  for (let i = 0; i < 20; i++) await login();
+  const deniedByQuota = await begin();
+  await assert.rejects(
+    auth.complete(deniedByQuota),
+    (error: any) => error.getStatus() === 429,
+  );
+  await assert.rejects(
+    auth.complete(deniedByQuota),
+    (error: any) => error.getStatus() === 401,
+  );
+  const quotaStaffNonce = nonce();
+  const staffStart = await staff.begin(quotaStaffNonce);
+  await assert.rejects(
+    staff.complete({
+      browserNonce: quotaStaffNonce,
+      state: new URL(staffStart.authorizationUrl).searchParams.get("state")!,
+      code: "test",
+    }),
+    (error: any) => error.getStatus() === 429,
+  );
+  const quotaStart = await startRoute.GET(
+    new NextRequest(
+      "https://portal.example.test/api/auth/learner/canvas/start",
+    ),
+  );
+  const quotaCookie = quotaStart.cookies.get("__Host-ce-learner-flow")!;
+  const quotaState = new URL(
+    quotaStart.headers.get("location")!,
+  ).searchParams.get("state");
+  const quotaCallback = await callbackRoute.GET(
+    new NextRequest(
+      `https://portal.example.test/api/auth/canvas/callback?code=test&state=${quotaState}`,
+      {
+        headers: { cookie: `__Host-ce-learner-flow=${quotaCookie.value}` },
+      },
+    ),
+  );
+  assert.equal(
+    new URL(quotaCallback.headers.get("location")!).searchParams.get(
+      "authError",
+    ),
+    "rate_limited",
+  );
+  subject = 9002;
+  assert.ok(
+    (await login()).token,
+    "another verified user is not blocked by the first account's quota",
+  );
+  delete process.env.HOSTED_DEMO;
   console.log(
     "PASS learner OAuth: identity, concurrent/replayed state, role separation, session rotation/revocation, deactivation, shared callback, cookie/proxy and CSRF boundaries (isolated DB; mocked Canvas).",
   );

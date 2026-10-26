@@ -11,6 +11,7 @@ import {
 } from "../src/web/server/request-body";
 import { RequestLimiter, requestPeer } from "../src/web/server/request-limits";
 import { proxy } from "../src/web/proxy";
+import { enforceCanvasLoginLimit } from "../src/server/canvas-login-limits";
 import config from "../src/web/next.config";
 
 async function main() {
@@ -137,8 +138,24 @@ async function main() {
         headers: { "x-forwarded-for": "203.0.113.5, 192.0.2.20" },
       }),
     );
-    assert.equal(limited.status, 429);
-    assert.ok(Number(limited.headers.get("retry-after")) > 0);
+    assert.equal(
+      limited.status,
+      200,
+      "shared campus IP must not block unrelated Canvas sign-ins",
+    );
+    for (let i = 0; i < 20; i++)
+      enforceCanvasLoginLimit("canvas:https://canvas.example.test", "4242");
+    assert.throws(
+      () =>
+        enforceCanvasLoginLimit("canvas:https://canvas.example.test", "4242"),
+      (error: any) => error.getStatus() === 429,
+    );
+    assert.doesNotThrow(() =>
+      enforceCanvasLoginLimit("canvas:https://canvas.example.test", "4243"),
+    );
+    assert.doesNotThrow(() =>
+      enforceCanvasLoginLimit("canvas:https://other.example.test", "4242"),
+    );
     for (let i = 0; i < 10; i++) {
       const response = proxy(
         new NextRequest(

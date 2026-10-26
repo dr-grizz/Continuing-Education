@@ -9,6 +9,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { prisma } from "../domain/prisma";
 import { canvasStaffConfig, staffAuthMode } from "./staff-auth-config";
 import { scopesFor } from "./roles";
+import { enforceCanvasLoginLimit } from "./canvas-login-limits";
 import {
   grantBinding,
   parseCanvasTokens,
@@ -151,6 +152,7 @@ export class CanvasStaffAuthService {
         "Canvas did not return an identity-only response.",
       );
     const subject = canvasSubject(payload?.user?.id);
+    enforceCanvasLoginLimit(settings.provider, subject);
     const apiGrant = settings.courseReads ? parseCanvasTokens(payload) : null;
     if (
       settings.courseReads &&

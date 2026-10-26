@@ -2,25 +2,8 @@ import { createHash } from "node:crypto";
 import { isIP } from "node:net";
 import type { NextRequest } from "next/server";
 
-/** Bounded, process-local windows for the single-instance demo, not a shared store. */
-export class RequestLimiter {
-  private windows = new Map<string, { count: number; expires: number }>();
-  constructor(private readonly capacity = 4096) {}
-  consume(key: string, limit: number, now = Date.now(), windowMs = 60_000) {
-    let row = this.windows.get(key);
-    if (!row || row.expires <= now) {
-      for (const [id, item] of this.windows)
-        if (item.expires <= now) this.windows.delete(id);
-      if (this.windows.size >= this.capacity) return 60;
-      row = { count: 0, expires: now + windowMs };
-      this.windows.set(key, row);
-    }
-    if (row.count >= limit)
-      return Math.max(1, Math.ceil((row.expires - now) / 1000));
-    row.count++;
-    return 0;
-  }
-}
+import { RequestLimiter } from "../../domain/request-limiter";
+export { RequestLimiter } from "../../domain/request-limiter";
 
 const limiter = new RequestLimiter();
 export function requestPeer(request: NextRequest) {
@@ -47,10 +30,8 @@ export function limitHostedRequest(request: NextRequest) {
   if (retry) return retry;
   const digest = (value: string) =>
     createHash("sha256").update(value).digest("hex");
-  retry = limiter.consume(
-    `${group}:peer:${digest(requestPeer(request))}`,
-    oauth ? 20 : 120,
-  );
+  if (oauth) return 0; // Canvas identity is unknown until the verified callback.
+  retry = limiter.consume(`${group}:peer:${digest(requestPeer(request))}`, 120);
   if (retry) return retry;
   const session =
     request.cookies.get("__Host-ce-learner-session")?.value ||
