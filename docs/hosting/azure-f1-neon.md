@@ -87,6 +87,8 @@ npm run verify:demo -- --browser
 
 The runtime verification needs Docker and OpenSSL. It copies the release into an isolated temporary directory, creates a throwaway TLS PostgreSQL container, runs migrations against that database, then exercises the actual packaged production processes. It does not change the existing local database. It removes its own container, volume and temporary files afterwards. Ports 3350, 3351 and (for browser checks) 3352 must be free. Without `--browser`, it skips the Chromium/axe checks. Move an existing generated `artifacts/azure-demo` aside before packaging again; packaging refuses to overwrite it.
 
+See [hosted-demo security controls and budgets](demo-security.md) for dependency remediation, throttling, body limits and verification scope.
+
 ## Required cloud smoke test
 
 - Confirm the plan SKU is F1 and check for unrelated chargeable resources. Verify the public HTTP URL redirects to HTTPS.

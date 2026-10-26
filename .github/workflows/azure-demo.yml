@@ -23,6 +23,7 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run test:hosting
+      - run: npm run test:security
       - run: npm run build
       - run: npm run package:demo
       - run: npx playwright install --with-deps chromium

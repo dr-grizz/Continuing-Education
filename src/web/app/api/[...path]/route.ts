@@ -6,6 +6,10 @@ import {
   staffCookie,
 } from "../../../server/staff-auth";
 import { learnerAuthInfo, learnerCookie } from "../../../server/learner-auth";
+import {
+  readRequestBody,
+  RequestBodyError,
+} from "../../../server/request-body";
 async function proxy(
   request: NextRequest,
   context: { params: Promise<{ path: string[] }> },
@@ -116,7 +120,8 @@ async function proxy(
       {
         method: request.method,
         headers,
-        body: request.method === "GET" ? undefined : await request.text(),
+        body:
+          request.method === "GET" ? undefined : await readRequestBody(request),
         cache: "no-store",
         redirect: "error",
         // A manual Canvas preview runs within this request, with a bounded
@@ -137,7 +142,12 @@ async function proxy(
         "Cache-Control": "no-store",
       },
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof RequestBodyError)
+      return NextResponse.json(
+        { message: error.message },
+        { status: error.status, headers: { "Cache-Control": "no-store" } },
+      );
     return NextResponse.json(
       { message: "The service is temporarily unavailable. Try again." },
       { status: 503 },

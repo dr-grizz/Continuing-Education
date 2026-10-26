@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
+  readRequestBody,
+  RequestBodyError,
+} from "../../../server/request-body";
+import {
   learnerAuthInfo,
   learnerBackend,
   learnerCookie,
@@ -66,7 +70,12 @@ async function session(request: NextRequest) {
     if (request.method === "GET" && !id)
       return secureResponse(NextResponse.json({ email: null, auth }));
     if (id && request.method === "GET") headers["X-Prototype-Learner-Id"] = id;
-    const body = request.method === "POST" ? await request.json() : undefined;
+    const body =
+      request.method === "POST"
+        ? JSON.parse(
+            (await readRequestBody(request, 16 * 1024)).toString("utf8"),
+          )
+        : undefined;
     const upstream = await fetch(
       `${process.env.API_URL || "http://127.0.0.1:3051"}/api/v1/${body ? "prototype/users" : "me"}`,
       {
@@ -98,7 +107,11 @@ async function session(request: NextRequest) {
       });
     if (upstream.status === 401) response.cookies.delete(cookie);
     return response;
-  } catch {
+  } catch (error) {
+    if (error instanceof RequestBodyError)
+      return secureResponse(
+        NextResponse.json({ message: error.message }, { status: error.status }),
+      );
     return NextResponse.json(
       { message: "Unable to reach the local API. Try again." },
       { status: 503 },

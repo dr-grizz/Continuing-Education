@@ -1,6 +1,7 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { hostedDemoConfig } from "../domain/hosted-demo";
+import { limitHostedRequest } from "./server/request-limits";
 
 // Optional audience gate. Public demos require verified Canvas identities.
 // Signed Stripe webhooks are exempt from browser-origin checks.
@@ -49,6 +50,12 @@ export function proxy(request: NextRequest) {
     return new NextResponse("Same-origin request required.", {
       status: 403,
       headers: { "Cache-Control": "no-store" },
+    });
+  const retry = limitHostedRequest(request);
+  if (retry)
+    return new NextResponse("Too many requests. Try again shortly.", {
+      status: 429,
+      headers: { "Retry-After": String(retry), "Cache-Control": "no-store" },
     });
   const response = NextResponse.next();
   if (demo.gate === "basic")

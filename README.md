@@ -16,7 +16,7 @@ The [demo deployment plan](docs/hosting/deployment-plan.md) contains the Azure o
 
 ## Azure demo template
 
-For a small hosted demonstration, use the [Azure F1 + Neon guide](docs/hosting/azure-f1-neon.md) and [deployment environment reference](deploy/README.md). The current demo uses Canvas OAuth without a shared audience password gate and a minimal prebuilt Linux runtime on Azure F1. Deployment is manual; CI/CD is deferred.
+For a small hosted demonstration, review the [security controls and limits](docs/hosting/demo-security.md), then use the [Azure F1 + Neon guide](docs/hosting/azure-f1-neon.md) and [deployment environment reference](deploy/README.md). The current demo uses Canvas OAuth without a shared audience password gate and a minimal prebuilt Linux runtime on Azure F1. Deployment is manual; CI/CD is deferred.
 
 ## Run locally
 

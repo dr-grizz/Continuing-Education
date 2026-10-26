@@ -1,33 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
+import {
+  readRequestBody,
+  RequestBodyError,
+} from "../../../../server/request-body";
 
 export async function POST(request: NextRequest) {
   if (process.env.PROTOTYPE_MODE !== "true")
     return new NextResponse(null, { status: 503 });
   const signature = request.headers.get("stripe-signature");
   if (!signature) return new NextResponse(null, { status: 400 });
-  // Bound the sole public write endpoint before buffering untrusted bytes.
-  const limit = 1024 * 1024;
-  if (Number(request.headers.get("content-length")) > limit)
-    return new NextResponse(null, { status: 413 });
-  const reader = request.body?.getReader();
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  if (reader) {
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        size += value.byteLength;
-        if (size > limit) {
-          await reader.cancel();
-          return new NextResponse(null, { status: 413 });
-        }
-        chunks.push(value);
-      }
-    } catch {
-      return new NextResponse(null, { status: 400 });
-    }
-  }
   // Never parse/re-serialize signed bytes or add broker credentials. The API
   // verifies the signature and rejects live events before recording payment.
   try {
@@ -39,7 +20,7 @@ export async function POST(request: NextRequest) {
           "Content-Type": "application/json",
           "Stripe-Signature": signature,
         },
-        body: Buffer.concat(chunks),
+        body: await readRequestBody(request, 1024 * 1024),
         redirect: "error",
         signal: AbortSignal.timeout(30_000),
       },
@@ -51,7 +32,9 @@ export async function POST(request: NextRequest) {
         "Cache-Control": "no-store",
       },
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof RequestBodyError)
+      return new NextResponse(null, { status: error.status });
     return new NextResponse(null, { status: 503 });
   }
 }

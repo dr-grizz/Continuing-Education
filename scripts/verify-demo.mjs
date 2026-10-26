@@ -190,6 +190,40 @@ try {
   );
   const page = await fetch(url, { headers: { authorization } });
   assert.equal(page.status, 200);
+  assert.ok(
+    page.headers
+      .get("content-security-policy")
+      ?.includes("frame-ancestors 'self'"),
+  );
+  assert.equal(page.headers.get("x-frame-options"), "SAMEORIGIN");
+  assert.equal(page.headers.get("x-content-type-options"), "nosniff");
+  assert.equal(
+    page.headers.get("referrer-policy"),
+    "strict-origin-when-cross-origin",
+  );
+  const embedded = await fetch(`${url}/credential-tools/issuer.html`, {
+    headers: { authorization },
+  });
+  assert.equal(embedded.status, 200);
+  assert.ok(
+    embedded.headers
+      .get("content-security-policy")
+      ?.includes("default-src 'self'"),
+  );
+  // Exercise the compiled production proxy, not only its unit-test import.
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const response = await fetch(`${url}/api/auth/canvas/start`, {
+      headers: { authorization },
+      redirect: "manual",
+    });
+    assert.notEqual(response.status, 429);
+  }
+  const throttled = await fetch(`${url}/api/auth/canvas/start`, {
+    headers: { authorization },
+    redirect: "manual",
+  });
+  assert.equal(throttled.status, 429);
+  assert.ok(Number(throttled.headers.get("retry-after")) > 0);
   const html = await page.text();
   const asset = html.match(
     /(?:src|href)="([^\"]*\/_next\/static\/[^\"]+)"/,
