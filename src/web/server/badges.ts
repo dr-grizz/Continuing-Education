@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { readRequestBody, RequestBodyError } from "./request-body";
 import path from "node:path";
 import { NextRequest, NextResponse } from "next/server";
 import {
@@ -185,24 +186,14 @@ async function learnerIdentity(request: NextRequest) {
 async function jsonBody(request: NextRequest) {
   if (!request.headers.get("content-type")?.startsWith("application/json"))
     throw new BadgeAccessError(415, "JSON is required.");
-  const reader = request.body?.getReader();
-  if (!reader) throw new BadgeAccessError(400, "A JSON object is required.");
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    size += value.byteLength;
-    if (size > 6 * 1024 * 1024) {
-      await reader.cancel();
-      throw new BadgeAccessError(413, "Upload exceeds 6 MB.");
-    }
-    chunks.push(value);
-  }
   let body;
   try {
-    body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-  } catch {
+    body = JSON.parse(
+      (await readRequestBody(request, 6 * 1024 * 1024)).toString("utf8"),
+    );
+  } catch (error) {
+    if (error instanceof RequestBodyError)
+      throw new BadgeAccessError(error.status, error.message);
     throw new BadgeAccessError(400, "Invalid JSON.");
   }
   if (!body || typeof body !== "object" || Array.isArray(body))

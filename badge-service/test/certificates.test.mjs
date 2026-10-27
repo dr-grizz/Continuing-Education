@@ -577,3 +577,16 @@ print(json.dumps({'pages':len(r.pages),'points':points,'images':len(list(r.pages
     before.data,
   );
 });
+
+test('hosted demo preview bounds concurrent PDF rendering and releases the slot',async t=>{
+ const {certificates}=await setup(t);
+ const original=process.env.BADGE_DEMO_PREVIEW;
+ process.env.BADGE_DEMO_PREVIEW='true';
+ try {
+  const snapshot=certificates.sample(defaultCertificate,{recipientName:'Synthetic Preview Learner'});
+  const first=renderCertificate(snapshot);
+  await assert.rejects(renderCertificate(snapshot),/preview is busy/);
+  assert.equal((await first).subarray(0,5).toString(),'%PDF-');
+  assert.equal((await renderCertificate(snapshot)).subarray(0,5).toString(),'%PDF-');
+ } finally {if(original===undefined)delete process.env.BADGE_DEMO_PREVIEW;else process.env.BADGE_DEMO_PREVIEW=original;}
+});

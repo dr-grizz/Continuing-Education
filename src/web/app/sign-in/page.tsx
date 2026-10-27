@@ -28,6 +28,8 @@ export default function SignIn() {
       configuration:
         "CU sign-in is not configured. Contact the portal administrator.",
       unavailable: "Unable to complete CU sign-in. Try again.",
+      rate_limited:
+        "Too many sign-ins for this Canvas account. Wait a minute, then select Sign in with Canvas again.",
       unauthorized:
         "This learner account is deactivated. Contact the program office.",
       invalid: "Sign-in expired or could not be verified. Try again.",

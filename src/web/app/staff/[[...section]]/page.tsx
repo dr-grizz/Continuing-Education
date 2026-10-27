@@ -745,7 +745,7 @@ function StaffWorkspace({
                 </Typography>
                 <Button
                   size="small"
-                  href="http://localhost:3051/api/docs"
+                  href="/api/docs"
                   target="_blank"
                   rel="noreferrer"
                   sx={{ alignSelf: "flex-start" }}

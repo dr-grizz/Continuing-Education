@@ -13,6 +13,7 @@ export function canvasLearnerConfig(env = process.env) {
   return canvasStaffConfig({
     ...env,
     CANVAS_COURSES_ENABLED: "false",
+    CANVAS_STAFF_LOOKUP_ACCOUNT_ID: "",
     STAFF_SESSION_HOURS: env.LEARNER_SESSION_HOURS || "8",
   });
 }
@@ -20,7 +21,15 @@ export function canvasLearnerConfig(env = process.env) {
 export function learnerAuthInfo() {
   const mode = learnerAuthMode();
   if (mode === "mock")
-    return { mode, configured: true, secureCookies: false, portalOrigin: null };
+    return {
+      mode,
+      configured: true,
+      secureCookies: process.env.HOSTED_DEMO === "true",
+      portalOrigin:
+        process.env.HOSTED_DEMO === "true"
+          ? new URL(process.env.WEB_URL!).origin
+          : null,
+    };
   try {
     const settings = canvasLearnerConfig();
     return {

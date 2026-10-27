@@ -7,6 +7,8 @@ import {
 } from "../../../../../../server/learner-auth";
 import {
   authCookieName,
+  isPortalRequest,
+  portalOrigin,
   cookieOptions,
   secureResponse,
 } from "../../../../../../server/staff-auth";
@@ -17,7 +19,7 @@ export async function GET(request: NextRequest) {
       { message: "Prototype is disabled." },
       { status: 503 },
     );
-  let origin = request.nextUrl.origin;
+  let origin = portalOrigin(request);
   try {
     const info = await learnerAuthInfo();
     if (info.mode !== "canvas" || !info.configured || !info.portalOrigin)
@@ -29,7 +31,7 @@ export async function GET(request: NextRequest) {
       );
     origin = info.portalOrigin;
     if (
-      request.nextUrl.origin !== origin ||
+      !isPortalRequest(request, origin) ||
       request.headers.get("sec-fetch-site") === "cross-site"
     )
       return secureResponse(

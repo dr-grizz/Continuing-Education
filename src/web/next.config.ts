@@ -3,8 +3,22 @@ import path from "node:path";
 const root = path.resolve(__dirname, "../..");
 const config: NextConfig = {
   poweredByHeader: false,
+  output: "standalone",
   async headers() {
     return [
+      {
+        source: "/:path*",
+        headers: [
+          {
+            key: "Content-Security-Policy",
+            value:
+              "frame-ancestors 'self'; base-uri 'self'; object-src 'none'; form-action 'self'",
+          },
+          { key: "X-Frame-Options", value: "SAMEORIGIN" },
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+        ],
+      },
       {
         source: "/credential-tools/:path*",
         headers: [

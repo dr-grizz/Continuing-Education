@@ -100,70 +100,79 @@ export function recipientName(value) {
     fail("Provide the recipient’s printed name (1–120 characters).");
   return value.trim();
 }
+let activePreviewRenders = 0;
 export async function renderCertificate(snapshot) {
-  const bundled = join(
-    homedir(),
-    ".cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
-  );
-  const python =
-    process.env.CERTIFICATE_PYTHON ||
-    (existsSync(bundled) ? bundled : "python3");
-  return new Promise((resolve, reject) => {
-    const child = spawn(
-      python,
-      [join(root, "certificate-renderer/render.py")],
-      {
-        stdio: ["pipe", "pipe", "pipe"],
-        env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1" },
-      },
+  const preview = process.env.BADGE_DEMO_PREVIEW === "true";
+  if (preview && activePreviewRenders >= 1)
+    fail("Certificate preview is busy. Wait for the current PDF and try again.");
+  if (preview) activePreviewRenders++;
+  try {
+    const bundled = join(
+      homedir(),
+      ".cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
     );
-    let bytes = 0,
-      stderr = "",
-      chunks = [];
-    const timeout = setTimeout(() => {
-      child.kill();
-      reject(new AwardError("Certificate rendering timed out. Try again."));
-    }, 20000);
-    child.stdout.on("data", (part) => {
-      bytes += part.length;
-      if (bytes > 8 * 1024 * 1024) {
-        child.kill();
-        return;
-      }
-      chunks.push(part);
-    });
-    child.stderr.on("data", (part) => {
-      if (stderr.length < 1000) stderr += part.toString();
-    });
-    child.on("error", () => {
-      clearTimeout(timeout);
-      reject(
-        new AwardError(
-          "Certificate PDF renderer is unavailable. Configure Python and the renderer requirements.",
-        ),
+    const python =
+      process.env.CERTIFICATE_PYTHON ||
+      (existsSync(bundled) ? bundled : "python3");
+    return await new Promise((resolve, reject) => {
+      const child = spawn(
+        python,
+        [join(root, "certificate-renderer/render.py")],
+        {
+          stdio: ["pipe", "pipe", "pipe"],
+          env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1" },
+        },
       );
-    });
-    child.on("close", (code) => {
-      clearTimeout(timeout);
-      if (code !== 0 || !chunks.length || bytes > 8 * 1024 * 1024) {
-        const safe = [
-          "Certificate text is too long to fit. Shorten the text.",
-          "Certificate font does not support one or more characters. Configure a Unicode font or use a supported name.",
-          "Certificate logo is too large.",
-          "Certificate signature image is too large.",
-        ];
+      let bytes = 0,
+        stderr = "",
+        chunks = [];
+      const timeout = setTimeout(() => {
+        child.kill();
+        reject(new AwardError("Certificate rendering timed out. Try again."));
+      }, 20000);
+      child.stdout.on("data", (part) => {
+        bytes += part.length;
+        if (bytes > 8 * 1024 * 1024) {
+          child.kill();
+          return;
+        }
+        chunks.push(part);
+      });
+      child.stderr.on("data", (part) => {
+        if (stderr.length < 1000) stderr += part.toString();
+      });
+      child.on("error", () => {
+        clearTimeout(timeout);
         reject(
           new AwardError(
-            safe.includes(stderr.trim())
-              ? stderr.trim()
-              : "Certificate PDF could not be rendered. Check the renderer configuration and image.",
+            "Certificate PDF renderer is unavailable. Configure Python and the renderer requirements.",
           ),
         );
-      } else resolve(Buffer.concat(chunks));
+      });
+      child.on("close", (code) => {
+        clearTimeout(timeout);
+        if (code !== 0 || !chunks.length || bytes > 8 * 1024 * 1024) {
+          const safe = [
+            "Certificate text is too long to fit. Shorten the text.",
+            "Certificate font does not support one or more characters. Configure a Unicode font or use a supported name.",
+            "Certificate logo is too large.",
+            "Certificate signature image is too large.",
+          ];
+          reject(
+            new AwardError(
+              safe.includes(stderr.trim())
+                ? stderr.trim()
+                : "Certificate PDF could not be rendered. Check the renderer configuration and image.",
+            ),
+          );
+        } else resolve(Buffer.concat(chunks));
+      });
+      child.stdin.on("error", () => {});
+      child.stdin.end(JSON.stringify(snapshot));
     });
-    child.stdin.on("error", () => {});
-    child.stdin.end(JSON.stringify(snapshot));
-  });
+  } finally {
+    if (preview) activePreviewRenders--;
+  }
 }
 export class Certificates {
   constructor(store, awards, learners) {

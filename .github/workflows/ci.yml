@@ -1,28 +1,42 @@
 name: CI
 # Checks every pull request against a throwaway PostgreSQL service with
-# synthetic data. Nothing here deploys or connects to external systems.
+# synthetic data. Only a successful push on azure-demo can run the separate,
+# OIDC-authenticated deployment job; checks never receive cloud credentials.
 # Skipped when every changed file is documentation; any code, test or config
-# change runs the full job. Run it by hand with "Run workflow" if needed.
+# change runs backend checks and the quick browser suite. The full browser
+# matrix is available through "Run workflow".
 on:
   pull_request:
     paths-ignore:
       - "docs/**"
       - "**/*.md"
   push:
-    branches: [main, prototype-checkpoint, Badges-and-Certificates]
+    # main runs checks only. The deploy job below permits azure-demo exclusively.
+    branches: [main, azure-demo, prototype-checkpoint, Badges-and-Certificates]
     paths-ignore:
       - "docs/**"
       - "**/*.md"
   workflow_dispatch:
+    inputs:
+      full_browser_suite:
+        description: Run all browser engines and layouts (slower)
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # A new demo push must never cancel a ZIP upload already in progress.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/azure-demo' }}
 jobs:
   check:
+    # azure-demo pushes run the same check and CD; avoid duplicating that work
+    # in its open PR. Fork PRs still run the unprivileged checks.
+    if: github.event_name != 'pull_request' || github.head_ref != 'azure-demo' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    env:
+      CI_QUICK: ${{ inputs.full_browser_suite != true && 'true' || 'false' }}
     services:
       db:
         image: postgres:18.6-bookworm
@@ -69,6 +83,10 @@ jobs:
         run: npm run test:badges
       - name: Format check
         run: npm run format:check
+      - name: Hosted demo boundary tests
+        run: npm run test:hosting
+      - name: Request limits and encryption security tests
+        run: npm run test:security
       - name: Typecheck
         run: npm run typecheck
       - name: Migrate the database
@@ -81,12 +99,46 @@ jobs:
         run: npm run test:auth
       - name: Learner Canvas authentication tests (mock provider, disposable database)
         run: npm run test:learner-auth
+      - name: Canvas staff directory lookup (mock provider, disposable database)
+        run: npm run test:staff-lookup
       - name: Canvas course connector tests (mock provider, disposable database)
         run: npm run test:canvas
       - name: Request-driven demo tests (disposable database, no worker)
         run: npm run test:demo
       - name: Build
         run: npm run build
+      - name: Install verified portable Python builder
+        if: github.event_name == 'push' && github.ref == 'refs/heads/azure-demo'
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: latest-known
+      - name: Prepare portable certificate runtime
+        if: github.event_name == 'push' && github.ref == 'refs/heads/azure-demo'
+        run: |
+          uv python install 3.12 --no-bin --install-dir "$RUNNER_TEMP/badge-python"
+          python_dir=$(find "$RUNNER_TEMP/badge-python" -maxdepth 1 -type d -name 'cpython-3.12*' -print -quit)
+          test -n "$python_dir"
+          uv pip install --python "$python_dir/bin/python3" --break-system-packages -r badge-service/certificate-renderer/requirements.txt
+          echo "DEMO_PYTHON_DIRECTORY=$python_dir" >> "$GITHUB_ENV"
+      - name: Prepare and verify the minimal deployment package
+        if: github.event_name == 'push' && github.ref == 'refs/heads/azure-demo'
+        env:
+          BADGES_ENABLED: "false"
+          DEMO_ACCESS_GATE: basic
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          npm run package:demo
+          npm run verify:demo
+          npm run verify:demo -- --badges
+          node scripts/demo-schema-hash.mjs > artifacts/schema.sha256
+          node --input-type=module <<'JS'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          writeFileSync('artifacts/azure-demo/release.json', JSON.stringify({
+            revision: process.env.RELEASE_SHA,
+            schema: readFileSync('artifacts/schema.sha256', 'utf8').trim(),
+          }));
+          JS
+          (cd artifacts/azure-demo && zip -q -r ../azure-demo.zip .)
       - name: Start the API and website (no worker)
         run: |
           mkdir -p logs
@@ -101,9 +153,15 @@ jobs:
           done
       - name: Integration tests
         run: npm test
-      - name: Install the Playwright browsers
+      - name: Use the runner's installed Chrome for quick checks
+        if: env.CI_QUICK == 'true'
+        run: |
+          google-chrome --version
+          echo "PLAYWRIGHT_CHROME_CHANNEL=chrome" >> "$GITHUB_ENV"
+      - name: Install all Playwright browsers
+        if: env.CI_QUICK != 'true'
         run: npx playwright install --with-deps chromium firefox webkit
-      - name: Accessibility checks (axe in Chrome, Firefox and WebKit; forced colors; reflow and text resizing)
+      - name: Accessibility checks (quick by default; full matrix on request)
         run: npm run test:a11y
       - name: Server logs
         if: failure()
@@ -115,3 +173,68 @@ jobs:
           name: playwright-report
           path: playwright-report/
           retention-days: 7
+      - name: Retain the verified release for deployment and rollback
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/azure-demo'
+        uses: actions/upload-artifact@v4
+        with:
+          name: azure-demo-${{ github.sha }}
+          path: |
+            artifacts/azure-demo.zip
+            artifacts/schema.sha256
+          retention-days: 14
+
+  deploy:
+    name: Deploy Azure demo
+    needs: check
+    if: github.event_name == 'push' && github.ref == 'refs/heads/azure-demo'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+    # Finish an upload already in progress; never interrupt it with another.
+    concurrency:
+      group: deploy-cuce-demo
+      cancel-in-progress: false
+    env:
+      AZURE_WEBAPP_NAME: cuce-demo
+      AZURE_RESOURCE_GROUP: rg-continuinged-demo
+      RELEASE_SHA: ${{ github.sha }}
+      APPROVED_SCHEMA: ${{ vars.AZURE_DEMO_SCHEMA_HASH }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: azure-demo-${{ github.sha }}
+          path: release
+      - name: Require the operator-approved database migration set
+        run: |
+          test -n "$APPROVED_SCHEMA" || { echo "AZURE_DEMO_SCHEMA_HASH is not configured."; exit 1; }
+          test "$(cat release/schema.sha256)" = "$APPROVED_SCHEMA" || {
+            echo "Database migrations changed. Back up and migrate explicitly, then update AZURE_DEMO_SCHEMA_HASH."
+            exit 1
+          }
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_DEMO_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_DEMO_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_DEMO_SUBSCRIPTION_ID }}
+      - name: Check the F1 target and select Node 24
+        run: |
+          plan=$(az webapp show -g "$AZURE_RESOURCE_GROUP" -n "$AZURE_WEBAPP_NAME" --query serverFarmId -o tsv)
+          test "$(az appservice plan show --ids "$plan" --query sku.name -o tsv)" = F1
+          test "$(az webapp config appsettings list -g "$AZURE_RESOURCE_GROUP" -n "$AZURE_WEBAPP_NAME" --query "[?name=='SCM_DO_BUILD_DURING_DEPLOYMENT'].value | [0]" -o tsv)" = false
+          az webapp config set -g "$AZURE_RESOURCE_GROUP" -n "$AZURE_WEBAPP_NAME" --linux-fx-version 'NODE|24-lts' --startup-file 'node scripts/start-demo.mjs' --output none
+      - name: Deploy the verified ZIP using Microsoft Entra authentication
+        run: |
+          az webapp deploy -g "$AZURE_RESOURCE_GROUP" -n "$AZURE_WEBAPP_NAME" \
+            --src-path release/azure-demo.zip --type zip --clean true \
+            --restart true --track-status true --timeout 600000 --output none
+      - name: Verify the published revision through authenticated SCM
+        run: |
+          revision=$(az rest --method get \
+            --url "https://$AZURE_WEBAPP_NAME.scm.azurewebsites.net/api/vfs/site/wwwroot/release.json" \
+            --resource https://management.azure.com/ --query revision -o tsv)
+          test "$revision" = "$RELEASE_SHA"
+          test "$(az webapp show -g "$AZURE_RESOURCE_GROUP" -n "$AZURE_WEBAPP_NAME" --query state -o tsv)" = Running
+          echo "Published $RELEASE_SHA to https://$AZURE_WEBAPP_NAME.azurewebsites.net" >> "$GITHUB_STEP_SUMMARY"
+          echo "Campus IP restrictions remain active. Browser/OAuth/payment smoke tests require an allowed network." >> "$GITHUB_STEP_SUMMARY"

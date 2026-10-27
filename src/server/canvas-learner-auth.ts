@@ -9,6 +9,7 @@ import { randomBytes } from "node:crypto";
 import { prisma } from "../domain/prisma";
 import { canvasSubject, secretDigest } from "./canvas-staff-auth";
 import { canvasLearnerConfig, learnerAuthMode } from "./learner-auth-config";
+import { enforceCanvasLoginLimit } from "./canvas-login-limits";
 
 const opaque = /^[A-Za-z0-9_-]{43}$/;
 const fresh = () => randomBytes(32).toString("base64url");
@@ -125,6 +126,7 @@ export class CanvasLearnerAuthService {
         "Canvas did not return an identity-only response.",
       );
     const subject = canvasSubject(payload?.user?.id);
+    enforceCanvasLoginLimit(settings.provider, subject);
     const name =
       typeof payload.user.name === "string"
         ? payload.user.name.trim().slice(0, 200)

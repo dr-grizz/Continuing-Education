@@ -2,7 +2,7 @@ import { defineConfig, devices } from "@playwright/test";
 // Automated accessibility checks against a running local stack:
 // `npm run dev` locally, or the built site in CI. Scans do not replace
 // keyboard and screen-reader review (see the README checklist).
-export default defineConfig({
+const config = defineConfig({
   testDir: "tests/accessibility",
   globalTeardown: "./tests/accessibility/teardown.ts",
   timeout: 60_000,
@@ -10,6 +10,9 @@ export default defineConfig({
   workers: 1,
   reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : "list",
   use: {
+    ...(process.env.PLAYWRIGHT_CHROME_CHANNEL === "chrome"
+      ? { channel: "chrome" }
+      : {}),
     baseURL: process.env.WEB_URL || "http://127.0.0.1:3050",
     trace: "retain-on-failure",
   },
@@ -18,27 +21,27 @@ export default defineConfig({
   projects: [
     {
       name: "light",
-      testMatch: "pages.spec.ts",
+      testMatch: ["pages.spec.ts", "staff-canvas-link.spec.ts"],
       use: { ...devices["Desktop Chrome"], colorScheme: "light" },
     },
     {
       name: "dark",
-      testMatch: "pages.spec.ts",
+      testMatch: ["pages.spec.ts", "staff-canvas-link.spec.ts"],
       use: { ...devices["Desktop Chrome"], colorScheme: "dark" },
     },
     {
       name: "phone",
-      testMatch: "pages.spec.ts",
+      testMatch: ["pages.spec.ts", "staff-canvas-link.spec.ts"],
       use: { ...devices["Pixel 7"], colorScheme: "light" },
     },
     {
       name: "firefox",
-      testMatch: "pages.spec.ts",
+      testMatch: ["pages.spec.ts", "staff-canvas-link.spec.ts"],
       use: { ...devices["Desktop Firefox"], colorScheme: "light" },
     },
     {
       name: "webkit",
-      testMatch: "pages.spec.ts",
+      testMatch: ["pages.spec.ts", "staff-canvas-link.spec.ts"],
       use: { ...devices["Desktop Safari"], colorScheme: "light" },
     },
     {
@@ -53,3 +56,19 @@ export default defineConfig({
     },
   ],
 });
+
+// Keep the local/default suite complete. Routine CI checks every workflow once
+// in Chromium, plus phone staff linking and the specialized accessibility tests.
+// CI's manual full-browser option leaves this reduction disabled.
+if (process.env.CI_QUICK === "true") {
+  config.projects = config.projects
+    ?.filter((project) =>
+      ["light", "phone", "forced-colors", "reflow"].includes(project.name!),
+    )
+    .map((project) =>
+      project.name === "phone"
+        ? { ...project, testMatch: "staff-canvas-link.spec.ts" }
+        : project,
+    );
+}
+export default config;
