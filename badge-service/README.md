@@ -1,4 +1,4 @@
-> Integrated portal: see [the repository setup guide](../docs/badges-and-certificates.md). The standalone/WordPress instructions below describe the original pilot adapter; this branch uses the Next.js portal. Historical local validation artifacts and private runtime files are not distributed with the source.
+> Integrated portal: follow [the repository setup guide](../docs/badges-and-certificates.md). Credentials now run inside the portal API and use its PostgreSQL database. The remaining WordPress/pilot notes are historical; there is no standalone badge start command. Private runtime files are not distributed with source.
 
 # CU Portal badge service — local pilot
 
@@ -8,13 +8,7 @@ The selected live pilot target is [Canvas course 9943](https://cedarville.instru
 
 ## Run locally
 
-Requires Node.js 24 or newer. The core local service uses Node built-ins; the Open Badges model checks add pinned Ajv, ajv-formats and jsonld dependencies. From this folder:
-
-```sh
-npm ci --ignore-scripts
-node server.mjs
-node --test test/*.test.mjs
-```
+Use the repository root setup and `npm run dev`; it starts the portal API including credentials. Run `npm run test:badges` from the root for isolated PostgreSQL tests. Certificate PDF rendering requires the documented Python environment. Historical SQLite files are read only by `npm run badges:import-sqlite`; normal startup refuses an unmigrated legacy store.
 
 This workspace already has a local runtime, so from the workspace root you can also run:
 

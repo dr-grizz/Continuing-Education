@@ -605,3 +605,167 @@ model canvas_offering_mappings {
 
   @@id([installation_url, course_id])
 }
+
+// Credential tables; immutable snapshot triggers and shared/enabled checks are migration-owned.
+model credential_audit {
+  workspace             String
+  id                    Int                   @id @default(autoincrement())
+  at                    String
+  action                String
+  badge_id              String?
+  actor                 String
+  credential_workspaces credential_workspaces @relation(fields: [workspace], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model credential_award_batches {
+  workspace             String
+  id                    String
+  actor                 String
+  method                String
+  created_at            String
+  expires_at            String
+  version_id            String
+  snapshot_hash         String
+  state                 String
+  rows_json             String
+  completed_at          String?
+  certificate_json      String?
+  credential_workspaces credential_workspaces @relation(fields: [workspace], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([workspace, id])
+}
+
+model credential_badge_drafts {
+  workspace                 String
+  id                        String
+  revision                  Int
+  created_at                String
+  updated_at                String
+  design                    String
+  credential_workspaces     credential_workspaces       @relation(fields: [workspace], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  credential_badge_versions credential_badge_versions[]
+
+  @@id([workspace, id])
+}
+
+model credential_badge_versions {
+  workspace                  String
+  id                         String
+  draft_id                   String
+  draft_revision             Int
+  status                     String
+  design_json                String
+  artwork_svg                String
+  approved_at                String
+  approved_by                String
+  activated_at               String?
+  archived_at                String?
+  credential_badge_drafts    credential_badge_drafts      @relation(fields: [workspace, draft_id], references: [workspace, id], onDelete: NoAction, onUpdate: NoAction)
+  credential_workspaces      credential_workspaces        @relation(fields: [workspace], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  credential_course_mappings credential_course_mappings[]
+
+  @@id([workspace, id])
+  @@unique([workspace, draft_id, draft_revision])
+}
+
+model credential_badges {
+  workspace             String
+  id                    String
+  learner               String
+  course                String
+  rule_version          String
+  issued_at             String
+  credential            String
+  signature             String
+  evidence              String
+  shared                Int                   @default(0)
+  revoked_at            String?
+  revocation_reason     String?
+  badge_version_id      String?
+  course_mapping_id     String?
+  award_key             String?
+  credential_workspaces credential_workspaces @relation(fields: [workspace], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([workspace, id])
+  @@unique([workspace, learner, course, rule_version])
+  @@index([workspace, learner, issued_at], map: "credential_learner_awards")
+}
+
+model credential_certificate_templates {
+  workspace             String
+  id                    String
+  revision              Int
+  name                  String
+  design_json           String
+  updated_at            String
+  credential_workspaces credential_workspaces @relation(fields: [workspace], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([workspace, id])
+}
+
+model credential_certificates {
+  workspace             String
+  id                    String
+  source_id             String
+  badge_id              String
+  learner               String
+  created_at            String
+  created_by            String
+  snapshot_json         String
+  signature             String
+  credential_workspaces credential_workspaces @relation(fields: [workspace], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([workspace, id])
+  @@unique([workspace, source_id, badge_id])
+}
+
+model credential_course_mappings {
+  workspace                 String
+  id                        String
+  badge_version_id          String
+  rule_json                 String
+  rule_hash                 String
+  verification_json         String
+  enabled                   Int                       @default(0)
+  created_at                String
+  created_by                String
+  credential_badge_versions credential_badge_versions @relation(fields: [workspace, badge_version_id], references: [workspace, id], onDelete: NoAction, onUpdate: NoAction)
+  credential_workspaces     credential_workspaces     @relation(fields: [workspace], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([workspace, id])
+  @@unique([workspace, badge_version_id, rule_hash])
+}
+
+model credential_metadata {
+  workspace             String
+  key                   String
+  value                 String
+  credential_workspaces credential_workspaces @relation(fields: [workspace], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([workspace, key])
+}
+
+model credential_publishing_activity {
+  workspace             String
+  id                    Int                   @id @default(autoincrement())
+  at                    String
+  action                String
+  target_id             String
+  actor                 String
+  credential_workspaces credential_workspaces @relation(fields: [workspace], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model credential_workspaces {
+  id                               String                             @id
+  key_id                           String
+  credential_audit                 credential_audit[]
+  credential_award_batches         credential_award_batches[]
+  credential_badge_drafts          credential_badge_drafts[]
+  credential_badge_versions        credential_badge_versions[]
+  credential_badges                credential_badges[]
+  credential_certificate_templates credential_certificate_templates[]
+  credential_certificates          credential_certificates[]
+  credential_course_mappings       credential_course_mappings[]
+  credential_metadata              credential_metadata[]
+  credential_publishing_activity   credential_publishing_activity[]
+}

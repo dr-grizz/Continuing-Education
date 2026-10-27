@@ -1,6 +1,6 @@
 # Badges and certificates in the CU Portal
 
-The portal is the existing Next.js/Material UI application in this branch. The optional `badge-service/` directory contains the self-hosted pilot, with the same badge design/image uploads, publication and Canvas rules, manual/CSV awards, certificate header/centered logo/signature upload, frozen PDFs, issuance register, learner downloads and sharing. The WordPress plugin is retained only as legacy source; WordPress is not required. [ADR 0008](adr/0008-badges-and-certificates.md) records the integration boundaries.
+Badges run inside the existing NestJS API process, using its PostgreSQL pool and database. The editors remain in the native Next.js/Material UI staff workspace. There is no separate badge listener or SQLite store in the running application. The `badge-service/` directory now contains credential domain code and editor assets, not an independently started service. [ADR 0011](adr/0011-integrated-postgres-credentials.md) supersedes the storage/startup boundaries of ADR 0008.
 
 The [interface requirements](prototype/ui-specification.md#badging-and-certificate-interfaces) specify each screen and its expected behavior.
 
@@ -20,27 +20,21 @@ Course managers and staff administrators have `badges:manage`; Approver, Support
 
 ## Local setup
 
-Node.js 24+ is required for the optional badge service's SQLite runtime. Keep the existing portal database setup and migration workflow. In the repository root:
+Use the normal portal setup and migrations. Root `npm ci` installs the badge workspace dependencies as well. Certificate PDFs additionally need Python 3.10+:
 
 ```sh
 npm ci
 npm run setup
-npm run badges:setup
 python3 -m venv badge-service/.certificate-venv
 badge-service/.certificate-venv/bin/python -m pip install -r badge-service/certificate-renderer/requirements.txt
+npm run db:up
+npm run db:migrate
+npm run dev
 ```
 
-In the ignored root `.env` and web `src/web/.env.local`, configure:
+Set `CERTIFICATE_PYTHON` in the ignored root `.env` to the absolute path of that virtual environment's Python. The portal's `DATABASE_URL` is the only database setting. No `BADGE_PORT`, `BADGE_SERVICE_URL` or separate start command is needed; remove legacy `BADGE_SERVICE_URL` entries from both environment files. The web broker defaults to the API's private `/api/credentials` path. The API mounts it before body parsing and shares its existing PostgreSQL pool. `BADGES_ENABLED=false` can explicitly disable the web interface; badges are available by default.
 
-```dotenv
-BADGES_ENABLED=true
-BADGE_SERVICE_URL=http://127.0.0.1:4178
-BADGE_PORT=4178
-BADGE_DATA_DIR=badge-service/data
-BADGE_LEARNER_MAP_FILE=badge-service/data/portal-learners.json
-```
-
-Set `CERTIFICATE_PYTHON` in the root `.env` to the absolute path of the certificate virtual environment's Python. Start `npm run dev:badges` in a separate terminal, alongside the normal portal `npm run dev`. The badge listener binds only to loopback. The first start generates random private service tokens/signing keys; the integrated portal has no issuer-key prompt. For an already-existing web `.env.local`, add the settings explicitly: setup preserves existing files. Changes to environment files require restarting the affected processes. With `BADGES_ENABLED=false`, badge endpoints fail closed without affecting catalog/payment workflows.
+`BADGE_DATA_DIR` defaults to `badge-service/data`. It still holds private issuer keys, server tokens and the approved learner-link file, not an active SQLite database. Preserve this directory alongside database backups: it identifies the signing workspace, and its original keys are required to verify existing awards. Startup refuses a missing or mismatched issuer key. Environment changes require restarting `npm run dev`.
 
 ## Link a learner explicitly
 
@@ -54,7 +48,14 @@ This command checks the active portal record and approved badge config, refuses 
 
 ## Preserve the existing pilot
 
-Source integration is not a data migration. Do not put the original SQLite databases, signing keys, service tokens, private configuration, PDFs or real learner records in Git. Before attaching existing data, stop its writer, make a consistent backup, preserve the complete signing identity and certificate snapshots, and check credential signatures and counts after restoration. Review the portal learner links individually. The new source includes no historical records and does not overwrite the original running pilot.
+Existing SQLite stores are never silently replaced by an empty PostgreSQL workspace. Stop the old badge writer and the portal, preserve the complete private directory and make a portal database backup, then run:
+
+```sh
+npm run db:migrate
+npm run badges:import-sqlite -- /absolute/path/to/the/private/badge-directory
+```
+
+Use the same directory as `BADGE_DATA_DIR`; use the source's approved `BADGE_CONFIG` and mode. The importer makes a consistent private SQLite backup, verifies badge/certificate signatures, copies data transactionally, checks row counts and exact signed bytes, and refuses an already-existing destination workspace. It preserves the original SQLite file, issuer key, award IDs, sharing/revocation states, designs, rules and certificate snapshots. Global PostgreSQL audit sequence IDs are reassigned in original order. The old configuration fingerprint is retained as `legacy_configuration`, while future configuration checks use the integrated API origin. A failed validation/import leaves no partial workspace. Historical signed URLs/payloads remain byte-for-byte unchanged; importing them does not redirect an old published URL automatically. No historical database outside the configured directory is imported automatically.
 
 The portal offering-to-Canvas mapping and the badge earning rule are distinct. A badge mapping needs an approved version, verified Canvas course/assessment/module IDs, threshold and configured learner identities. The integration neither enables real Canvas credentials nor runs automatic completion polling. The original pilot's Canvas guardrails remain in force. This is still the CU pilot credential format; the included Open Badges 3.0 work is an unsigned model and validator, not certified production issuance.
 

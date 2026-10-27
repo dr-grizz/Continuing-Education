@@ -220,7 +220,7 @@ export async function badgeProxy(request: NextRequest, segments: string[]) {
   try {
     if (
       process.env.PROTOTYPE_MODE !== "true" ||
-      process.env.BADGES_ENABLED !== "true"
+      process.env.BADGES_ENABLED === "false"
     )
       return fail(503, "Badges are not connected. Contact portal support.");
     const route = segments.join("/");
@@ -236,7 +236,9 @@ export async function badgeProxy(request: NextRequest, segments: string[]) {
         return fail(403, "Same-origin request required.");
     }
     const base = new URL(
-      process.env.BADGE_SERVICE_URL || "http://127.0.0.1:4178",
+      process.env.BADGE_SERVICE_URL ||
+        process.env.API_URL ||
+        "http://127.0.0.1:3051",
     );
     if (
       !["127.0.0.1", "localhost"].includes(base.hostname) ||
@@ -282,14 +284,20 @@ export async function badgeProxy(request: NextRequest, segments: string[]) {
     )
       return fail(400, "Choose whether to enable sharing.");
     if (body) headers["Content-Type"] = "application/json";
-    const response = await fetch(new URL(target, base), {
-      method: request.method,
-      headers,
-      body: body ? JSON.stringify(body) : undefined,
-      cache: "no-store",
-      redirect: "error",
-      signal: AbortSignal.timeout(45000),
-    });
+    const response = await fetch(
+      new URL(
+        `${process.env.BADGE_SERVICE_URL ? "" : "/api/credentials"}${target}`,
+        base,
+      ),
+      {
+        method: request.method,
+        headers,
+        body: body ? JSON.stringify(body) : undefined,
+        cache: "no-store",
+        redirect: "error",
+        signal: AbortSignal.timeout(45000),
+      },
+    );
     const type = response.headers.get("content-type") || "application/json";
     const responseHeaders = {
       ...privateHeaders,

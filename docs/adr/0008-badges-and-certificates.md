@@ -1,5 +1,7 @@
 # ADR 0008: Local badge and certificate service integration
 
+Storage/startup superseded by [ADR 0011](0011-integrated-postgres-credentials.md) on October 27, 2026; the historical implementation below is retained.
+
 Implemented on `Badges-and-Certificates`, October 15, 2026, at the project owner's request; the owner explicitly approved committing and pushing this reviewed integration to that branch.
 
 Use this repository's Next.js/Material UI portal as the CU Portal. Keep the existing Badging Pilot as a separate loopback service in `badge-service/`, with its SQLite award store, issuer signing identity and frozen certificate snapshots. The pilot's tested editors run in same-origin titled documents inside the native staff workspace; a reproducible asset adapter matches the portal surfaces and light/dark theme. This preserves the editors rather than claiming a complete React rewrite. WordPress bridge source remains an optional legacy adapter and is not the portal runtime.

@@ -52,7 +52,6 @@ jobs:
           API_URL=http://127.0.0.1:3051
           WEB_URL=http://127.0.0.1:3050
           BADGES_ENABLED=true
-          BADGE_SERVICE_URL=http://127.0.0.1:4178
           BADGE_DATA_DIR=badge-service/data
           CERTIFICATE_PYTHON=python3
           LEARNER_API_TOKEN=$(token)
@@ -62,7 +61,6 @@ jobs:
           ENV
           cp .env src/web/.env.local
       - run: npm ci
-      - run: npm ci --prefix badge-service
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -92,7 +90,6 @@ jobs:
       - name: Start the API and website (no worker)
         run: |
           mkdir -p logs
-          nohup npm run dev:badges > logs/badges.log 2>&1 &
           nohup npm run dev:api > logs/api.log 2>&1 &
           nohup npm run start:web > logs/web.log 2>&1 &
           for url in http://127.0.0.1:3051/api/docs http://127.0.0.1:3050/; do

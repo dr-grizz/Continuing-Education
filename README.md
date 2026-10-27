@@ -4,7 +4,7 @@ Local Next.js + Material UI website, NestJS REST API, PostgreSQL and request-dri
 
 ## Badges and certificates
 
-The optional [badge and certificate service](docs/badges-and-certificates.md) is integrated into the native staff workspace and **My badges** navigation. It includes design/image uploads, publication and course rules, manual/CSV awards, certificate PDFs and learner sharing through portal sessions. Start it separately with `npm run dev:badges`; it is disabled until configured and explicit learner links are provisioned. Existing pilot data/keys stay private and are not migrated by this source integration.
+[Badges and certificates](docs/badges-and-certificates.md) run inside the portal API and use the same PostgreSQL database. The staff tools and **My Badges** include design/image uploads, publication and course rules, manual/CSV awards, certificate PDFs and learner sharing through portal sessions. `npm run dev` starts the combined application; no separate badge process or SQLite runtime is required. Install the Python renderer once for certificate PDFs and provision explicit learner identity links. Historical SQLite stores have an explicit, backed-up import command; signing keys remain private files.
 
 ## Implementation progress
 
