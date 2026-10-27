@@ -11,6 +11,7 @@ on:
       - "docs/**"
       - "**/*.md"
   push:
+    # main runs checks only. The deploy job below permits azure-demo exclusively.
     branches: [main, azure-demo, prototype-checkpoint, Badges-and-Certificates]
     paths-ignore:
       - "docs/**"
