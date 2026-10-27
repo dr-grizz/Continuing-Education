@@ -6,7 +6,7 @@ The check job builds once, traces the small runtime, verifies it against a dispo
 
 ## Authentication and branch restriction
 
-The free Azure managed identity `github-cuce-demo` has **Website Contributor** on this Web App and **Reader** on its existing F1 plan. It cannot scale the plan. Its federated credential accepts only GitHub's issuer, the Azure token-exchange audience and the exact subject `repo:dr-grizz/Continuing-Education:ref:refs/heads/azure-demo`. Pull requests, forks and other branches have different subjects. Only the deployment job requests `id-token: write`; test jobs have read-only repository permission.
+The free Azure managed identity `github-cuce-demo` has **Website Contributor** on this Web App and **Reader** on its existing F1 plan. It cannot scale the plan. Its federated credential accepts only GitHub's issuer, the Azure token-exchange audience and the exact immutable owner/repository-ID subject `repo:dr-grizz@256593513/Continuing-Education@1393003365:ref:refs/heads/azure-demo`. Pull requests, forks and other branches have different subjects. Only the deployment job requests `id-token: write`; test jobs have read-only repository permission.
 
 Repository variables hold nonsecret configuration:
 
@@ -40,3 +40,9 @@ Campus network restrictions stay active. GitHub-hosted runners cannot perform th
 Download the previous successful run's `azure-demo-<commit>` artifact to retain a rollback ZIP. The first CD release also has the previous manual release retained privately. Redeploy a known-good ZIP with the Azure CLI if recovery is needed; do not rerun old database migrations. Artifacts expire after 14 days, so retain important releases privately. Disable this workflow or remove the federated credential to stop future automatic deployments.
 
 OIDC follows [Microsoft's App Service guidance](https://learn.microsoft.com/en-us/azure/app-service/deploy-github-actions). Azure CLI ZIP deployment supports [Microsoft Entra authentication with basic publishing disabled](https://learn.microsoft.com/en-us/azure/app-service/configure-basic-auth-disable).
+
+This repository uses [GitHub’s immutable OIDC subject format](https://docs.github.com/en/actions/reference/security/oidc). The configured subject was verified against the actual token claims emitted by the first workflow run; a legacy name-only subject is rejected.
+
+## First verified release
+
+The [October 27 run](https://github.com/dr-grizz/Continuing-Education/actions/runs/40529027069) passed CI and deployed commit `a460dd6`. CI took 9 minutes 37 seconds and the successful deployment took 2 minutes 38 seconds. The published revision was verified through SCM. Campus smoke checks returned health/catalog 200, anonymous staff 401 and unsigned Stripe webhook 400. Live readback confirmed F1/Free, Node 24, HTTPS Only and lookup account 49, with campus/Stripe restrictions preserved. Fresh browser OAuth, directory lookup and sandbox Checkout were not repeated as part of this deployment check.
