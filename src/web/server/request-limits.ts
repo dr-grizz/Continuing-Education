@@ -37,9 +37,10 @@ export function limitHostedRequest(request: NextRequest) {
     request.cookies.get("__Host-ce-learner-session")?.value ||
     request.cookies.get("__Host-ce-staff-session")?.value;
   if (session) {
-    const expensive = /\/(checkout|canvas\/courses|reconcile)(\/|$)/.test(
-      request.nextUrl.pathname,
-    );
+    const expensive =
+      /\/(checkout|canvas\/courses|reconcile|staff-lookup)(\/|$)/.test(
+        request.nextUrl.pathname,
+      );
     return limiter.consume(
       `${expensive ? "expensive" : group}:session:${digest(session)}`,
       expensive ? 10 : 60,

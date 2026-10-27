@@ -51,7 +51,11 @@ import {
   QueryDto,
 } from "./dto";
 import { Principal } from "./auth";
-import { staffAuthMode, canvasStaffOrigin } from "./staff-auth-config";
+import {
+  staffAuthMode,
+  canvasStaffOrigin,
+  staffLookupAccountId,
+} from "./staff-auth-config";
 import {
   emptySalesPage,
   parseSalesPage,
@@ -1763,6 +1767,11 @@ export class PortalService {
     } catch {
       /* Configuration stays server-owned. */
     }
+    let lookupEnabled = false;
+    try {
+      lookupEnabled =
+        staffAuthMode() === "canvas" && Boolean(staffLookupAccountId());
+    } catch {}
     const members = await prisma.staff_members.findMany({
       select: {
         ...staffSelect,
@@ -1775,6 +1784,7 @@ export class PortalService {
     return members.map((member) => ({
       ...member,
       canvas_origin: canvasOrigin,
+      canvas_lookup_enabled: lookupEnabled,
     }));
   }
   async linkStaffCanvas(

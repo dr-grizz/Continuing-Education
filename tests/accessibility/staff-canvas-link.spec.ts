@@ -6,6 +6,8 @@ test.describe("Staff Canvas identity linking", () => {
     page: import("@playwright/test").Page,
     conflict = false,
     manage = true,
+    lookup: "off" | "good" | "denied" | "stale" = "off",
+    creating = false,
   ) {
     const admin = {
       id: "00000000-0000-4000-8000-000000000701",
@@ -28,6 +30,7 @@ test.describe("Staff Canvas identity linking", () => {
       scopes: ["staff:read"],
       auth_provider: "mock",
       external_subject: null as string | null,
+      canvas_lookup_enabled: lookup !== "off",
     };
     let writes = 0;
     await page.route("**/api/**", async (route) => {
@@ -76,8 +79,35 @@ test.describe("Staff Canvas identity linking", () => {
             },
           },
         });
-      if (path === "/api/staff/members")
-        return route.fulfill({ json: [admin, target] });
+      if (path === `/api/staff/canvas/staff-lookup/${target.id}`) {
+        if (lookup === "denied")
+          return route.fulfill({
+            status: 403,
+            json: {
+              message: "Your Canvas account does not have directory access.",
+            },
+          });
+        return route.fulfill({
+          json: {
+            id: "12345",
+            name: "Canvas Person",
+            email: target.email,
+            login: target.email,
+            provider: "canvas:https://canvas.example.test",
+            target_version: lookup === "stale" ? 2 : 1,
+          },
+        });
+      }
+      if (path === "/api/staff/members") {
+        if (route.request().method() === "POST") {
+          expect(route.request().postDataJSON()).toMatchObject({
+            email: target.email,
+          });
+          creating = false;
+          return route.fulfill({ json: target });
+        }
+        return route.fulfill({ json: creating ? [admin] : [admin, target] });
+      }
       if (path === `/api/staff/members/${target.id}/canvas-link`) {
         writes++;
         expect(route.request().headers()["x-prototype-role"]).toBe("staff");
@@ -225,5 +255,97 @@ test.describe("Staff Canvas identity linking", () => {
     );
     expect(writes()).toBe(0);
     await scan(page);
+  });
+  test("Canvas search shows an account and requires confirmation before linking", async ({
+    page,
+  }, testInfo) => {
+    const writes = await setup(page, false, true, "good");
+    await page
+      .getByRole("button", { name: "Link Canvas for Test staff", exact: true })
+      .click();
+    const dialog = page.getByRole("dialog", { name: "Link Canvas sign-in" });
+    await expect(
+      dialog.getByRole("status", { name: "Canvas account found" }),
+    ).toContainText("Canvas Person");
+    const input = dialog.getByRole("textbox", { name: "Canvas user ID" });
+    await expect(input).toHaveValue("12345");
+    await expect(input).toHaveAttribute("readonly", "");
+    expect(writes()).toBe(0);
+    const actions = await dialog
+      .getByRole("button", { name: "Link Canvas account" })
+      .boundingBox();
+    expect(actions).not.toBeNull();
+    expect(actions!.y + actions!.height).toBeLessThanOrEqual(
+      page.viewportSize()!.height,
+    );
+    await expect(dialog).toHaveJSProperty(
+      "scrollWidth",
+      await dialog.evaluate((element) => element.clientWidth),
+    );
+    await scan(page);
+    if (testInfo.project.name === "light")
+      await dialog.screenshot({
+        path: "artifacts/staff-canvas-lookup-dialog.png",
+      });
+    await dialog.getByRole("button", { name: "Link Canvas account" }).click();
+    await expect(dialog.getByRole("alert")).toBeFocused();
+    expect(writes()).toBe(0);
+    await dialog.getByRole("checkbox").check();
+    await dialog.getByRole("button", { name: "Link Canvas account" }).click();
+    await expect(dialog).toBeHidden();
+    expect(writes()).toBe(1);
+  });
+  for (const lookup of ["denied", "stale"] as const) {
+    test(`${lookup} Canvas lookup stays unlinked with focused feedback`, async ({
+      page,
+    }) => {
+      const writes = await setup(page, false, true, lookup);
+      await page
+        .getByRole("button", {
+          name: "Link Canvas for Test staff",
+          exact: true,
+        })
+        .click();
+      const dialog = page.getByRole("dialog", { name: "Link Canvas sign-in" });
+      await expect(dialog.getByRole("alert")).toBeFocused();
+      await expect(dialog.getByRole("alert")).toContainText(
+        lookup === "denied" ? "directory access" : "configuration changed",
+      );
+      expect(writes()).toBe(0);
+      await expect(
+        dialog.getByRole("textbox", { name: "Canvas user ID" }),
+      ).toBeEditable();
+      await scan(page);
+    });
+  }
+  test("adding a staff email opens Canvas lookup for confirmation", async ({
+    page,
+  }) => {
+    const writes = await setup(page, false, true, "good", true);
+    await page
+      .getByRole("button", { name: "Add staff member", exact: true })
+      .click();
+    const add = page.getByRole("dialog", { name: "Add staff member" });
+    await add
+      .getByRole("textbox", { name: "Name", exact: true })
+      .fill("Test staff");
+    await add
+      .getByRole("textbox", { name: "Email", exact: true })
+      .fill("staff@example.test");
+    await add.getByRole("checkbox", { name: "Approver", exact: true }).check();
+    await add
+      .getByRole("button", { name: "Add staff member", exact: true })
+      .click();
+    const link = page.getByRole("dialog", { name: "Link Canvas sign-in" });
+    await expect(
+      link.getByRole("status", { name: "Canvas account found" }),
+    ).toContainText("12345");
+    expect(writes()).toBe(0);
+    await link.getByRole("button", { name: "Enter an ID manually" }).click();
+    const input = link.getByRole("textbox", { name: "Canvas user ID" });
+    await input.fill("12345");
+    await link.getByRole("checkbox").check();
+    await input.fill("12346");
+    await expect(link.getByRole("checkbox")).not.toBeChecked();
   });
 });

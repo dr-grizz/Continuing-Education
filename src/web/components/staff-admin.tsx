@@ -35,6 +35,7 @@ type Member = Omit<StaffMember, "scopes"> & {
   auth_provider: string;
   external_subject?: string | null;
   canvas_origin?: string | null;
+  canvas_lookup_enabled?: boolean;
 };
 type RoleEntry = {
   role: StaffRole;
@@ -76,6 +77,7 @@ export function StaffUsers({
       .then((rows) => {
         setMembers(rows);
         setError("");
+        return rows;
       })
       .catch((e) => setError((e as Error).message));
   useEffect(() => {
@@ -240,10 +242,12 @@ export function StaffUsers({
         member={editing}
         currentId={currentId}
         onClose={() => setEditing(undefined)}
-        onSaved={async (text, selfChanged) => {
+        onSaved={async (text, selfChanged, createdId) => {
           setEditing(undefined);
-          await load();
+          const rows = await load();
           await onChanged(text, selfChanged);
+          const created = rows?.find((row) => row.id === createdId);
+          if (created?.canvas_lookup_enabled) setLinking(created);
         }}
       />
       <CanvasLinkDialog
@@ -276,19 +280,60 @@ function CanvasLinkDialog({
   const [confirmed, setConfirmed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState("");
+  const [finding, setFinding] = useState(false);
+  const [candidate, setCandidate] = useState<{
+    id: string;
+    name: string;
+    email: string | null;
+    login: string | null;
+  }>();
   const errorRef = useRef<HTMLDivElement | null>(null);
   const linked = Boolean(member?.external_subject);
   useEffect(() => {
     setUserId(member?.external_subject || "");
     setConfirmed(false);
     setFailure("");
+    setCandidate(undefined);
+    if (member && !member.external_subject && member.canvas_lookup_enabled)
+      void findInCanvas(member);
   }, [member]);
+  async function findInCanvas(target: Member) {
+    setFinding(true);
+    setFailure("");
+    setConfirmed(false);
+    setCandidate(undefined);
+    setUserId("");
+    try {
+      const found = await api<{
+        id: string;
+        name: string;
+        email: string | null;
+        login: string | null;
+        target_version: number;
+        provider: string;
+      }>(`staff/canvas/staff-lookup/${target.id}`, { role: "staff", body: {} });
+      if (
+        found.target_version !== target.version ||
+        found.provider !== `canvas:${target.canvas_origin}` ||
+        !/^[1-9][0-9]{0,19}$/.test(found.id)
+      )
+        throw new Error(
+          "Staff configuration changed. Close this dialog, refresh and retry.",
+        );
+      setCandidate(found);
+      setUserId(found.id);
+    } catch (error) {
+      setFailure((error as Error).message);
+    } finally {
+      setFinding(false);
+    }
+  }
   useEffect(() => {
     if (failure) errorRef.current?.focus();
   }, [failure]);
   async function save(event: React.FormEvent) {
     event.preventDefault();
-    if (!member || linked || busy) return;
+    if (!member || linked || busy || finding) return;
     if (!/^[1-9][0-9]{0,19}$/.test(userId.trim()) || !confirmed) {
       setFailure(
         "Enter the numeric Canvas user ID and confirm that you verified its owner.",
@@ -316,13 +361,18 @@ function CanvasLinkDialog({
   return (
     <Dialog
       open={Boolean(member)}
-      onClose={() => !busy && onClose()}
+      onClose={() => !busy && !finding && onClose()}
       fullWidth
       maxWidth="sm"
       aria-labelledby="canvas-link-title"
       aria-describedby="canvas-link-description"
     >
-      <Box component="form" noValidate onSubmit={save}>
+      <Box
+        component="form"
+        noValidate
+        onSubmit={save}
+        sx={{ display: "flex", flexDirection: "column", minHeight: 0 }}
+      >
         <DialogTitle id="canvas-link-title">
           {linked ? "Canvas identity link" : "Link Canvas sign-in"}
         </DialogTitle>
@@ -344,10 +394,11 @@ function CanvasLinkDialog({
               </Alert>
             ) : (
               <Alert severity="info" role="note">
-                In Canvas administration, open this person's profile and verify
-                the numeric user ID. Email alone does not verify identity.
-                Linking enables staff sign-in, keeps their roles, and signs out
-                any older portal sessions for this person.
+                {member?.canvas_lookup_enabled
+                  ? "Review the account returned by Canvas and confirm it belongs to this staff member. Nothing is linked until you confirm."
+                  : "In Canvas administration, open this person's profile and verify the numeric user ID. Email alone does not verify identity."}{" "}
+                Linking keeps their roles and signs out older portal sessions
+                for this person.
               </Alert>
             )}
             {failure && (
@@ -355,15 +406,70 @@ function CanvasLinkDialog({
                 {failure}
               </Alert>
             )}
+            {!linked && (
+              <>
+                <Button
+                  onClick={() => member && void findInCanvas(member)}
+                  disabled={busy || finding || !member?.canvas_lookup_enabled}
+                >
+                  {finding ? "Finding in Canvas…" : "Find in Canvas"}
+                </Button>
+                {!member?.canvas_lookup_enabled && (
+                  <Typography variant="body2">
+                    Automatic lookup needs Canvas directory access configured on
+                    the portal. You can still enter an independently verified ID
+                    below.
+                  </Typography>
+                )}
+                {finding && (
+                  <Typography role="status">
+                    Looking up {member?.email} using your Canvas account…
+                  </Typography>
+                )}
+                {candidate && (
+                  <Paper
+                    variant="outlined"
+                    sx={{ p: 2 }}
+                    role="status"
+                    aria-label="Canvas account found"
+                  >
+                    <Typography variant="subtitle2">
+                      Canvas account found
+                    </Typography>
+                    <Typography>{candidate.name}</Typography>
+                    <Typography sx={{ overflowWrap: "anywhere" }}>
+                      Email: {candidate.email || "Not provided"}
+                    </Typography>
+                    <Typography sx={{ overflowWrap: "anywhere" }}>
+                      Login: {candidate.login || "Not provided"}
+                    </Typography>
+                    <Typography>Canvas user ID: {candidate.id}</Typography>
+                    <Button
+                      disabled={busy}
+                      onClick={() => {
+                        setCandidate(undefined);
+                        setConfirmed(false);
+                        setUserId("");
+                      }}
+                    >
+                      Enter an ID manually
+                    </Button>
+                  </Paper>
+                )}
+              </>
+            )}
             <TextField
               label="Canvas user ID"
               required={!linked}
-              disabled={busy}
+              disabled={busy || finding}
               value={userId}
-              onChange={(event) => setUserId(event.target.value)}
+              onChange={(event) => {
+                setUserId(event.target.value);
+                setConfirmed(false);
+              }}
               autoFocus={!linked}
               slotProps={{
-                input: { readOnly: linked },
+                input: { readOnly: linked || Boolean(candidate) },
                 htmlInput: { inputMode: "numeric", maxLength: 20 },
               }}
               helperText="Use the numeric Canvas user ID, not an email address or SIS ID."
@@ -373,7 +479,7 @@ function CanvasLinkDialog({
                 control={
                   <Checkbox
                     required
-                    disabled={busy}
+                    disabled={busy || finding}
                     checked={confirmed}
                     onChange={(event) => setConfirmed(event.target.checked)}
                   />
@@ -384,11 +490,15 @@ function CanvasLinkDialog({
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={onClose} disabled={busy}>
+          <Button onClick={onClose} disabled={busy || finding}>
             {linked ? "Close" : "Cancel"}
           </Button>
           {!linked && (
-            <Button type="submit" variant="contained" disabled={busy}>
+            <Button
+              type="submit"
+              variant="contained"
+              disabled={busy || finding}
+            >
               {busy ? "Linking…" : "Link Canvas account"}
             </Button>
           )}
@@ -414,7 +524,11 @@ function StaffMemberDialog({
   member?: Member | "new";
   currentId: string;
   onClose: () => void;
-  onSaved: (message: string, selfChanged: boolean) => Promise<void>;
+  onSaved: (
+    message: string,
+    selfChanged: boolean,
+    createdId?: string,
+  ) => Promise<void>;
 }) {
   const creating = member === "new";
   const existing = member && member !== "new" ? member : undefined;
@@ -455,6 +569,7 @@ function StaffMemberDialog({
     }
     setBusy(true);
     try {
+      let createdId: string | undefined;
       if (existing)
         await api(`staff/members/${existing.id}`, {
           role: "staff",
@@ -465,8 +580,8 @@ function StaffMemberDialog({
             active,
           },
         });
-      else
-        await api("staff/members", {
+      else {
+        const created = await api<{ id: string }>("staff/members", {
           role: "staff",
           body: {
             email: email.trim().toLowerCase(),
@@ -474,11 +589,14 @@ function StaffMemberDialog({
             roles,
           },
         });
+        createdId = created.id;
+      }
       await onSaved(
         existing
           ? `Saved ${displayName.trim()}.`
           : `Added ${displayName.trim()}.`,
         existing?.id === currentId,
+        createdId,
       );
     } catch (e) {
       setFailure((e as Error).message);

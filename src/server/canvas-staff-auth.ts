@@ -145,7 +145,7 @@ export class CanvasStaffAuthService {
       );
     }
     if (
-      !settings.courseReads &&
+      !settings.apiReads &&
       (payload?.access_token !== null || payload?.refresh_token)
     )
       throw new BadRequestException(
@@ -153,9 +153,9 @@ export class CanvasStaffAuthService {
       );
     const subject = canvasSubject(payload?.user?.id);
     enforceCanvasLoginLimit(settings.provider, subject);
-    const apiGrant = settings.courseReads ? parseCanvasTokens(payload) : null;
+    const apiGrant = settings.apiReads ? parseCanvasTokens(payload) : null;
     if (
-      settings.courseReads &&
+      settings.apiReads &&
       payload.scope !== undefined &&
       (typeof payload.scope !== "string" ||
         settings.scopes.some(
@@ -182,7 +182,11 @@ export class CanvasStaffAuthService {
         throw new ForbiddenException(
           "This Canvas account is not authorized for the staff portal.",
         );
-      if (apiGrant && scopesFor(member.roles).includes("canvas:read")) {
+      if (
+        apiGrant &&
+        (scopesFor(member.roles).includes("canvas:read") ||
+          scopesFor(member.roles).includes("staff:manage"))
+      ) {
         const data = {
           provider: settings.provider,
           subject,

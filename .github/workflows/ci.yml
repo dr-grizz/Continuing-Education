@@ -87,6 +87,8 @@ jobs:
         run: npm run test:auth
       - name: Learner Canvas authentication tests (mock provider, disposable database)
         run: npm run test:learner-auth
+      - name: Canvas staff directory lookup (mock provider, disposable database)
+        run: npm run test:staff-lookup
       - name: Canvas course connector tests (mock provider, disposable database)
         run: npm run test:canvas
       - name: Request-driven demo tests (disposable database, no worker)

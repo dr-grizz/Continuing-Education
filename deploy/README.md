@@ -46,7 +46,8 @@ Use the separate demo database. Do not substitute a local development or unrelat
 | `CANVAS_STAFF_CLIENT_SECRET` | Secret belonging to that Canvas developer key. | Yes |
 | `CANVAS_STAFF_REDIRECT_URI` | Shared OAuth callback. Current demo: `https://cuce-demo.azurewebsites.net/api/auth/canvas/callback`. It must exactly match an allowed redirect URL on the Canvas developer key. | No |
 | `CANVAS_COURSES_ENABLED` | `false` disables Canvas course-reading/import features. **Canvas OAuth login still works.** Enabling course reads requires the appropriate developer-key scopes and token encryption configuration; it does not enable real enrollment. | No |
-| `CANVAS_TOKEN_ENCRYPTION_KEY` | Encrypts retained Canvas tokens for course-reading features. Required when `CANVAS_COURSES_ENABLED=true`; optional for login-only mode. Must be 32 random bytes encoded as Base64. | Yes |
+| `CANVAS_STAFF_LOOKUP_ACCOUNT_ID` | Optional Canvas account ID for staff email searches. Requires the account-users API scope on the developer key and directory permission in the signed-in administrator’s Canvas account. Leave unset for manual ID entry. | No |
+| `CANVAS_TOKEN_ENCRYPTION_KEY` | Encrypts retained Canvas tokens for course reading and staff directory lookup. Required when either feature is enabled; optional for login-only mode. Must be 32 random bytes encoded as Base64. | Yes |
 
 Generate the encryption key privately with:
 

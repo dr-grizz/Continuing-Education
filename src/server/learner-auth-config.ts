@@ -13,6 +13,7 @@ export function canvasLearnerConfig(env = process.env) {
   return canvasStaffConfig({
     ...env,
     CANVAS_COURSES_ENABLED: "false",
+    CANVAS_STAFF_LOOKUP_ACCOUNT_ID: "",
     STAFF_SESSION_HOURS: env.LEARNER_SESSION_HOURS || "8",
   });
 }

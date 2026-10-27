@@ -131,7 +131,9 @@ async function proxy(
             path.join("/"),
           )
             ? 135_000
-            : 10_000,
+            : path.slice(0, 3).join("/") === "staff/canvas/staff-lookup"
+              ? 20_000
+              : 10_000,
         ),
       },
     );
