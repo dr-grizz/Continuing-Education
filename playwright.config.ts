@@ -10,6 +10,9 @@ const config = defineConfig({
   workers: 1,
   reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : "list",
   use: {
+    ...(process.env.PLAYWRIGHT_CHROME_CHANNEL === "chrome"
+      ? { channel: "chrome" }
+      : {}),
     baseURL: process.env.WEB_URL || "http://127.0.0.1:3050",
     trace: "retain-on-failure",
   },

@@ -156,9 +156,11 @@ jobs:
           done
       - name: Integration tests
         run: npm test
-      - name: Install Chromium for quick checks
+      - name: Use the runner's installed Chrome for quick checks
         if: env.CI_QUICK == 'true'
-        run: npx playwright install --with-deps chromium
+        run: |
+          google-chrome --version
+          echo "PLAYWRIGHT_CHROME_CHANNEL=chrome" >> "$GITHUB_ENV"
       - name: Install all Playwright browsers
         if: env.CI_QUICK != 'true'
         run: npx playwright install --with-deps chromium firefox webkit
