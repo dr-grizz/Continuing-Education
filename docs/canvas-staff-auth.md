@@ -35,6 +35,10 @@ Run `npm run db:migrate` to apply additive migration `016_canvas_staff_auth`; it
 npm run staff:link-canvas -- --email staff@example.edu --canvas-user-id 12345
 ```
 
+Staff administrators can also use **Admin → Staff → Link Canvas** after creating an active staff record. The directory shows whether each person is linked. Open the person's profile in Canvas administration, verify the numeric Canvas user ID belongs to the intended person, enter it in the dialog, confirm ownership, and select **Link Canvas account**. The configured Canvas installation is displayed and cannot be supplied or changed by the browser. Email alone is never used as an identity match. This action records the administrator as the audit actor, preserves roles, increments the staff version, and revokes older portal sessions for the target person. It does not change Canvas permissions or enrollments.
+
+Existing links are read-only in the Staff screen; **View Canvas link** shows the saved user ID. Inactive targets, conflicting identity links, duplicate Canvas identities, stale versions and unconfirmed ownership are refused server-side. Refresh the directory after a conflict. Replacement/recovery of an existing identity remains a separate administrator procedure. The CLI remains available for bootstrap and recovery preparation.
+
 The command needs `CANVAS_BASE_URL` and the existing database settings, but no OAuth keys or Canvas network access. Get the numeric user ID from Canvas administration and verify its owner before linking. The link is `(Canvas origin, Canvas user ID)`; email is only used by this administrative command to select an existing portal record. Sign-in never matches people automatically by name or email, creates staff records, or assigns roles.
 
 The command preserves roles, increments the staff record's version, records an audit event and revokes older portal sessions for that record. Re-running the same link is harmless. A different existing link or a Canvas identity already linked to someone else is refused. Identity replacement/recovery needs a separate administrator procedure; this command deliberately cannot overwrite a verified link.

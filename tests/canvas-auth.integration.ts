@@ -7,6 +7,10 @@ import path from "node:path";
 import { Pool } from "pg";
 import {
   Controller,
+  Post,
+  Body,
+  Param,
+  Headers as RequestHeaders,
   Get,
   Module,
   Req,
@@ -15,6 +19,7 @@ import {
 } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { NextRequest } from "next/server";
+import { StaffCanvasLinkDto } from "../src/server/dto";
 import { migrate } from "../scripts/db-migrate";
 import {
   canvasStaffConfig,
@@ -138,9 +143,156 @@ async function main() {
   assert.throws(() => link(catalog.email, "10001"));
   assert.throws(() => link("support@cuce.test", "10000"));
   assert.throws(() => link("unknown@example.test", "10000"));
+  const linkPrisma = prisma;
+  const linkTarget = await linkPrisma.staff_members.create({
+    data: {
+      email: "link-ui@example.test",
+      display_name: "Canvas link test",
+      roles: ["approver"],
+    },
+  });
+  const linkingAdmin = {
+    actor: `staff:${member.id}`,
+    staffId: member.id,
+    scopes: ["staff:manage"],
+  };
+  const linkData = {
+    version: linkTarget.version,
+    canvasUserId: "20001",
+    identityVerified: true,
+  };
+  await assert.rejects(
+    portal.linkStaffCanvas(
+      { actor: "learner:test", scopes: ["learner"] },
+      randomUUID(),
+      linkTarget.id,
+      linkData,
+    ),
+    /administrator/,
+  );
+  await assert.rejects(
+    portal.linkStaffCanvas(linkingAdmin, randomUUID(), linkTarget.id, {
+      ...linkData,
+      identityVerified: false,
+    }),
+    /Verify/,
+  );
+  await assert.rejects(
+    portal.linkStaffCanvas(linkingAdmin, randomUUID(), linkTarget.id, {
+      ...linkData,
+      canvasUserId: "person@example.test",
+    }),
+    /Verify/,
+  );
+  const oldToken = nonce();
+  await linkPrisma.staff_sessions.create({
+    data: {
+      token_hash: secretDigest(oldToken),
+      staff_id: linkTarget.id,
+      auth_provider: "mock",
+      external_subject: "pending",
+      expires_at: new Date(Date.now() + 60000),
+    },
+  });
+  const linkKey = randomUUID();
+  await portal.linkStaffCanvas(linkingAdmin, linkKey, linkTarget.id, linkData);
+  await portal.linkStaffCanvas(linkingAdmin, linkKey, linkTarget.id, linkData);
+  const linked = await linkPrisma.staff_members.findUniqueOrThrow({
+    where: { id: linkTarget.id },
+  });
+  assert.deepEqual(linked.roles, linkTarget.roles);
+  assert.equal(linked.version, linkTarget.version + 1);
+  assert.equal(linked.external_subject, "20001");
+  assert.equal(linked.auth_provider, "canvas:https://canvas.example.test");
+  assert.equal(
+    await linkPrisma.staff_sessions.count({
+      where: { staff_id: linkTarget.id },
+    }),
+    0,
+  );
+  assert.equal(
+    await linkPrisma.audit_events.count({
+      where: {
+        action: "staff.canvas_identity_linked",
+        object_id: linkTarget.id,
+      },
+    }),
+    1,
+  );
+  await assert.rejects(
+    portal.linkStaffCanvas(linkingAdmin, randomUUID(), linkTarget.id, {
+      ...linkData,
+      version: linked.version,
+      canvasUserId: "20002",
+    }),
+    /different identity/,
+  );
+  await assert.rejects(
+    portal.linkStaffCanvas(linkingAdmin, randomUUID(), linkTarget.id, linkData),
+    /changed/,
+  );
+  const duplicates = await Promise.all(
+    [1, 2].map((n) =>
+      linkPrisma.staff_members.create({
+        data: {
+          email: `link-race-${n}@example.test`,
+          display_name: `Link race ${n}`,
+          roles: ["support"],
+        },
+      }),
+    ),
+  );
+  const attempts = await Promise.allSettled(
+    duplicates.map((target) =>
+      portal.linkStaffCanvas(linkingAdmin, randomUUID(), target.id, {
+        version: target.version,
+        canvasUserId: "20003",
+        identityVerified: true,
+      }),
+    ),
+  );
+  assert.equal(attempts.filter((a) => a.status === "fulfilled").length, 1);
+  assert.equal(
+    await linkPrisma.staff_members.count({
+      where: { external_subject: "20003" },
+    }),
+    1,
+  );
+  const inactive = await linkPrisma.staff_members.create({
+    data: {
+      email: "link-inactive@example.test",
+      display_name: "Inactive link",
+      roles: ["support"],
+      active: false,
+    },
+  });
+  await assert.rejects(
+    portal.linkStaffCanvas(linkingAdmin, randomUUID(), inactive.id, {
+      version: inactive.version,
+      canvasUserId: "20004",
+      identityVerified: true,
+    }),
+    /Reactivate/,
+  );
+  const httpTarget = await linkPrisma.staff_members.create({
+    data: {
+      email: "link-http@example.test",
+      display_name: "HTTP link",
+      roles: ["support"],
+    },
+  });
   @Controller("api/v1")
   @UseGuards(PrototypeGuard)
   class TestStaffController {
+    @Post("staff/members/:id/canvas-link") link(
+      @Req() req: any,
+      @RequestHeaders("idempotency-key") key: string,
+      @Param("id") id: string,
+      @Body() data: StaffCanvasLinkDto,
+    ) {
+      requireScope(req, "staff:manage");
+      return portal.linkStaffCanvas(req.principal, key, id, data);
+    }
     @Get("staff/me") me(@Req() req: any) {
       requireScope(req, "staff:read");
       return portal.staffMe(req.principal);
@@ -245,6 +397,7 @@ async function main() {
   assert.equal(providerCalls, 0);
   const issued = await auth.complete({ state, browserNonce, code: "code" });
   assert.equal((await auth.principal(issued.token)).staffId, member.id);
+
   assert.equal(
     await prisma.staff_sessions.count({ where: { token_hash: issued.token } }),
     0,
@@ -257,6 +410,47 @@ async function main() {
   );
   await assert.rejects(auth.complete({ state, browserNonce, code: "code" }));
   assert.equal(providerCalls, 1);
+  const httpLink = (body: object, session = issued.token) =>
+    backend(`staff/members/${httpTarget.id}/canvas-link`, body, {
+      "X-Staff-Session": session,
+      "Idempotency-Key": randomUUID(),
+    });
+  const httpLinkData = {
+    version: httpTarget.version,
+    canvasUserId: "20005",
+    identityVerified: true,
+  };
+  assert.equal(
+    (await httpLink({ ...httpLinkData, identityVerified: false })).status,
+    400,
+  );
+  assert.equal(
+    (
+      await httpLink({
+        ...httpLinkData,
+        auth_provider: "canvas:https://attacker.test",
+      })
+    ).status,
+    400,
+  );
+  assert.equal((await httpLink(httpLinkData, "invalid")).status, 401);
+  assert.equal((await httpLink(httpLinkData)).status, 201);
+  providerId = 20005;
+  assert.equal(
+    (await auth.principal((await complete()).token)).staffId,
+    httpTarget.id,
+  );
+  assert.equal(
+    (
+      await httpLink(
+        { ...httpLinkData, version: 2, canvasUserId: "20006" },
+        (await complete()).token,
+      )
+    ).status,
+    403,
+  );
+  providerId = 42;
+
   const racingNonce = nonce();
   const racingState = await stateFor(racingNonce);
   const racing = await Promise.allSettled(

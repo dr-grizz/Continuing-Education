@@ -42,10 +42,14 @@ function url(value: string, name: string, localCallback = false) {
   return parsed;
 }
 
-export function canvasStaffConfig(env = process.env) {
+export function canvasStaffOrigin(env = process.env) {
   const base = url(required(env, "CANVAS_BASE_URL"), "CANVAS_BASE_URL");
   if (base.pathname !== "/")
     throw new Error("CANVAS_BASE_URL must contain only the Canvas origin.");
+  return base.origin;
+}
+export function canvasStaffConfig(env = process.env) {
+  const base = new URL(canvasStaffOrigin(env));
   const clientId = required(env, "CANVAS_STAFF_CLIENT_ID");
   const clientSecret = required(env, "CANVAS_STAFF_CLIENT_SECRET");
   const redirect = url(
