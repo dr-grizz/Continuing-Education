@@ -2,7 +2,8 @@ name: CI
 # Checks every pull request against a throwaway PostgreSQL service with
 # synthetic data. Nothing here deploys or connects to external systems.
 # Skipped when every changed file is documentation; any code, test or config
-# change runs the full job. Run it by hand with "Run workflow" if needed.
+# change runs backend checks and the quick browser suite. The full browser
+# matrix is available through "Run workflow".
 on:
   pull_request:
     paths-ignore:
@@ -14,6 +15,11 @@ on:
       - "docs/**"
       - "**/*.md"
   workflow_dispatch:
+    inputs:
+      full_browser_suite:
+        description: Run all browser engines and layouts (slower)
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
@@ -23,6 +29,8 @@ jobs:
   check:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    env:
+      CI_QUICK: ${{ inputs.full_browser_suite != true && 'true' || 'false' }}
     services:
       db:
         image: postgres:18.6-bookworm
@@ -110,9 +118,13 @@ jobs:
           done
       - name: Integration tests
         run: npm test
-      - name: Install the Playwright browsers
+      - name: Install Chromium for quick checks
+        if: env.CI_QUICK == 'true'
+        run: npx playwright install --with-deps chromium
+      - name: Install all Playwright browsers
+        if: env.CI_QUICK != 'true'
         run: npx playwright install --with-deps chromium firefox webkit
-      - name: Accessibility checks (axe in Chrome, Firefox and WebKit; forced colors; reflow and text resizing)
+      - name: Accessibility checks (quick by default; full matrix on request)
         run: npm run test:a11y
       - name: Server logs
         if: failure()

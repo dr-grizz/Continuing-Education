@@ -2,7 +2,7 @@ import { defineConfig, devices } from "@playwright/test";
 // Automated accessibility checks against a running local stack:
 // `npm run dev` locally, or the built site in CI. Scans do not replace
 // keyboard and screen-reader review (see the README checklist).
-export default defineConfig({
+const config = defineConfig({
   testDir: "tests/accessibility",
   globalTeardown: "./tests/accessibility/teardown.ts",
   timeout: 60_000,
@@ -53,3 +53,19 @@ export default defineConfig({
     },
   ],
 });
+
+// Keep the local/default suite complete. Routine CI checks every workflow once
+// in Chromium, plus phone staff linking and the specialized accessibility tests.
+// CI's manual full-browser option leaves this reduction disabled.
+if (process.env.CI_QUICK === "true") {
+  config.projects = config.projects
+    ?.filter((project) =>
+      ["light", "phone", "forced-colors", "reflow"].includes(project.name!),
+    )
+    .map((project) =>
+      project.name === "phone"
+        ? { ...project, testMatch: "staff-canvas-link.spec.ts" }
+        : project,
+    );
+}
+export default config;
