@@ -25,7 +25,18 @@ jobs:
       - run: npm run test:hosting
       - run: npm run test:security
       - run: npm run build
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: latest-known
+      - name: Prepare portable certificate runtime
+        run: |
+          uv python install 3.12 --no-bin --install-dir "$RUNNER_TEMP/badge-python"
+          python_dir=$(find "$RUNNER_TEMP/badge-python" -maxdepth 1 -type d -name 'cpython-3.12*' -print -quit)
+          test -n "$python_dir"
+          uv pip install --python "$python_dir/bin/python3" --break-system-packages -r badge-service/certificate-renderer/requirements.txt
+          echo "DEMO_PYTHON_DIRECTORY=$python_dir" >> "$GITHUB_ENV"
       - run: npm run package:demo
+      - run: npm run verify:demo -- --badges
       - run: npx playwright install --with-deps chromium
       - run: npm run verify:demo -- --browser
       - name: Zip release contents (no parent directory)

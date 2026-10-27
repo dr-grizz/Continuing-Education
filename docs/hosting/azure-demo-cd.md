@@ -46,3 +46,11 @@ This repository uses [GitHub’s immutable OIDC subject format](https://docs.git
 ## First verified release
 
 The [October 27 run](https://github.com/dr-grizz/Continuing-Education/actions/runs/40529027069) passed CI and deployed commit `a460dd6`. CI took 9 minutes 37 seconds and the successful deployment took 2 minutes 38 seconds. The published revision was verified through SCM. Campus smoke checks returned health/catalog 200, anonymous staff 401 and unsigned Stripe webhook 400. Live readback confirmed F1/Free, Node 24, HTTPS Only and lookup account 49, with campus/Stripe restrictions preserved. Fresh browser OAuth, directory lookup and sandbox Checkout were not repeated as part of this deployment check.
+
+## Standalone badge preview
+
+The hosted demo can opt in to `BADGES_ENABLED=true` together with `BADGE_DEMO_PREVIEW=true`. The existing supervisor starts the standalone badge adapter on loopback 4178 before exposing the website; it does not embed badge operations into NestJS. Only the existing authenticated portal broker can access staff operations. The release includes the traced adapter and a portable Python 3.12 runtime with pinned ReportLab/Pillow and fonts. Nothing is installed or compiled on F1.
+
+The launcher creates a new private local temporary SQLite directory on each start, uses only the packaged fictional demo configuration and fresh signing keys, and ignores historical learner/source directories. Preview badge drafts, awards, keys and sharing links can disappear or become invalid after a restart or redeployment. They are not real credentials. The persistent Neon portal database is unchanged. Real Canvas eligibility and automatic learner links are not enabled by this preview.
+
+Packaged verification runs with badges disabled and with this preview enabled, including an actual PDF from the relocated Python runtime. Hosted preview permits one PDF renderer at a time to bound memory. The combined API/web/badge heaps are capped at 256/384/128 MiB; native memory and Python still count toward F1's limit. Confirm hosted memory and restart behavior before relying on the preview. Disable `BADGES_ENABLED` to return to portal-only operation.

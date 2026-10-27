@@ -76,3 +76,7 @@ Configure the hosted test webhook for `checkout.session.completed`, `checkout.se
 | `SCM_DO_BUILD_DURING_DEPLOYMENT` | `false` tells Azure to use the prebuilt release without compiling on F1. Build and package the minimal Linux runtime before uploading it. Not needed for local verification. | No |
 
 See the [Azure F1 + Neon guide](../docs/hosting/azure-f1-neon.md) for deployment, verification and rollback instructions. These settings do not configure campus IP restrictions; those are separate Azure networking rules.
+
+## Optional disposable badge preview
+
+`BADGES_ENABLED=true` and `BADGE_DEMO_PREVIEW=true` start the existing standalone badge adapter behind the portal. Use only the verified badge-capable release. The launcher supplies its private loopback URL, fresh temporary storage, synthetic configuration and packaged Python path; do not configure historical badge directories for this mode. Preview data can reset on restart. This does not enable the proposed embedded API integration or change Neon records. See [preview and CD details](../docs/hosting/azure-demo-cd.md#standalone-badge-preview).

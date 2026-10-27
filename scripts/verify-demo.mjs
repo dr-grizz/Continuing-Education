@@ -1,6 +1,6 @@
 import "dotenv/config";
 import { strict as assert } from "node:assert";
-import { cp, mkdtemp, mkdir, readFile, rm } from "node:fs/promises";
+import { cp, mkdtemp, mkdir, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { spawn, execFileSync } from "node:child_process";
 import { once } from "node:events";
@@ -22,6 +22,7 @@ const random = () => randomBytes(32).toString("hex");
 const url = "http://127.0.0.1:3350";
 const password = random();
 const webhookSecret = `whsec_${random()}`;
+const badges = process.argv.includes("--badges");
 const authorization = `Basic ${Buffer.from(`demo:${password}`).toString("base64")}`;
 const env = {
   ...process.env,
@@ -41,6 +42,9 @@ const env = {
   STAFF_AUTH_MODE: "mock",
   LEARNER_AUTH_MODE: "mock",
   CANVAS_COURSES_ENABLED: "false",
+  BADGES_ENABLED: badges ? "true" : "false",
+  BADGE_DEMO_PREVIEW: badges ? "true" : "false",
+  BADGE_PORT: "3353",
   STRIPE_SECRET_KEY: "",
   STRIPE_WEBHOOK_SECRET: webhookSecret,
   NEXT_TELEMETRY_DISABLED: "1",
@@ -176,6 +180,60 @@ try {
   child.stdout.on("data", (chunk) => (logs += chunk));
   child.stderr.on("data", (chunk) => (logs += chunk));
   await waitForReady();
+  if (badges) {
+    const badgeOrigin = "http://127.0.0.1:3353";
+    const health = await fetch(`${badgeOrigin}/health`);
+    assert.equal(health.status, 200);
+    assert.equal((await health.json()).demo, true);
+    const badgeTemporaryRoot = process.platform === "linux" ? "/tmp" : tmpdir();
+    const name = (await readdir(badgeTemporaryRoot)).find((name) =>
+      name.startsWith(`cuce-badge-preview-${child.pid}-`),
+    );
+    assert.ok(name);
+    const data = path.join(badgeTemporaryRoot, name);
+    const token = (
+      await readFile(path.join(data, "portal-award-token"), "utf8")
+    ).trim();
+    const headers = {
+      Authorization: `Bearer ${token}`,
+      "X-CU-Staff-Id": "portal:00000000-0000-4000-8000-000000000901",
+      "Content-Type": "application/json",
+    };
+    assert.equal(
+      (
+        await fetch(`${badgeOrigin}/api/portal-admin/certificates/catalog`, {
+          headers,
+        })
+      ).status,
+      200,
+    );
+    const { defaultCertificate } =
+      await import("../badge-service/certificates.mjs");
+    const pdf = await fetch(
+      `${badgeOrigin}/api/portal-admin/certificates/preview`,
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          design: defaultCertificate,
+          recipientName: "Synthetic Preview Learner",
+        }),
+      },
+    );
+    assert.equal(pdf.status, 200, await pdf.clone().text());
+    const result = await pdf.json();
+    assert.equal(
+      Buffer.from(result.data, "base64").subarray(0, 5).toString(),
+      "%PDF-",
+    );
+    assert.equal(
+      (await fetch(`${badgeOrigin}/api/portal-admin/catalog`)).status,
+      401,
+    );
+    console.log(
+      "PASS packaged badge preview: disposable local SQLite, protected adapter and real portable-Python PDF rendering",
+    );
+  }
   for (const route of [
     "/",
     "/staff",
@@ -420,7 +478,7 @@ try {
   let rss = 0;
   for (const line of children) rss += Number(line.trim().split(/\s+/)[2]);
   console.log(
-    `Local API + web RSS after smoke requests: ${Math.ceil(rss / 1024)} MiB (platform overhead and peak load not included).`,
+    `Local API + web${badges ? " + badge" : ""} RSS after smoke requests: ${Math.ceil(rss / 1024)} MiB (platform overhead and peak load not included).`,
   );
   const api = children.find((line) => line.includes("dist/src/server/main.js"));
   assert.ok(api);

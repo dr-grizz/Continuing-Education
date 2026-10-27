@@ -28,10 +28,15 @@ export function validateCertificateDesign(input){
  return d;
 }
 export function recipientName(value){if(typeof value!=='string'||!value.trim()||value.trim().length>120||/[\u0000-\u001f\u007f]/.test(value))fail('Provide the recipient’s printed name (1–120 characters).');return value.trim();}
+let activePreviewRenders=0;
 export async function renderCertificate(snapshot){
+ const preview=process.env.BADGE_DEMO_PREVIEW==='true';
+ if(preview&&activePreviewRenders>=1)fail('Certificate preview is busy. Wait for the current PDF and try again.');
+ if(preview)activePreviewRenders++;
+ try {
  const bundled=join(homedir(),'.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3');
  const python=process.env.CERTIFICATE_PYTHON||(existsSync(bundled)?bundled:'python3');
- return new Promise((resolve,reject)=>{
+ return await new Promise((resolve,reject)=>{
   const child=spawn(python,[join(root,'certificate-renderer/render.py')],{stdio:['pipe','pipe','pipe'],env:{...process.env,PYTHONDONTWRITEBYTECODE:'1'}});let bytes=0,stderr='',chunks=[];
   const timeout=setTimeout(()=>{child.kill();reject(new AwardError('Certificate rendering timed out. Try again.'));},20000);
   child.stdout.on('data',part=>{bytes+=part.length;if(bytes>8*1024*1024){child.kill();return;}chunks.push(part);});child.stderr.on('data',part=>{if(stderr.length<1000)stderr+=part.toString();});
@@ -39,6 +44,7 @@ export async function renderCertificate(snapshot){
   child.on('close',code=>{clearTimeout(timeout);if(code!==0||!chunks.length||bytes>8*1024*1024){const safe=['Certificate text is too long to fit. Shorten the text.','Certificate font does not support one or more characters. Configure a Unicode font or use a supported name.','Certificate logo is too large.','Certificate signature image is too large.'];reject(new AwardError(safe.includes(stderr.trim())?stderr.trim():'Certificate PDF could not be rendered. Check the renderer configuration and image.'));}else resolve(Buffer.concat(chunks));});
   child.stdin.on('error',()=>{});child.stdin.end(JSON.stringify(snapshot));
  });
+ } finally { if(preview)activePreviewRenders--; }
 }
 export class Certificates{
  constructor(store,awards,learners){Object.assign(this,{store,awards,learners});store.db.exec(`CREATE TABLE IF NOT EXISTS certificate_templates(id TEXT PRIMARY KEY,revision INTEGER NOT NULL,name TEXT NOT NULL,design_json TEXT NOT NULL,updated_at TEXT NOT NULL);

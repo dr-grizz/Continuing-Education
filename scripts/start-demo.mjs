@@ -1,6 +1,9 @@
 import "dotenv/config";
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 const {
@@ -34,7 +37,46 @@ const env = {
   PORT: String(port),
   HOSTNAME: "0.0.0.0",
 };
+const badgePreview = env.BADGES_ENABLED === "true";
+let badgeDirectory;
+if (badgePreview) {
+  if (env.BADGE_DEMO_PREVIEW !== "true")
+    throw new Error(
+      "Hosted badges require explicit disposable demo preview mode.",
+    );
+  const badgePort = Number(env.BADGE_PORT || "4178");
+  if (
+    !Number.isInteger(badgePort) ||
+    badgePort < 1 ||
+    badgePort > 65535 ||
+    [port, apiPort].includes(badgePort)
+  )
+    throw new Error(
+      "BADGE_PORT must be valid and distinct from web/API ports.",
+    );
+  badgeDirectory = await mkdtemp(
+    path.join(
+      process.platform === "linux" ? "/tmp" : tmpdir(),
+      `cuce-badge-preview-${process.pid}-`,
+    ),
+  );
+  Object.assign(env, {
+    BADGE_PORT: String(badgePort),
+    BADGE_SERVICE_URL: `http://127.0.0.1:${badgePort}`,
+    BADGE_DATA_DIR: badgeDirectory,
+    BADGE_LEARNER_MAP_FILE: path.join(badgeDirectory, "portal-learners.json"),
+    BADGE_CONFIG: path.resolve("badge-service/config.example.json"),
+    BADGE_DEMO: "true",
+    CERTIFICATE_PYTHON: path.resolve("python/bin/python3"),
+  });
+  if (!existsSync(env.CERTIFICATE_PYTHON))
+    throw new Error("The packaged certificate Python runtime is missing.");
+}
 const children = new Set();
+process.on("exit", () => {
+  // Preview records are never a persistence contract or a historical store.
+  if (badgeDirectory) rmSync(badgeDirectory, { recursive: true, force: true });
+});
 let stopping = false;
 function stop(code) {
   if (stopping) return;
@@ -58,7 +100,29 @@ function launch(args) {
 }
 process.on("SIGTERM", () => stop(0));
 process.on("SIGINT", () => stop(0));
-launch(["--max-old-space-size=256", "dist/src/server/main.js"]);
+if (badgePreview) {
+  launch(["--max-old-space-size=128", "badge-service/server.mjs"]);
+  let badgeReady = false;
+  for (let attempt = 0; attempt < 60 && !stopping; attempt++) {
+    try {
+      if (
+        (
+          await fetch(`${env.BADGE_SERVICE_URL}/health`, {
+            signal: AbortSignal.timeout(1000),
+          })
+        ).ok
+      ) {
+        badgeReady = true;
+        break;
+      }
+    } catch {
+      /* Wait until the private badge listener and store are ready. */
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  if (!badgeReady) stop(1);
+}
+if (!stopping) launch(["--max-old-space-size=256", "dist/src/server/main.js"]);
 let ready = false;
 for (let attempt = 0; attempt < 60 && !stopping; attempt++) {
   try {

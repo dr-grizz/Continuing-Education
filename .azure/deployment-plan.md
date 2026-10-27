@@ -42,3 +42,17 @@ The pipeline must pass all backend and browser CI checks, produce and verify the
 Run [40529027069](https://github.com/dr-grizz/Continuing-Education/actions/runs/40529027069) succeeded for `a460dd67cc27067997b6a932dae048bc2b191aad`. CI completed in 9 minutes 37 seconds; the successful deploy-only retry took 2 minutes 38 seconds. The first login revealed GitHub's immutable owner/repository-ID subject; the federated credential was corrected to the exact observed subject and read back before retrying, without rerunning CI or rebuilding its artifact.
 
 Published-revision readback passed through authenticated SCM. Live Azure readback confirmed Running, HTTPS Only, Node 24, F1/Free, Always On disabled, the expected startup command and lookup account 49. Campus smoke checks passed: health/catalog 200, anonymous staff 401 and unsigned Stripe webhook 400. The 16 campus/Stripe Allow rules, default Deny and separate SCM restrictions remain intact. The pipeline did not migrate or write hosted database records. Fresh staff/learner OAuth, a real Canvas directory search and a new Stripe sandbox payment were not exercised in this CD smoke test; they need an allowed browser session.
+
+
+## 9. Standalone CU Badge preview — approved October 27
+
+Status: Preparation. The owner requested CU Badge on the existing Azure demo before API integration. Use the existing F1 app and branch-bound CD; no new paid resource, public listener or Neon schema change. Start the existing badge adapter on loopback 4178 alongside web/API, expose it only through existing authenticated portal brokers, and package its runtime plus a portable Python certificate renderer. Keep demo mode enabled with fictional learners and a fresh temporary local SQLite store, avoiding WAL on the network-backed content directory. Preview badge data/keys may reset on restart; do not import historical data or identities. Existing portal data/settings remain preserved.
+
+Validation must cover disabled and enabled packaged startup, real Linux PDF rendering, no private data in the ZIP, current staff authorization, synthetic-only mappings, memory/size, and post-deployment health/credential routes. The separate embedded API integration plan remains a draft and is not part of this change. Re-fetch runtime/network settings and verify F1 after deployment. User subscription, region and target are already confirmed.
+
+
+### Badge preview validation proof
+
+Azure-prepare scope is owner-approved. Azure-validate checks: Node 24 build, typecheck, formatting, hosting/security tests, all 47 badge-service tests and 63 broker integration checks passed. Local traced package with portable Python measured 122 MiB and passed isolated TLS database startup, protected badge API and real relocated-Python PDF rendering. Settled API/web/badge RSS was about 493 MiB on the local Mac; this is not a Linux peak-memory guarantee. Workflow lint passed. The branch's Linux CI must repeat package verification with badges disabled and enabled before CD; badges stay disabled in Azure until the capable release is published. No infrastructure template deployment or hosted database write is needed. Historical data sources remain excluded.
+
+Status: Validated for the existing CD pipeline; Linux package proof and cloud preview enablement remain required in azure-deploy.

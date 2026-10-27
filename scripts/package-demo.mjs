@@ -29,6 +29,8 @@ const safe = (source) => {
     name !== ".env" &&
     !name.startsWith(".env.") &&
     name !== "cache" &&
+    name !== "__pycache__" &&
+    !name.endsWith(".pyc") &&
     !name.endsWith(".tsbuildinfo")
   );
 };
@@ -39,6 +41,7 @@ const { fileList, warnings } = await nodeFileTrace(
     "dist/src/server/main.js",
     "dist/src/domain/hosted-demo.js",
     "scripts/start-demo.mjs",
+    "badge-service/server.mjs",
   ],
   { base: process.cwd(), ts: false },
 );
@@ -54,11 +57,41 @@ if (warnings.size) {
   );
 }
 for (const file of fileList) {
+  if (
+    file.startsWith("badge-service/data/") ||
+    file.startsWith("badge-service/pilot/") ||
+    /(?:\.sqlite(?:-wal|-shm)?|private\.pem|(?:writer|portal|portal-award)-token)$/.test(
+      file,
+    )
+  )
+    throw new Error("Trace included private badge runtime data.");
   if (path.isAbsolute(file) || file.split(path.sep).includes(".."))
     throw new Error("Trace escaped the workspace.");
   if (!file.split(path.sep).every((part) => safe(part)))
     throw new Error("Trace included a private or cache file.");
   await cp(file, path.join(destination, file), { dereference: true });
+}
+// Explicit resources used dynamically by the badge adapter and PDF subprocess.
+await cp(
+  "badge-service/config.example.json",
+  path.join(destination, "badge-service/config.example.json"),
+);
+await cp(
+  "badge-service/certificate-renderer",
+  path.join(destination, "badge-service/certificate-renderer"),
+  { recursive: true, filter: safe },
+);
+const pythonRoot = process.env.DEMO_PYTHON_DIRECTORY;
+if (pythonRoot) {
+  if (!existsSync(path.join(pythonRoot, "bin/python3")))
+    throw new Error(
+      "DEMO_PYTHON_DIRECTORY must contain the portable Python runtime.",
+    );
+  await cp(pythonRoot, path.join(destination, "python"), {
+    recursive: true,
+    dereference: true,
+    filter: safe,
+  });
 }
 await cp("src/web/public", path.join(destination, "src/web/public"), {
   recursive: true,

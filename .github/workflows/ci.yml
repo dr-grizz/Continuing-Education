@@ -109,6 +109,19 @@ jobs:
         run: npm run test:demo
       - name: Build
         run: npm run build
+      - name: Install verified portable Python builder
+        if: github.event_name == 'push' && github.ref == 'refs/heads/azure-demo'
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: latest-known
+      - name: Prepare portable certificate runtime
+        if: github.event_name == 'push' && github.ref == 'refs/heads/azure-demo'
+        run: |
+          uv python install 3.12 --no-bin --install-dir "$RUNNER_TEMP/badge-python"
+          python_dir=$(find "$RUNNER_TEMP/badge-python" -maxdepth 1 -type d -name 'cpython-3.12*' -print -quit)
+          test -n "$python_dir"
+          uv pip install --python "$python_dir/bin/python3" --break-system-packages -r badge-service/certificate-renderer/requirements.txt
+          echo "DEMO_PYTHON_DIRECTORY=$python_dir" >> "$GITHUB_ENV"
       - name: Prepare and verify the minimal deployment package
         if: github.event_name == 'push' && github.ref == 'refs/heads/azure-demo'
         env:
@@ -118,6 +131,7 @@ jobs:
         run: |
           npm run package:demo
           npm run verify:demo
+          npm run verify:demo -- --badges
           node scripts/demo-schema-hash.mjs > artifacts/schema.sha256
           node --input-type=module <<'JS'
           import { readFileSync, writeFileSync } from 'node:fs';
