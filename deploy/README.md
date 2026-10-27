@@ -77,6 +77,6 @@ Configure the hosted test webhook for `checkout.session.completed`, `checkout.se
 
 See the [Azure F1 + Neon guide](../docs/hosting/azure-f1-neon.md) for deployment, verification and rollback instructions. These settings do not configure campus IP restrictions; those are separate Azure networking rules.
 
-## Optional disposable badge preview
+## Hosted credentials
 
-`BADGES_ENABLED=true` and `BADGE_DEMO_PREVIEW=true` start the existing standalone badge adapter behind the portal. Use only the verified badge-capable release. The launcher supplies its private loopback URL, fresh temporary storage, synthetic configuration and packaged Python path; do not configure historical badge directories for this mode. Preview data can reset on restart. This does not enable the proposed embedded API integration or change Neon records. See [preview and CD details](../docs/hosting/azure-demo-cd.md#standalone-badge-preview).
+Set `BADGES_ENABLED=true` only after migration `024_integrated_credentials` is applied and verified. Also set `BADGE_DATA_DIR` to a private persistent absolute directory outside the release, such as `/home/data/cuce-credentials`. Keys, service tokens and learner mappings must survive deployment and be backed up with PostgreSQL. The web/API launcher supplies the bundled Python path and API transport; no 4178 listener or `BADGE_SERVICE_URL` is needed. `BADGES_ENABLED=false` keeps the portal available without initializing credentials. See [CD and storage checks](../docs/hosting/azure-demo-cd.md#integrated-credential-runtime).

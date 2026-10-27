@@ -882,28 +882,30 @@ async function main() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     rawBody: true,
   });
-  // Credentials share this API process and its PostgreSQL pool. No second listener.
-  const { createApp } = require(
-    require("node:path").resolve("badge-service/server.mjs"),
-  );
-  const { db } = require("../domain/db");
-  const credentials = await createApp({
-    directory: process.env.BADGE_DATA_DIR || "badge-service/data",
-    baseUrl: `http://127.0.0.1:${process.env.API_PORT || 3051}`,
-    pool: db,
-    demo: process.env.BADGE_DEMO !== "false",
-    ...(process.env.BADGE_CONFIG
-      ? {
-          config: JSON.parse(
-            require("node:fs").readFileSync(process.env.BADGE_CONFIG, "utf8"),
-          ),
-        }
-      : {}),
-  });
-  // Mount before body parsing so certificate/image uploads retain stream limits.
-  app.use("/api/credentials", (request: any, response: any) => {
-    credentials.server.emit("request", request, response);
-  });
+  if (process.env.BADGES_ENABLED !== "false") {
+    // Credentials share this API process and its PostgreSQL pool. No second listener.
+    const { createApp } = require(
+      require("node:path").resolve("badge-service/server.mjs"),
+    );
+    const { db } = require("../domain/db");
+    const credentials = await createApp({
+      directory: process.env.BADGE_DATA_DIR || "badge-service/data",
+      baseUrl: `http://127.0.0.1:${process.env.API_PORT || 3051}`,
+      pool: db,
+      demo: process.env.BADGE_DEMO !== "false",
+      ...(process.env.BADGE_CONFIG
+        ? {
+            config: JSON.parse(
+              require("node:fs").readFileSync(process.env.BADGE_CONFIG, "utf8"),
+            ),
+          }
+        : {}),
+    });
+    // Mount before body parsing so certificate/image uploads retain stream limits.
+    app.use("/api/credentials", (request: any, response: any) => {
+      credentials.server.emit("request", request, response);
+    });
+  }
   app.enableShutdownHooks();
   // Sales page images arrive as base64 JSON (up to 5 MB decoded).
   app.useBodyParser("json", { limit: "8mb" });
