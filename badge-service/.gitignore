@@ -6,3 +6,5 @@ pilot/*.local.json
 .certificate-venv/
 __pycache__/
 tmp/
+
+.certificate-venv-*/

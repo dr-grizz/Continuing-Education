@@ -91,7 +91,7 @@ async function main() {
   const reservation = createServer();
   const reserved = await listen(reservation);
   await new Promise<void>((r) => reservation.close(() => r()));
-  const app = createApp({
+  const app = await createApp({
     directory,
     baseUrl: reserved,
     writerToken: "test-writer",
@@ -372,7 +372,7 @@ async function main() {
     const register = await (await call("admin/issuances")).json();
     equal(register.records[0].certificate.recipientName, "Alex Morgan");
     equal(
-      app.certificates.find("workspace", badge.id).created_by,
+      (await app.certificates.find("workspace", badge.id)).created_by,
       `portal:${staffId}`,
     );
     const pdf = await (
@@ -438,7 +438,7 @@ async function main() {
     );
   } finally {
     await new Promise<void>((r) => app.server.close(() => r()));
-    app.store.close();
+    await app.store.close();
     await new Promise<void>((r) => identity.close(() => r()));
     rmSync(directory, { recursive: true, force: true });
   }

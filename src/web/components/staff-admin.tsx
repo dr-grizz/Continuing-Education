@@ -288,6 +288,7 @@ function CanvasLinkDialog({
     login: string | null;
   }>();
   const errorRef = useRef<HTMLDivElement | null>(null);
+  const userIdRef = useRef<HTMLInputElement | null>(null);
   const linked = Boolean(member?.external_subject);
   useEffect(() => {
     setUserId(member?.external_subject || "");
@@ -366,6 +367,13 @@ function CanvasLinkDialog({
       maxWidth="sm"
       aria-labelledby="canvas-link-title"
       aria-describedby="canvas-link-description"
+      slotProps={{
+        transition: {
+          onEntered: () => {
+            if (!linked) userIdRef.current?.focus();
+          },
+        },
+      }}
     >
       <Box
         component="form"
@@ -467,6 +475,7 @@ function CanvasLinkDialog({
                 setUserId(event.target.value);
                 setConfirmed(false);
               }}
+              inputRef={userIdRef}
               autoFocus={!linked}
               slotProps={{
                 input: { readOnly: linked || Boolean(candidate) },
