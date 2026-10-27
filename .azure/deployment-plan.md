@@ -1,10 +1,10 @@
 # Azure F1 + Neon demo deployment
 
-Status: Deployed and smoke-tested, October 26, 2026.
+Status: Validated for continuous-deployment configuration, October 27, 2026. Existing manual deployment was smoke-tested October 26.
 
 ## Scope
 
-One Linux Azure App Service F1 plan runs the compiled web and API processes. Neon PostgreSQL is external and uses TLS. No paid fallback, automatic deployment or real Canvas provisioning is enabled. CI/CD remains deferred.
+One Linux Azure App Service F1 plan runs the compiled web and API processes. Neon PostgreSQL is external and uses TLS. No paid fallback or real Canvas provisioning is enabled. The owner authorized CD from azure-demo on October 27; CI gates a minimal runtime deployment to the existing Web App.
 
 ## Configuration and deployment
 
@@ -27,4 +27,11 @@ One Linux Azure App Service F1 plan runs the compiled web and API processes. Neo
 
 ## Rollback and limits
 
-Retain the previous known-good release and database backup privately. Code rollback does not undo database changes; restore into a separate database and verify before deliberately switching connections. The manual release-build workflow has no cloud credentials and has not been exercised remotely. See [the historical local verification record](../docs/hosting/azure-f1-verification.md) for the earlier gated-package checks.
+Retain the previous known-good release and database backup privately. Code rollback does not undo database changes; restore into a separate database and verify before deliberately switching connections. The manual release-build workflow remains unprivileged. The CI deployment job uses branch-bound managed-identity OIDC, app-scoped Website Contributor and plan-scoped Reader; runtime secrets remain in Azure. See [the historical local verification record](../docs/hosting/azure-f1-verification.md) for the earlier gated-package checks.
+
+
+## 7. Validation Proof — continuous deployment
+
+Azure-validate checks completed October 27: `actionlint .github/workflows/ci.yml`, Node 24 `npm run build`, `npm run typecheck`, `npm run format:check`, `npm run test:hosting`, and `npm run test:security` passed. Logs: ignored `artifacts/cd-validation.log` and `artifacts/cd-build-validation.log`. Authenticated `az rest` readback of the existing SCM package metadata passed. The Node 24 Linux runtime is checked before first release. This release changes CI and packaging metadata only; no infrastructure template deployment or database migration is planned. The existing F1 target, East US region and subscription are owner-confirmed. `az bicep build --file infra/main.bicep --outfile artifacts/cd-preflight-infra.json` passed October 27. Live readback confirmed F1, Node 22 before the release's Node 24 selection, remote builds disabled, unchanged campus Deny rules and independent authenticated SCM access. The managed identity has only Website Contributor on the app and Reader on its plan; its issuer/subject/audience were re-fetched. All 24 hosted migration file checksums matched the checkout through read-only SQL before setting the schema approval variable. No live database writes were made.
+
+The pipeline must pass all backend and browser CI checks, produce and verify the actual Linux package, and validate the schema hash before the privileged job. Node 24 runtime selection and ZIP upload occur only in that job. Post-deployment proof includes startup tracking and authenticated release revision readback; public health and Canvas checks require an allowed campus network.

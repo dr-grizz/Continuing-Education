@@ -1,6 +1,6 @@
 # ADR 0012: Public demo with Canvas OAuth and Stripe sandbox
 
-Accepted October 26, 2026 at the owner's request. CI/CD work is deferred. This amends ADR 0011's audience password gate for the current hosted demo.
+Accepted October 26, 2026 at the owner's request. CI/CD was initially deferred; the owner authorized branch-bound OIDC deployment on October 27 (see [deployment design](../hosting/azure-demo-cd.md)). This amends ADR 0011's audience password gate for the current hosted demo.
 
 - `DEMO_ACCESS_GATE=none` removes the browser Basic prompt. This mode refuses to start unless both staff and learner authentication explicitly use Canvas OAuth. Strong internal broker tokens, HTTPS, same-origin browser writes and the private API remain required. The default remains `basic` for older/local gated configurations.
 - Anonymous visitors can browse the catalog and load course photos. Learner registration/payment requires the independent verified Canvas learner session; staff access requires an explicitly linked Canvas identity and current roles. No mock-auth fallback or automatic staff role assignment from email is allowed.
