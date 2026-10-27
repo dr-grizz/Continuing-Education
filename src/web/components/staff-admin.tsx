@@ -31,7 +31,12 @@ import AddIcon from "@mui/icons-material/Add";
 import { api } from "./api";
 import { RoleChips, roleLabels, StaffMember, StaffRole } from "./staff-session";
 
-type Member = Omit<StaffMember, "scopes"> & { auth_provider: string };
+type Member = Omit<StaffMember, "scopes"> & {
+  auth_provider: string;
+  external_subject?: string | null;
+  canvas_origin?: string | null;
+  canvas_lookup_enabled?: boolean;
+};
 type RoleEntry = {
   role: StaffRole;
   label: string;
@@ -66,11 +71,13 @@ export function StaffUsers({
   const [members, setMembers] = useState<Member[]>([]);
   const [error, setError] = useState("");
   const [editing, setEditing] = useState<Member | "new">();
+  const [linking, setLinking] = useState<Member>();
   const load = () =>
     api<Member[]>("staff/members", { role: "staff" })
       .then((rows) => {
         setMembers(rows);
         setError("");
+        return rows;
       })
       .catch((e) => setError((e as Error).message));
   useEffect(() => {
@@ -86,12 +93,30 @@ export function StaffUsers({
     (member) => roleFilter === "all" || member.roles.includes(roleFilter),
   );
   const editButton = (member: Member) => (
-    <Button
-      onClick={() => setEditing(member)}
-      aria-label={`Edit ${member.display_name}`}
-    >
-      Edit
-    </Button>
+    <Stack direction="row" sx={{ flexWrap: "wrap", gap: 1 }}>
+      <Button
+        onClick={() => setEditing(member)}
+        aria-label={`Edit ${member.display_name}`}
+      >
+        Edit
+      </Button>
+      <Button
+        onClick={() => setLinking(member)}
+        disabled={
+          !member.external_subject && (!member.active || !member.canvas_origin)
+        }
+        aria-label={`${member.external_subject ? "View Canvas link for" : "Link Canvas for"} ${member.display_name}`}
+      >
+        {member.external_subject ? "View Canvas link" : "Link Canvas"}
+      </Button>
+    </Stack>
+  );
+  const canvasStatus = (member: Member) => (
+    <Typography variant="body2" sx={{ overflowWrap: "anywhere" }}>
+      {member.external_subject
+        ? `Linked · Canvas user ${member.external_subject}`
+        : "Not linked to Canvas"}
+    </Typography>
   );
   const status = (member: Member) => (
     <Chip
@@ -131,6 +156,17 @@ export function StaffUsers({
           </MenuItem>
         ))}
       </TextField>
+      <Alert severity="info" role="note" sx={{ mb: 2 }}>
+        Adding an email does not enable Canvas sign-in. Link each active staff
+        member to their verified Canvas user ID. Roles are managed separately.
+      </Alert>
+      {members.length > 0 &&
+        !members.some((member) => member.canvas_origin) && (
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            Canvas linking is unavailable until the portal's Canvas installation
+            is configured.
+          </Alert>
+        )}
       <Typography
         variant="body2"
         color="text.secondary"
@@ -164,6 +200,7 @@ export function StaffUsers({
               {member.email}
             </Typography>
             <RoleChips roles={member.roles} />
+            {canvasStatus(member)}
             <Box sx={{ mt: 1 }}>{editButton(member)}</Box>
           </Paper>
         ))}
@@ -176,6 +213,7 @@ export function StaffUsers({
               <TableCell>Email</TableCell>
               <TableCell>Roles</TableCell>
               <TableCell>Status</TableCell>
+              <TableCell>Canvas sign-in</TableCell>
               <TableCell>Action</TableCell>
             </TableRow>
           </TableHead>
@@ -193,6 +231,7 @@ export function StaffUsers({
                   <RoleChips roles={member.roles} />
                 </TableCell>
                 <TableCell>{status(member)}</TableCell>
+                <TableCell>{canvasStatus(member)}</TableCell>
                 <TableCell>{editButton(member)}</TableCell>
               </TableRow>
             ))}
@@ -203,13 +242,269 @@ export function StaffUsers({
         member={editing}
         currentId={currentId}
         onClose={() => setEditing(undefined)}
-        onSaved={async (text, selfChanged) => {
+        onSaved={async (text, selfChanged, createdId) => {
           setEditing(undefined);
-          await load();
+          const rows = await load();
           await onChanged(text, selfChanged);
+          const created = rows?.find((row) => row.id === createdId);
+          if (created?.canvas_lookup_enabled) setLinking(created);
+        }}
+      />
+      <CanvasLinkDialog
+        member={linking}
+        onClose={() => setLinking(undefined)}
+        onSaved={async () => {
+          const member = linking!;
+          setLinking(undefined);
+          await load();
+          await onChanged(
+            `Canvas sign-in enabled for ${member.display_name}.`,
+            member.id === currentId,
+          );
         }}
       />
     </>
+  );
+}
+
+function CanvasLinkDialog({
+  member,
+  onClose,
+  onSaved,
+}: {
+  member?: Member;
+  onClose: () => void;
+  onSaved: () => Promise<void>;
+}) {
+  const [userId, setUserId] = useState("");
+  const [confirmed, setConfirmed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [failure, setFailure] = useState("");
+  const [finding, setFinding] = useState(false);
+  const [candidate, setCandidate] = useState<{
+    id: string;
+    name: string;
+    email: string | null;
+    login: string | null;
+  }>();
+  const errorRef = useRef<HTMLDivElement | null>(null);
+  const linked = Boolean(member?.external_subject);
+  useEffect(() => {
+    setUserId(member?.external_subject || "");
+    setConfirmed(false);
+    setFailure("");
+    setCandidate(undefined);
+    if (member && !member.external_subject && member.canvas_lookup_enabled)
+      void findInCanvas(member);
+  }, [member]);
+  async function findInCanvas(target: Member) {
+    setFinding(true);
+    setFailure("");
+    setConfirmed(false);
+    setCandidate(undefined);
+    setUserId("");
+    try {
+      const found = await api<{
+        id: string;
+        name: string;
+        email: string | null;
+        login: string | null;
+        target_version: number;
+        provider: string;
+      }>(`staff/canvas/staff-lookup/${target.id}`, { role: "staff", body: {} });
+      if (
+        found.target_version !== target.version ||
+        found.provider !== `canvas:${target.canvas_origin}` ||
+        !/^[1-9][0-9]{0,19}$/.test(found.id)
+      )
+        throw new Error(
+          "Staff configuration changed. Close this dialog, refresh and retry.",
+        );
+      setCandidate(found);
+      setUserId(found.id);
+    } catch (error) {
+      setFailure((error as Error).message);
+    } finally {
+      setFinding(false);
+    }
+  }
+  useEffect(() => {
+    if (failure) errorRef.current?.focus();
+  }, [failure]);
+  async function save(event: React.FormEvent) {
+    event.preventDefault();
+    if (!member || linked || busy || finding) return;
+    if (!/^[1-9][0-9]{0,19}$/.test(userId.trim()) || !confirmed) {
+      setFailure(
+        "Enter the numeric Canvas user ID and confirm that you verified its owner.",
+      );
+      return;
+    }
+    setBusy(true);
+    setFailure("");
+    try {
+      await api(`staff/members/${member.id}/canvas-link`, {
+        role: "staff",
+        body: {
+          version: member.version,
+          canvasUserId: userId.trim(),
+          identityVerified: true,
+        },
+      });
+      await onSaved();
+    } catch (error) {
+      setFailure((error as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <Dialog
+      open={Boolean(member)}
+      onClose={() => !busy && !finding && onClose()}
+      fullWidth
+      maxWidth="sm"
+      aria-labelledby="canvas-link-title"
+      aria-describedby="canvas-link-description"
+    >
+      <Box
+        component="form"
+        noValidate
+        onSubmit={save}
+        sx={{ display: "flex", flexDirection: "column", minHeight: 0 }}
+      >
+        <DialogTitle id="canvas-link-title">
+          {linked ? "Canvas identity link" : "Link Canvas sign-in"}
+        </DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ pt: 1 }}>
+            <Typography id="canvas-link-description">
+              {member?.display_name} · {member?.email}
+            </Typography>
+            <Typography variant="body2" sx={{ overflowWrap: "anywhere" }}>
+              Canvas installation:{" "}
+              {linked
+                ? member?.auth_provider.replace(/^canvas:/, "")
+                : member?.canvas_origin}
+            </Typography>
+            {linked ? (
+              <Alert severity="info" role="note">
+                This identity is linked. Changing an existing identity requires
+                administrator recovery; it cannot be replaced here.
+              </Alert>
+            ) : (
+              <Alert severity="info" role="note">
+                {member?.canvas_lookup_enabled
+                  ? "Review the account returned by Canvas and confirm it belongs to this staff member. Nothing is linked until you confirm."
+                  : "In Canvas administration, open this person's profile and verify the numeric user ID. Email alone does not verify identity."}{" "}
+                Linking keeps their roles and signs out older portal sessions
+                for this person.
+              </Alert>
+            )}
+            {failure && (
+              <Alert severity="error" tabIndex={-1} ref={errorRef}>
+                {failure}
+              </Alert>
+            )}
+            {!linked && (
+              <>
+                <Button
+                  onClick={() => member && void findInCanvas(member)}
+                  disabled={busy || finding || !member?.canvas_lookup_enabled}
+                >
+                  {finding ? "Finding in Canvas…" : "Find in Canvas"}
+                </Button>
+                {!member?.canvas_lookup_enabled && (
+                  <Typography variant="body2">
+                    Automatic lookup needs Canvas directory access configured on
+                    the portal. You can still enter an independently verified ID
+                    below.
+                  </Typography>
+                )}
+                {finding && (
+                  <Typography role="status">
+                    Looking up {member?.email} using your Canvas account…
+                  </Typography>
+                )}
+                {candidate && (
+                  <Paper
+                    variant="outlined"
+                    sx={{ p: 2 }}
+                    role="status"
+                    aria-label="Canvas account found"
+                  >
+                    <Typography variant="subtitle2">
+                      Canvas account found
+                    </Typography>
+                    <Typography>{candidate.name}</Typography>
+                    <Typography sx={{ overflowWrap: "anywhere" }}>
+                      Email: {candidate.email || "Not provided"}
+                    </Typography>
+                    <Typography sx={{ overflowWrap: "anywhere" }}>
+                      Login: {candidate.login || "Not provided"}
+                    </Typography>
+                    <Typography>Canvas user ID: {candidate.id}</Typography>
+                    <Button
+                      disabled={busy}
+                      onClick={() => {
+                        setCandidate(undefined);
+                        setConfirmed(false);
+                        setUserId("");
+                      }}
+                    >
+                      Enter an ID manually
+                    </Button>
+                  </Paper>
+                )}
+              </>
+            )}
+            <TextField
+              label="Canvas user ID"
+              required={!linked}
+              disabled={busy || finding}
+              value={userId}
+              onChange={(event) => {
+                setUserId(event.target.value);
+                setConfirmed(false);
+              }}
+              autoFocus={!linked}
+              slotProps={{
+                input: { readOnly: linked || Boolean(candidate) },
+                htmlInput: { inputMode: "numeric", maxLength: 20 },
+              }}
+              helperText="Use the numeric Canvas user ID, not an email address or SIS ID."
+            />
+            {!linked && (
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    required
+                    disabled={busy || finding}
+                    checked={confirmed}
+                    onChange={(event) => setConfirmed(event.target.checked)}
+                  />
+                }
+                label={`I verified this Canvas user ID belongs to ${member?.display_name} (${member?.email}).`}
+              />
+            )}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={onClose} disabled={busy || finding}>
+            {linked ? "Close" : "Cancel"}
+          </Button>
+          {!linked && (
+            <Button
+              type="submit"
+              variant="contained"
+              disabled={busy || finding}
+            >
+              {busy ? "Linking…" : "Link Canvas account"}
+            </Button>
+          )}
+        </DialogActions>
+      </Box>
+    </Dialog>
   );
 }
 
@@ -229,7 +524,11 @@ function StaffMemberDialog({
   member?: Member | "new";
   currentId: string;
   onClose: () => void;
-  onSaved: (message: string, selfChanged: boolean) => Promise<void>;
+  onSaved: (
+    message: string,
+    selfChanged: boolean,
+    createdId?: string,
+  ) => Promise<void>;
 }) {
   const creating = member === "new";
   const existing = member && member !== "new" ? member : undefined;
@@ -270,6 +569,7 @@ function StaffMemberDialog({
     }
     setBusy(true);
     try {
+      let createdId: string | undefined;
       if (existing)
         await api(`staff/members/${existing.id}`, {
           role: "staff",
@@ -280,8 +580,8 @@ function StaffMemberDialog({
             active,
           },
         });
-      else
-        await api("staff/members", {
+      else {
+        const created = await api<{ id: string }>("staff/members", {
           role: "staff",
           body: {
             email: email.trim().toLowerCase(),
@@ -289,11 +589,14 @@ function StaffMemberDialog({
             roles,
           },
         });
+        createdId = created.id;
+      }
       await onSaved(
         existing
           ? `Saved ${displayName.trim()}.`
           : `Added ${displayName.trim()}.`,
         existing?.id === currentId,
+        createdId,
       );
     } catch (e) {
       setFailure((e as Error).message);
@@ -380,7 +683,7 @@ function StaffMemberDialog({
             helperText={
               errors.email ??
               (creating
-                ? "Used for mock sign-in now and SSO matching later."
+                ? "After adding this person, use Link Canvas to enable Canvas sign-in."
                 : "Email cannot change; add a new staff member instead.")
             }
           />

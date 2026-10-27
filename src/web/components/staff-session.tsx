@@ -163,6 +163,8 @@ export function StaffSignIn({
       configuration:
         "Canvas sign-in is not configured yet. Contact the portal administrator.",
       unavailable: "Unable to complete Canvas sign-in. Try again.",
+      rate_limited:
+        "Too many sign-ins for this Canvas account. Wait a minute, then select Sign in with Canvas again.",
       unauthorized:
         "Your Canvas account has not been authorized for this staff portal. Contact the portal administrator.",
       denied: "Canvas sign-in was cancelled or denied. You can try again.",

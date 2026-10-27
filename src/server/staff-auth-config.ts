@@ -42,10 +42,21 @@ function url(value: string, name: string, localCallback = false) {
   return parsed;
 }
 
-export function canvasStaffConfig(env = process.env) {
+export function canvasStaffOrigin(env = process.env) {
   const base = url(required(env, "CANVAS_BASE_URL"), "CANVAS_BASE_URL");
   if (base.pathname !== "/")
     throw new Error("CANVAS_BASE_URL must contain only the Canvas origin.");
+  return base.origin;
+}
+export function staffLookupAccountId(env = process.env) {
+  const account = env.CANVAS_STAFF_LOOKUP_ACCOUNT_ID?.trim();
+  if (!account) return null;
+  if (!/^[1-9][0-9]{0,19}$/.test(account))
+    throw new Error("Invalid Canvas staff lookup account ID.");
+  return account;
+}
+export function canvasStaffConfig(env = process.env) {
+  const base = new URL(canvasStaffOrigin(env));
   const clientId = required(env, "CANVAS_STAFF_CLIENT_ID");
   const clientSecret = required(env, "CANVAS_STAFF_CLIENT_SECRET");
   const redirect = url(
@@ -81,8 +92,17 @@ export function canvasStaffConfig(env = process.env) {
       "CANVAS_USER_AGENT must contain 1 to 256 printable ASCII characters.",
     );
   const courseReads = courseReadsEnabled(env);
-  if (courseReads) tokenEncryptionKey(env);
-  const scopes = courseReads ? courseScopes(env) : ["/auth/userinfo"];
+  const lookupAccountId = staffLookupAccountId(env);
+  const apiReads = courseReads || Boolean(lookupAccountId);
+  if (apiReads) tokenEncryptionKey(env);
+  const scopes = apiReads
+    ? [
+        ...(courseReads ? courseScopes(env) : []),
+        ...(lookupAccountId
+          ? ["url:GET|/api/v1/accounts/:account_id/users"]
+          : []),
+      ]
+    : ["/auth/userinfo"];
   return {
     provider: `canvas:${base.origin}`,
     clientId,
@@ -96,6 +116,8 @@ export function canvasStaffConfig(env = process.env) {
     sessionHours: hours,
     forceLogin: forceLogin === "true",
     courseReads,
+    apiReads,
+    lookupAccountId,
     scopes,
     fingerprint: createHash("sha256")
       .update(
@@ -115,7 +137,15 @@ export function canvasStaffConfig(env = process.env) {
 export function staffAuthInfo() {
   const mode = staffAuthMode();
   if (mode === "mock")
-    return { mode, configured: true, secureCookies: false, portalOrigin: null };
+    return {
+      mode,
+      configured: true,
+      secureCookies: process.env.HOSTED_DEMO === "true",
+      portalOrigin:
+        process.env.HOSTED_DEMO === "true"
+          ? new URL(process.env.WEB_URL!).origin
+          : null,
+    };
   try {
     const config = canvasStaffConfig();
     return {

@@ -59,6 +59,16 @@ export class SyncCoursesDto {
 @Controller("api/v1/staff/canvas")
 export class CanvasCoursesController {
   constructor(private readonly courses: CanvasCoursesService) {}
+  @Post("staff-lookup/:id")
+  @HttpCode(200)
+  @ApiOperation({
+    summary:
+      "Find one exact Canvas account for an existing staff record using the caller's own OAuth grant; does not link it",
+  })
+  staffLookup(@Req() req: any, @Param("id", ParseUUIDPipe) id: string) {
+    requireScope(req, "staff:manage");
+    return this.courses.lookupStaff(req.principal, id);
+  }
   @Get("connection")
   connection(@Req() req: any) {
     requireScope(req, "canvas:read");

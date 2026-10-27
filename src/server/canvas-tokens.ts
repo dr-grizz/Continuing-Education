@@ -40,13 +40,21 @@ export function sealCanvasTokens(tokens: CanvasTokens, binding: string) {
 }
 export function openCanvasTokens(value: string, binding: string): CanvasTokens {
   try {
-    const [nonce, tag, encrypted] = value
-      .split(".")
-      .map((part) => Buffer.from(part, "base64url"));
+    const fields = value.split(".");
+    if (fields.length !== 3) throw new Error();
+    const [nonce, tag, encrypted] = fields.map((part) => {
+      if (!/^[A-Za-z0-9_-]+$/.test(part)) throw new Error();
+      const bytes = Buffer.from(part, "base64url");
+      if (bytes.toString("base64url") !== part) throw new Error();
+      return bytes;
+    });
+    if (nonce.length !== 12 || tag.length !== 16 || !encrypted.length)
+      throw new Error();
     const decipher = createDecipheriv(
       "aes-256-gcm",
       tokenEncryptionKey(),
       nonce,
+      { authTagLength: 16 },
     );
     decipher.setAAD(Buffer.from(binding));
     decipher.setAuthTag(tag);

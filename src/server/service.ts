@@ -42,6 +42,7 @@ import {
   LearnerAccessDto,
   StaffMemberDto,
   StaffUpdateDto,
+  StaffCanvasLinkDto,
   OfferingDto,
   OfferingEditDto,
   OfferingImageDto,
@@ -50,7 +51,11 @@ import {
   QueryDto,
 } from "./dto";
 import { Principal } from "./auth";
-import { staffAuthMode } from "./staff-auth-config";
+import {
+  staffAuthMode,
+  canvasStaffOrigin,
+  staffLookupAccountId,
+} from "./staff-auth-config";
 import {
   emptySalesPage,
   parseSalesPage,
@@ -741,6 +746,10 @@ export class PortalService {
   // event is handled once; only Stripe (by webhook or reconciliation) marks a
   // Stripe payment paid.
   async stripeEvent(event: Stripe.Event) {
+    if (event.livemode)
+      throw new BadRequestException(
+        "Live Stripe events are not allowed in the demo.",
+      );
     // Newer API versions omit the refund list from charge.refunded; look up
     // the latest refund ID first (best effort, outside the transaction).
     let refundId: string | null = null;
@@ -1752,10 +1761,145 @@ export class PortalService {
     }));
   }
   async staffMembers() {
-    return prisma.staff_members.findMany({
-      select: { ...staffSelect, auth_provider: true, created_at: true },
+    let canvasOrigin: string | null = null;
+    try {
+      canvasOrigin = canvasStaffOrigin();
+    } catch {
+      /* Configuration stays server-owned. */
+    }
+    let lookupEnabled = false;
+    try {
+      lookupEnabled =
+        staffAuthMode() === "canvas" && Boolean(staffLookupAccountId());
+    } catch {}
+    const members = await prisma.staff_members.findMany({
+      select: {
+        ...staffSelect,
+        auth_provider: true,
+        external_subject: true,
+        created_at: true,
+      },
       orderBy: [{ active: "desc" }, { display_name: "asc" }],
     });
+    return members.map((member) => ({
+      ...member,
+      canvas_origin: canvasOrigin,
+      canvas_lookup_enabled: lookupEnabled,
+    }));
+  }
+  async linkStaffCanvas(
+    principal: Principal,
+    key: string,
+    id: string,
+    data: StaffCanvasLinkDto,
+  ) {
+    if (!principal.scopes.includes("staff:manage"))
+      throw new ForbiddenException(
+        "Staff administrator permission is required.",
+      );
+    if (
+      data.identityVerified !== true ||
+      typeof data.canvasUserId !== "string" ||
+      data.canvasUserId.trim() !== data.canvasUserId ||
+      !/^[1-9][0-9]{0,19}$/.test(data.canvasUserId)
+    )
+      throw new BadRequestException(
+        "Verify the numeric Canvas user ID before linking.",
+      );
+    let provider: string;
+    try {
+      provider = `canvas:${canvasStaffOrigin()}`;
+    } catch {
+      throw new BadRequestException(
+        "Configure the Canvas installation before linking staff.",
+      );
+    }
+    try {
+      return await this.command(
+        principal,
+        key,
+        { action: "staff.canvas_link", id, provider, data },
+        async (tx) => {
+          await sql(
+            tx,
+            "SELECT 1 AS locked FROM (SELECT pg_advisory_xact_lock(hashtextextended('staff-admins',0))) l",
+          );
+          const before = await tx.staff_members.findFirst({
+            where: { id, version: data.version },
+          });
+          if (!before)
+            throw new ConflictException(
+              "Staff member changed or does not exist. Refresh and retry.",
+            );
+          if (!before.active)
+            throw new ConflictException(
+              "Reactivate this staff member before linking Canvas.",
+            );
+          if (before.external_subject) {
+            if (
+              before.auth_provider !== provider ||
+              before.external_subject !== data.canvasUserId
+            )
+              throw new ConflictException(
+                "This staff member already has a different identity link. Contact the administrator for recovery.",
+              );
+            return { ...before, canvas_origin: canvasStaffOrigin() };
+          }
+          const used = await tx.staff_members.findUnique({
+            where: {
+              auth_provider_external_subject: {
+                auth_provider: provider,
+                external_subject: data.canvasUserId,
+              },
+            },
+          });
+          if (used && used.id !== id)
+            throw new ConflictException(
+              "This Canvas identity is already linked to another staff member.",
+            );
+          const changed = await tx.staff_members.updateMany({
+            where: {
+              id,
+              version: data.version,
+              active: true,
+              auth_provider: before.auth_provider,
+              external_subject: before.external_subject,
+            },
+            data: {
+              auth_provider: provider,
+              external_subject: data.canvasUserId,
+              version: { increment: 1 },
+            },
+          });
+          if (changed.count !== 1)
+            throw new ConflictException(
+              "Staff member changed. Refresh and retry.",
+            );
+          await tx.staff_sessions.deleteMany({ where: { staff_id: id } });
+          await audit(tx, principal.actor, "staff.canvas_identity_linked", id, {
+            provider,
+            subject: data.canvasUserId,
+          });
+          return tx.staff_members.findUniqueOrThrow({
+            where: { id },
+            select: {
+              ...staffSelect,
+              auth_provider: true,
+              external_subject: true,
+            },
+          });
+        },
+      );
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === "P2002"
+      )
+        throw new ConflictException(
+          "This Canvas identity is already linked. Refresh and retry.",
+        );
+      throw error;
+    }
   }
   async createStaff(principal: Principal, key: string, data: StaffMemberDto) {
     return this.command(

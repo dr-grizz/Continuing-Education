@@ -81,3 +81,16 @@ print(json.dumps({'pages':len(r.pages),'points':points,'images':len(list(r.pages
  const savedSnapshot=JSON.parse(certificates.find('workspace',badge.id).snapshot_json);assert.equal(savedSnapshot.design.header,header);assert.equal(savedSnapshot.design.logo,logo);
  const later=await certificates.save({id:template.id,revision:template.revision,name:template.name,design:{...template.design,header:'Different header',logo:null}},'staff');assert.equal(later.design.logo,null);assert.equal((await certificates.download('workspace',badge.id,'demo-alex')).data,before.data);
 });
+
+test('hosted demo preview bounds concurrent PDF rendering and releases the slot',async t=>{
+ const {certificates}=setup(t);
+ const original=process.env.BADGE_DEMO_PREVIEW;
+ process.env.BADGE_DEMO_PREVIEW='true';
+ try {
+  const snapshot=certificates.sample(defaultCertificate,{recipientName:'Synthetic Preview Learner'});
+  const first=renderCertificate(snapshot);
+  await assert.rejects(renderCertificate(snapshot),/preview is busy/);
+  assert.equal((await first).subarray(0,5).toString(),'%PDF-');
+  assert.equal((await renderCertificate(snapshot)).subarray(0,5).toString(),'%PDF-');
+ } finally {if(original===undefined)delete process.env.BADGE_DEMO_PREVIEW;else process.env.BADGE_DEMO_PREVIEW=original;}
+});

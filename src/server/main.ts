@@ -56,6 +56,7 @@ import {
   ExceptionActionDto,
   SimulationDto,
   StaffMemberDto,
+  StaffCanvasLinkDto,
   StaffSessionDto,
   StaffUpdateDto,
   UnpublishDto,
@@ -721,6 +722,21 @@ class WorkflowController {
     requireScope(req, "staff:manage");
     return this.portal.createStaff(req.principal, key, dto);
   }
+  @Post("staff/members/:id/canvas-link")
+  @HttpCode(200)
+  @ApiOperation({
+    summary:
+      "Link an administrator-verified Canvas user ID; preserve roles and refuse identity replacement",
+  })
+  linkStaffCanvas(
+    @Req() req: any,
+    @Headers("idempotency-key") key: string,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body() dto: StaffCanvasLinkDto,
+  ) {
+    requireScope(req, "staff:manage");
+    return this.portal.linkStaffCanvas(req.principal, key, id, dto);
+  }
   @Post("staff/members/:id")
   @HttpCode(200)
   @ApiOperation({
@@ -887,8 +903,11 @@ async function main() {
   SwaggerModule.setup("api/docs", app, document, {
     jsonDocumentUrl: "api/openapi.json",
   });
-  await app.listen(Number(process.env.API_PORT || 3051), "127.0.0.1");
-  console.log("API: http://localhost:3051/api/docs");
+  const port = Number(process.env.API_PORT || "3051");
+  if (!Number.isInteger(port) || port < 1 || port > 65535)
+    throw new Error("API_PORT must be a valid TCP port.");
+  await app.listen(port, "127.0.0.1");
+  console.log(`API: http://127.0.0.1:${port}/api/docs`);
 }
 main().catch((error) => {
   console.error(error);

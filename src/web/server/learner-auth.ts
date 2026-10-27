@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   authCookieName,
+  isPortalRequest,
+  portalOrigin,
   clearCookie,
   cookieOptions,
   secureResponse,
@@ -36,7 +38,7 @@ export async function learnerAuthInfo(): Promise<LearnerAuthInfo> {
 }
 
 export async function completeLearnerLogin(request: NextRequest) {
-  let origin = request.nextUrl.origin,
+  let origin = portalOrigin(request),
     secure = true;
   const redirect = (error?: string, destination = "/learning") => {
     const response = secureResponse(
@@ -59,7 +61,7 @@ export async function completeLearnerLogin(request: NextRequest) {
       authCookieName(learnerFlowCookie, secure),
     )?.value;
     if (
-      request.nextUrl.origin !== origin ||
+      !isPortalRequest(request, origin) ||
       !browserNonce ||
       !params.get("state") ||
       ["state", "code", "error"].some((name) => params.getAll(name).length > 1)
@@ -79,13 +81,15 @@ export async function completeLearnerLogin(request: NextRequest) {
     });
     if (!upstream.ok)
       return redirect(
-        upstream.status === 403
-          ? "unauthorized"
-          : upstream.status === 503
-            ? "unavailable"
-            : params.has("error")
-              ? "denied"
-              : "invalid",
+        upstream.status === 429
+          ? "rate_limited"
+          : upstream.status === 403
+            ? "unauthorized"
+            : upstream.status === 503
+              ? "unavailable"
+              : params.has("error")
+                ? "denied"
+                : "invalid",
       );
     const data = await upstream.json();
     // Only accept application-owned return destinations, even from the API.

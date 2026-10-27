@@ -14,6 +14,10 @@ Course managers can independently control [listed and unlisted visibility](docs/
 
 The [demo deployment plan](docs/hosting/deployment-plan.md) contains the Azure overview and detailed diagrams, the equivalent Railway diagram, and preparation and verification steps for the combined web/API container.
 
+## Azure demo template
+
+For a small hosted demonstration, review the [security controls and limits](docs/hosting/demo-security.md), then use the [Azure F1 + Neon guide](docs/hosting/azure-f1-neon.md) and [deployment environment reference](deploy/README.md). The current demo uses Canvas OAuth without a shared audience password gate and a minimal prebuilt Linux runtime on Azure F1. Successful `azure-demo` pushes deploy through the [OIDC continuous-deployment workflow](docs/hosting/azure-demo-cd.md).
+
 ## Run locally
 
 Requires Node.js 24+ and running Docker Desktop. From the repository root:
@@ -113,7 +117,7 @@ Canvas previews run during staff page requests, with the existing bounded provid
 
 For a missed Stripe webhook, Support or a Staff administrator can use **Admin → Transactions → Check Stripe payments**. It checks up to five unresolved sessions past expiry, fulfills verified payments, releases confirmed expired reservations and leaves uncertain results pending. Repeat if more sessions remain. This is manual recovery, not automatic reconciliation. Production account provisioning/enrollment will need an on-demand durable job runner.
 
-This change does not deploy the demo or remove the local-only guard. See [ADR 0008](docs/adr/0008-request-driven-demo.md).
+Local mode retains its guard. A configured `HOSTED_DEMO=true` explicitly permits the gated hosted demo; see [ADR 0011](docs/adr/0011-azure-f1-demo.md).
 
 ## Seat capacity
 
@@ -152,7 +156,7 @@ For the university Finance department and whoever hosts the portal, [How the por
 
 ## Automation
 
-The API uses `/api/v1`, server-side scope checks and `Idempotency-Key` on writes. Three random prototype tokens live in `.env`: learner, staff and read-only automation. Staff act as a mock-signed-in demo staff member whose roles decide their scopes; this is local convenience, not production security. Never expose this prototype publicly or add real learner data. The API refuses `NODE_ENV=production`.
+The API uses `/api/v1`, server-side scope checks and `Idempotency-Key` on writes. Three random prototype tokens live in `.env`: learner, staff and read-only automation. Staff act as a mock-signed-in demo staff member whose roles decide their scopes; this is local convenience, not production security. Do not add real learner data or expose an ungated demo. Production mode requires explicit hosted-demo configuration; local mode is unchanged.
 
 Read the automation token locally into a shell variable without printing it, then request:
 
@@ -178,6 +182,7 @@ npm run test:learner-auth
 npm run test:visibility
 npm run test:canvas
 npm run test:demo
+npm run test:hosting
 npm run test:a11y
 ```
 
@@ -188,7 +193,7 @@ npm run test:a11y
 
 Run one group with `--project`, for example `npm run test:a11y -- --project=firefox`. The checks catch only part of WCAG; the [VoiceOver review script](docs/prototype/screen-reader-review.md) covers what needs a person. Remove a synthetic learner and their records with `npm run db:remove-test-learner -- <email>` (reserved test domains only).
 
-**Continuous integration:** `.github/workflows/ci.yml` runs all of the above on every pull request, against a throwaway PostgreSQL service with synthetic data. It never deploys or connects to external systems. Pull requests and pushes that change only documentation (`docs/**` or Markdown files) skip it; start it by hand from the Actions tab if needed. If the scans fail, the job uploads the Playwright report.
+**Continuous integration:** `.github/workflows/ci.yml` runs all backend, migration, authentication, security, build and integration checks against a throwaway PostgreSQL service with synthetic data. Routine browser checks use the Ubuntu runner’s installed Google Chrome (without downloading another browser) in light mode for all workflows, phone layout for staff Canvas linking, forced colors, reflow and text resizing. This avoids repeating the whole suite in five browser/layout combinations on every change. Dark mode, the remaining phone workflows, Firefox and WebKit are available from **Actions → CI → Run workflow → Run all browser engines and layouts**; run the full suite before release. Local `npm run test:a11y` still runs the full matrix; `CI_QUICK=true npm run test:a11y` reproduces routine CI. The check job has no cloud credentials and uses synthetic local services. Successful `azure-demo` pushes then run a separate [continuous-deployment job](docs/hosting/azure-demo-cd.md). Pull requests and pushes that change only documentation (`docs/**` or Markdown files) skip it. If the scans fail, the job uploads the Playwright report.
 
 Integration tests require the website, API and PostgreSQL running. Both the integration tests and the accessibility scans remove the records they create, so local runs leave the database unchanged. They check authorization, validation, payment-before-approval prevention, idempotency and concurrent final-seat reservation against isolated test records, then remove those records. Canvas staff OAuth is implemented with mocked-provider coverage; live SSO/MFA testing awaits configuration. Production hosting, pre-account guest authentication/provisioning, transfers, lifecycle automation and live Canvas enrollment remain future work. Existing-account learner Canvas OAuth has isolated mocked-provider coverage; live learner login remains to be verified. See `docs/implementation-plan.md` and `docs/adr/0001-local-prototype.md`.
 

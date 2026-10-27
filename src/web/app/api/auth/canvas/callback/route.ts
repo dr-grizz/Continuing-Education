@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { completeLearnerLogin } from "../../../../../server/learner-auth";
 import {
   authCookieName,
+  isPortalRequest,
+  portalOrigin,
   clearCookie,
   cookieOptions,
   flowCookie,
@@ -21,7 +23,7 @@ export async function GET(request: NextRequest) {
   // Neither flow can consume the other's state or create the other's session.
   if (request.nextUrl.searchParams.get("state")?.startsWith("learner."))
     return completeLearnerLogin(request);
-  let origin = request.nextUrl.origin;
+  let origin = portalOrigin(request);
   let secure = true;
   const redirect = (error?: string) => {
     const response = secureResponse(
@@ -44,7 +46,7 @@ export async function GET(request: NextRequest) {
       authCookieName(flowCookie, secure),
     )?.value;
     if (
-      request.nextUrl.origin !== origin ||
+      !isPortalRequest(request, origin) ||
       !browserNonce ||
       !params.get("state") ||
       ["state", "code", "error"].some((name) => params.getAll(name).length > 1)
@@ -68,13 +70,15 @@ export async function GET(request: NextRequest) {
     });
     if (!upstream.ok)
       return redirect(
-        upstream.status === 403
-          ? "unauthorized"
-          : upstream.status === 503
-            ? "unavailable"
-            : params.has("error")
-              ? "denied"
-              : "invalid",
+        upstream.status === 429
+          ? "rate_limited"
+          : upstream.status === 403
+            ? "unauthorized"
+            : upstream.status === 503
+              ? "unavailable"
+              : params.has("error")
+                ? "denied"
+                : "invalid",
       );
     const data = await upstream.json();
     const response = redirect();

@@ -86,6 +86,7 @@ export async function readCoursePreview(
       "aes-256-gcm",
       tokenEncryptionKey(),
       bytes.subarray(0, 12),
+      { authTagLength: 16 },
     );
     decipher.setAAD(binding(runId, staffId, hash));
     decipher.setAuthTag(bytes.subarray(12, 28));

@@ -1,0 +1,20 @@
+// Copy to artifacts/demo.bicepparam (ignored), then fill names and settings.
+// The using path below assumes that ignored destination.
+using '../infra/main.bicep'
+param appName = 'REPLACE-WITH-UNIQUE-DEMO-NAME'
+param location = 'eastus'
+param demoSettings = {
+  DATABASE_URL: readEnvironmentVariable('CE_DEMO_DATABASE_URL')
+  DEMO_ACCESS_USERNAME: 'demo'
+  DEMO_ACCESS_PASSWORD: readEnvironmentVariable('CE_DEMO_ACCESS_PASSWORD')
+  LEARNER_API_TOKEN: readEnvironmentVariable('CE_DEMO_LEARNER_TOKEN')
+  STAFF_API_TOKEN: readEnvironmentVariable('CE_DEMO_STAFF_TOKEN')
+  AUTOMATION_API_TOKEN: readEnvironmentVariable('CE_DEMO_AUTOMATION_TOKEN')
+  STAFF_AUTH_MODE: 'canvas'
+  LEARNER_AUTH_MODE: 'canvas'
+  CANVAS_COURSES_ENABLED: 'false'
+  CANVAS_BASE_URL: readEnvironmentVariable('CE_DEMO_CANVAS_BASE_URL')
+  CANVAS_STAFF_CLIENT_ID: readEnvironmentVariable('CE_DEMO_CANVAS_CLIENT_ID')
+  CANVAS_STAFF_CLIENT_SECRET: readEnvironmentVariable('CE_DEMO_CANVAS_CLIENT_SECRET')
+  CANVAS_STAFF_REDIRECT_URI: readEnvironmentVariable('CE_DEMO_CANVAS_REDIRECT_URI')
+}

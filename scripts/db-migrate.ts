@@ -1,6 +1,10 @@
 import "dotenv/config";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
+import {
+  assertPrototypeRuntime,
+  assertHostedDatabase,
+} from "../src/domain/hosted-demo";
 import { Pool } from "pg";
 import { applyLegacyMigrations, legacyMigrations } from "./legacy-migrations";
 // Single migration authority (issue #2). Adopts a database built by legacy migrations
@@ -21,11 +25,20 @@ function prisma(args: string[], databaseUrl: string, quiet: boolean) {
 }
 
 export async function migrate(
-  databaseUrl = process.env.DATABASE_URL,
+  databaseUrl = process.env.MIGRATION_DATABASE_URL || process.env.DATABASE_URL,
   { quiet = false } = {},
 ) {
-  if (process.env.NODE_ENV === "production")
-    throw new Error("This prototype migration command refuses production.");
+  if (
+    process.env.NODE_ENV === "production" ||
+    process.env.HOSTED_DEMO === "true"
+  ) {
+    assertPrototypeRuntime();
+    assertHostedDatabase(databaseUrl);
+    if (new URL(databaseUrl!).hostname.includes("-pooler"))
+      throw new Error(
+        "Migrations require a direct, unpooled database connection.",
+      );
+  }
   if (!databaseUrl) throw new Error("Run npm run setup first.");
   const log = (message: string) => !quiet && console.log(message);
   const pool = new Pool({ connectionString: databaseUrl, max: 1 });

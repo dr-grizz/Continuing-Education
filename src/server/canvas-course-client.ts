@@ -153,6 +153,7 @@ export class CanvasCourseClient {
   private async *pages(
     path: string,
     query: Record<string, string> = {},
+    pageLimit = 1000,
   ): AsyncGenerator<any> {
     let next: URL | null = this.destination(path, path);
     next.search = new URLSearchParams({ per_page: "100", ...query }).toString();
@@ -161,7 +162,7 @@ export class CanvasCourseClient {
       // Retain requested fields and publication filtering on every page.
       for (const [key, value] of Object.entries(query))
         next.searchParams.set(key, value);
-      if (visited.has(next.href) || visited.size >= 1000)
+      if (visited.has(next.href) || visited.size >= pageLimit)
         throw new CanvasReadError("invalid");
       visited.add(next.href);
       const { data, link } = await this.read(next);
@@ -177,6 +178,44 @@ export class CanvasCourseClient {
         throw new CanvasReadError("invalid");
       next = target ? this.destination(target, path) : null;
     }
+  }
+  async lookupStaff(accountId: string, email: string) {
+    const matches = new Map<
+      string,
+      { id: string; name: string; email: string | null; login: string | null }
+    >();
+    let rows = 0;
+    for await (const user of this.pages(
+      `/api/v1/accounts/${canvasId(accountId)}/users`,
+      { search_term: email, sort: "id", order: "asc" },
+      10,
+    )) {
+      if (++rows > 1000) throw new CanvasReadError("invalid");
+      const normalize = (value: unknown) =>
+        typeof value === "string" ? value.trim().toLowerCase() : "";
+      if (
+        normalize(user?.email) !== email &&
+        normalize(user?.login_id) !== email
+      )
+        continue;
+      const id = canvasId(user.id);
+      if (
+        typeof user.name !== "string" ||
+        !user.name.trim() ||
+        user.name.length > 200
+      )
+        throw new CanvasReadError("invalid");
+      matches.set(id, {
+        id,
+        name: user.name.trim(),
+        email: typeof user.email === "string" ? user.email.slice(0, 254) : null,
+        login:
+          typeof user.login_id === "string"
+            ? user.login_id.slice(0, 254)
+            : null,
+      });
+    }
+    return [...matches.values()];
   }
   async discover(accountId: string, nested: boolean): Promise<CanvasCourse[]> {
     const accountPath = `/api/v1/accounts/${canvasId(accountId)}`;

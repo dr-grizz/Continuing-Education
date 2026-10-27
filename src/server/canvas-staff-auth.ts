@@ -9,6 +9,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { prisma } from "../domain/prisma";
 import { canvasStaffConfig, staffAuthMode } from "./staff-auth-config";
 import { scopesFor } from "./roles";
+import { enforceCanvasLoginLimit } from "./canvas-login-limits";
 import {
   grantBinding,
   parseCanvasTokens,
@@ -144,16 +145,17 @@ export class CanvasStaffAuthService {
       );
     }
     if (
-      !settings.courseReads &&
+      !settings.apiReads &&
       (payload?.access_token !== null || payload?.refresh_token)
     )
       throw new BadRequestException(
         "Canvas did not return an identity-only response.",
       );
     const subject = canvasSubject(payload?.user?.id);
-    const apiGrant = settings.courseReads ? parseCanvasTokens(payload) : null;
+    enforceCanvasLoginLimit(settings.provider, subject);
+    const apiGrant = settings.apiReads ? parseCanvasTokens(payload) : null;
     if (
-      settings.courseReads &&
+      settings.apiReads &&
       payload.scope !== undefined &&
       (typeof payload.scope !== "string" ||
         settings.scopes.some(
@@ -180,7 +182,11 @@ export class CanvasStaffAuthService {
         throw new ForbiddenException(
           "This Canvas account is not authorized for the staff portal.",
         );
-      if (apiGrant && scopesFor(member.roles).includes("canvas:read")) {
+      if (
+        apiGrant &&
+        (scopesFor(member.roles).includes("canvas:read") ||
+          scopesFor(member.roles).includes("staff:manage"))
+      ) {
         const data = {
           provider: settings.provider,
           subject,

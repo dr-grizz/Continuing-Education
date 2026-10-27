@@ -1,6 +1,6 @@
 import { PrismaPg } from "@prisma/adapter-pg";
 import { Prisma, PrismaClient } from "../generated/prisma/client";
-// Importing db enforces the local-only guard and shares its pg pool with Prisma.
+// Importing db enforces the demo runtime guard and shares its pg pool with Prisma.
 import { db } from "./db";
 
 export const prisma = new PrismaClient({ adapter: new PrismaPg(db) });

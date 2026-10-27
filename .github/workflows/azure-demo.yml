@@ -1,0 +1,49 @@
+name: Prepare Azure demo release
+# Template only: manual build produces a Linux artifact; it never deploys,
+# accesses cloud secrets, or changes a shared database. Verification uses a
+# disposable local PostgreSQL container.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - name: Compile free-tier infrastructure template (no Azure login)
+        run: az bicep build --file infra/main.bicep --outfile "$RUNNER_TEMP/azure-demo.json"
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run test:hosting
+      - run: npm run test:security
+      - run: npm run build
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: latest-known
+      - name: Prepare portable certificate runtime
+        run: |
+          uv python install 3.12 --no-bin --install-dir "$RUNNER_TEMP/badge-python"
+          python_dir=$(find "$RUNNER_TEMP/badge-python" -maxdepth 1 -type d -name 'cpython-3.12*' -print -quit)
+          test -n "$python_dir"
+          uv pip install --python "$python_dir/bin/python3" --break-system-packages -r badge-service/certificate-renderer/requirements.txt
+          echo "DEMO_PYTHON_DIRECTORY=$python_dir" >> "$GITHUB_ENV"
+      - run: npm run package:demo
+      - run: npm run verify:demo -- --badges
+      - run: npx playwright install --with-deps chromium
+      - run: npm run verify:demo -- --browser
+      - name: Zip release contents (no parent directory)
+        working-directory: artifacts/azure-demo
+        run: zip -q -r ../azure-demo.zip .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: azure-demo-linux-node24
+          path: artifacts/azure-demo.zip
+          retention-days: 7

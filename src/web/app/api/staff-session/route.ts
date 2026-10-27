@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
+  readRequestBody,
+  RequestBodyError,
+} from "../../../server/request-body";
+import {
   authCookieName,
   clearCookie,
   cookieOptions,
@@ -87,7 +91,9 @@ export async function POST(request: NextRequest) {
           { status: 403 },
         ),
       );
-    const body = await request.json();
+    const body = JSON.parse(
+      (await readRequestBody(request, 16 * 1024)).toString("utf8"),
+    );
     const upstream = await staffBackend("prototype/staff-sessions", {
       method: "POST",
       body: JSON.stringify({ email: body?.email }),
@@ -97,9 +103,17 @@ export async function POST(request: NextRequest) {
       NextResponse.json(data, { status: upstream.status }),
     );
     if (upstream.ok)
-      response.cookies.set(mockCookie, data.id, cookieOptions(false, 28800));
+      response.cookies.set(
+        mockCookie,
+        data.id,
+        cookieOptions(process.env.HOSTED_DEMO === "true", 28800),
+      );
     return response;
-  } catch {
+  } catch (error) {
+    if (error instanceof RequestBodyError)
+      return secureResponse(
+        NextResponse.json({ message: error.message }, { status: error.status }),
+      );
     return unreachable();
   }
 }

@@ -25,7 +25,7 @@ import {
   CanvasCourseClient,
   CanvasReadError,
 } from "./canvas-course-client";
-import { canvasStaffConfig } from "./staff-auth-config";
+import { canvasStaffConfig, staffAuthMode } from "./staff-auth-config";
 import {
   grantBinding,
   openCanvasTokens,
@@ -113,8 +113,92 @@ export class CanvasCoursesService {
       );
     return { config, member };
   }
-  async accessToken(staffId: string, forceRefresh = false) {
-    const { config, member } = await this.authorizedStaff(staffId);
+  private async authorizedDirectoryStaff(staffId: string) {
+    if (staffAuthMode() !== "canvas")
+      throw new ForbiddenException(
+        "Canvas staff sign-in is required for automatic lookup.",
+      );
+    const config = canvasStaffConfig();
+    if (!config.lookupAccountId)
+      throw new ServiceUnavailableException(
+        "Automatic lookup is not configured. Set the Canvas staff lookup account and authorize directory access.",
+      );
+    const member = await prisma.staff_members.findUnique({
+      where: { id: staffId },
+    });
+    if (
+      !member?.active ||
+      !member.external_subject ||
+      member.auth_provider !== config.provider ||
+      !scopesFor(member.roles).includes("staff:manage")
+    )
+      throw new ForbiddenException(
+        "An active Canvas-linked staff administrator is required.",
+      );
+    return { config, member };
+  }
+  async lookupStaff(principal: Principal, targetId: string) {
+    if (!principal.staffId || !principal.scopes.includes("staff:manage"))
+      throw new ForbiddenException(
+        "Staff administrator permission is required.",
+      );
+    const { config } = await this.authorizedDirectoryStaff(principal.staffId);
+    const target = await prisma.staff_members.findUnique({
+      where: { id: targetId },
+    });
+    if (!target?.active || target.external_subject)
+      throw new ConflictException(
+        "Select an active, unlinked staff member. Refresh and retry.",
+      );
+    try {
+      const client = new CanvasCourseClient(
+        new URL(config.tokenUrl).origin,
+        config.userAgent,
+        (force) => this.accessToken(principal.staffId!, force, true),
+        AbortSignal.timeout(15_000),
+        this.request,
+      );
+      const candidates = await client.lookupStaff(
+        config.lookupAccountId!,
+        target.email.trim().toLowerCase(),
+      );
+      if (!candidates.length)
+        throw new NotFoundException(
+          "No exact Canvas email or login match was found. Verify the account or use a manually verified ID.",
+        );
+      if (candidates.length !== 1)
+        throw new ConflictException(
+          "More than one Canvas account matches this email. Verify the numeric user ID manually.",
+        );
+      return {
+        ...candidates[0],
+        provider: config.provider,
+        target_version: target.version,
+      };
+    } catch (error) {
+      if (
+        error instanceof DOMException &&
+        ["AbortError", "TimeoutError"].includes(error.name)
+      )
+        throw new ServiceUnavailableException(
+          "Canvas lookup timed out. Retry or verify the ID manually.",
+        );
+      if (error instanceof CanvasReadError) {
+        const message =
+          error.code === "authorization"
+            ? "Sign in to Canvas again to authorize staff lookup."
+            : error.code === "permission"
+              ? "Your Canvas account or OAuth developer key does not allow directory lookup."
+              : "Canvas lookup could not be completed. Retry or verify the ID manually.";
+        throw new ServiceUnavailableException(message);
+      }
+      throw error;
+    }
+  }
+  async accessToken(staffId: string, forceRefresh = false, directory = false) {
+    const { config, member } = directory
+      ? await this.authorizedDirectoryStaff(staffId)
+      : await this.authorizedStaff(staffId);
     const result = await transaction(async (tx) => {
       await sql(
         tx,
