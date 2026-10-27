@@ -1,8 +1,16 @@
 import "dotenv/config";
 import { strict as assert } from "node:assert";
-import { cp, mkdtemp, mkdir, readFile, readdir, rm } from "node:fs/promises";
+import {
+  cp,
+  mkdtemp,
+  mkdir,
+  readFile,
+  rm,
+  symlink,
+  unlink,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { spawn, execFileSync } from "node:child_process";
+import { spawn, spawnSync, execFileSync } from "node:child_process";
 import { once } from "node:events";
 import { createRequire } from "node:module";
 import { randomBytes } from "node:crypto";
@@ -14,6 +22,7 @@ const Stripe = require("stripe");
 const stripe = new Stripe("sk_test_local_verification");
 const directory = await mkdtemp(path.join(tmpdir(), "ce-demo-runtime-"));
 let child;
+let badgeData;
 let container;
 let httpsServer;
 let browser;
@@ -44,7 +53,6 @@ const env = {
   CANVAS_COURSES_ENABLED: "false",
   BADGES_ENABLED: badges ? "true" : "false",
   BADGE_DEMO_PREVIEW: badges ? "true" : "false",
-  BADGE_PORT: "3353",
   STRIPE_SECRET_KEY: "",
   STRIPE_WEBHOOK_SECRET: webhookSecret,
   NEXT_TELEMETRY_DISABLED: "1",
@@ -172,25 +180,46 @@ try {
   console.log(
     "PASS isolated TLS PostgreSQL migration and packaged compiled Prisma/pg query",
   );
-  child = spawn(process.execPath, ["scripts/start-demo.mjs"], {
-    cwd: directory,
-    env,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  child.stdout.on("data", (chunk) => (logs += chunk));
-  child.stderr.on("data", (chunk) => (logs += chunk));
-  await waitForReady();
   if (badges) {
-    const badgeOrigin = "http://127.0.0.1:3353";
+    badgeData = await mkdtemp(path.join(tmpdir(), "ce-packaged-credentials-"));
+    env.BADGE_DATA_DIR = badgeData;
+    delete env.BADGE_SERVICE_URL;
+    const alias = path.join(badgeData, "release-alias");
+    await symlink(directory, alias, "dir");
+    for (const unsafe of [directory, alias]) {
+      const rejected = spawnSync(process.execPath, ["scripts/start-demo.mjs"], {
+        cwd: directory,
+        env: { ...env, BADGE_DATA_DIR: unsafe },
+        encoding: "utf8",
+        timeout: 5000,
+      });
+      assert.notEqual(rejected.status, 0);
+      assert.match(rejected.stderr, /outside the deployed release directory/);
+    }
+    await unlink(alias);
+  }
+  const startRuntime = async () => {
+    child = spawn(process.execPath, ["scripts/start-demo.mjs"], {
+      cwd: directory,
+      env,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    child.stdout.on("data", (chunk) => (logs += chunk));
+    child.stderr.on("data", (chunk) => (logs += chunk));
+    await waitForReady();
+  };
+  await startRuntime();
+  if (!badges)
+    assert.equal(
+      (await fetch(`${env.API_URL}/api/credentials/health`)).status,
+      404,
+    );
+  if (badges) {
+    const badgeOrigin = `${env.API_URL}/api/credentials`;
     const health = await fetch(`${badgeOrigin}/health`);
     assert.equal(health.status, 200);
     assert.equal((await health.json()).demo, true);
-    const badgeTemporaryRoot = process.platform === "linux" ? "/tmp" : tmpdir();
-    const name = (await readdir(badgeTemporaryRoot)).find((name) =>
-      name.startsWith(`cuce-badge-preview-${child.pid}-`),
-    );
-    assert.ok(name);
-    const data = path.join(badgeTemporaryRoot, name);
+    const data = env.BADGE_DATA_DIR;
     const token = (
       await readFile(path.join(data, "portal-award-token"), "utf8")
     ).trim();
@@ -230,8 +259,49 @@ try {
       (await fetch(`${badgeOrigin}/api/portal-admin/catalog`)).status,
       401,
     );
+    const { defaultDesign } = await import("../badge-service/designs.mjs");
+    const saved = await fetch(
+      `${badgeOrigin}/api/portal-admin/designer/drafts`,
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          design: { ...defaultDesign, title: "Packaged restart verification" },
+        }),
+      },
+    );
+    assert.equal(saved.status, 201);
+    const draft = await saved.json();
+    const keyBefore = await readFile(
+      path.join(data, "issuer-private.pem"),
+      "utf8",
+    );
+    await stop();
+    await startRuntime();
+    const listing = await fetch(
+      `${badgeOrigin}/api/portal-admin/designer/drafts`,
+      { headers },
+    );
+    assert.equal(listing.status, 200);
+    assert.ok(
+      (await listing.json()).drafts.some((item) => item.id === draft.id),
+    );
+    assert.equal(
+      await readFile(path.join(data, "issuer-private.pem"), "utf8"),
+      keyBefore,
+    );
+    const processList = execFileSync("ps", ["-axo", "pid,ppid,rss,command"], {
+      encoding: "utf8",
+    });
+    const direct = processList
+      .split("\n")
+      .filter((line) => Number(line.trim().split(/\s+/)[1]) === child.pid);
+    assert.equal(direct.length, 2);
+    assert.ok(
+      !direct.some((line) => line.includes("badge-service/server.mjs")),
+    );
     console.log(
-      "PASS packaged badge preview: disposable local SQLite, protected adapter and real portable-Python PDF rendering",
+      "PASS packaged embedded credentials: PostgreSQL, protected adapter and real portable-Python PDF rendering",
     );
   }
   for (const route of [
@@ -478,7 +548,7 @@ try {
   let rss = 0;
   for (const line of children) rss += Number(line.trim().split(/\s+/)[2]);
   console.log(
-    `Local API + web${badges ? " + badge" : ""} RSS after smoke requests: ${Math.ceil(rss / 1024)} MiB (platform overhead and peak load not included).`,
+    `Local API${badges ? " with credentials" : ""} + web RSS after smoke requests: ${Math.ceil(rss / 1024)} MiB (platform overhead and peak load not included).`,
   );
   const api = children.find((line) => line.includes("dist/src/server/main.js"));
   assert.ok(api);
@@ -496,4 +566,5 @@ try {
       stdio: "pipe",
     });
   await rm(directory, { recursive: true, force: true });
+  if (badgeData) await rm(badgeData, { recursive: true, force: true });
 }

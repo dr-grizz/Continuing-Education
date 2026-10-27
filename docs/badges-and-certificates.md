@@ -72,3 +72,7 @@ npm run test:a11y -- --project=light --grep 'credential integration'
 ```
 
 Certificate tests also require `pypdf==6.10.0` in that Python environment. The 46 pilot tests exercise signing, duplicate/retry behavior, ownership, publication/mapping drift, manual/CSV atomicity, Open Badges model validation and PDF geometry. `tests/badges.integration.ts` separately exercises the real service and Next broker against an explicitly mocked identity-provider boundary, including staff/learner separation, current-role checks, Canvas-mode fail-closed behavior, CSRF, actor spoofing, learner isolation, sharing removal and certificate downloads. Automated scans are not a screen-reader review or WCAG certification. Current validation evidence is recorded in [the integration review](prototype/badges-integration-review.md).
+
+## Hosted startup and persistent issuer keys
+
+The hosted launcher supervises web/API only. With `BADGES_ENABLED=true`, set an absolute persistent `BADGE_DATA_DIR` outside the release tree; symlinks resolving inside the release are rejected. Preserve that canonical path and the matching issuer key, tokens and learner mappings across releases. `BADGES_ENABLED=false` skips API credential initialization as well as the browser broker. Packaged verification exercises both modes, real PDF output and saved draft/key survival across restarts. See [hosted deployment requirements](hosting/azure-demo-cd.md#integrated-credential-runtime). No live database migration or Azure cutover is performed by this source fix.
