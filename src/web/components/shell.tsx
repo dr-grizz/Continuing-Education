@@ -314,9 +314,17 @@ export default function Shell({ children }: { children: React.ReactNode }) {
               gap: 1,
             }}
           >
-            <Typography variant="body2" color="text.secondary">
-              Continuing Education · Non-credit learning
-            </Typography>
+            <Stack spacing={0.5}>
+              <Typography variant="body2" color="text.secondary">
+                Continuing Education · Non-credit learning
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Version {process.env.NEXT_PUBLIC_APP_VERSION}
+                {process.env.NEXT_PUBLIC_RELEASE_REVISION
+                  ? ` · ${process.env.NEXT_PUBLIC_RELEASE_REVISION}`
+                  : ""}
+              </Typography>
+            </Stack>
             <Link
               href="/api/docs"
               target="_blank"

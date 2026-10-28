@@ -514,6 +514,13 @@ try {
     const page = await context.newPage();
     await page.goto(env.WEB_URL);
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+    const footer = page.getByRole("contentinfo");
+    await expect(footer.getByText(/^Version \d+\.\d+\.\d+/)).toBeVisible();
+    const { version } = JSON.parse(await readFile("package.json", "utf8"));
+    await expect(footer).toContainText(`Version ${version}`);
+    const revision = process.env.RELEASE_SHA || process.env.GITHUB_SHA || "";
+    if (/^[a-f0-9]{7,64}$/i.test(revision))
+      await expect(footer).toContainText(revision.slice(0, 7));
     await page.keyboard.press("Tab");
     await expect(
       page.getByRole("link", { name: "Skip to content" }),
@@ -523,6 +530,7 @@ try {
     await expect(
       page.getByRole("link", { name: "Prototype API documentation" }),
     ).toHaveAttribute("href", "/api/docs");
+    await footer.screenshot({ path: "artifacts/footer-desktop.png" });
     const results = await new AxeBuilder({ page })
       .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
       .analyze();
@@ -543,6 +551,8 @@ try {
     );
     await page.goto(env.WEB_URL);
     await page.setViewportSize({ width: 320, height: 800 });
+    await expect(footer.getByText(/^Version \d+\.\d+\.\d+/)).toBeVisible();
+    await footer.screenshot({ path: "artifacts/footer-mobile.png" });
     assert.equal(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= window.innerWidth,

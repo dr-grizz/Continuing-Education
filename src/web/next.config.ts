@@ -5,9 +5,20 @@ const { baselineSecurityHeaders, credentialSecurityHeaders } = require(
   path.join(__dirname, "server/security-headers.ts"),
 ) as typeof import("./server/security-headers");
 const root = path.resolve(__dirname, "../..");
+const { version } = require(path.join(root, "package.json")) as {
+  version: string;
+};
+const releaseRevision = process.env.RELEASE_SHA || process.env.GITHUB_SHA || "";
 const config: NextConfig = {
   poweredByHeader: false,
   output: "standalone",
+  // Explicit public allowlist: never expose arbitrary runtime settings.
+  env: {
+    NEXT_PUBLIC_APP_VERSION: version,
+    NEXT_PUBLIC_RELEASE_REVISION: /^[a-f0-9]{7,64}$/i.test(releaseRevision)
+      ? releaseRevision.slice(0, 7)
+      : "",
+  },
   async headers() {
     return [
       {
