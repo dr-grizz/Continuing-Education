@@ -240,6 +240,8 @@ try {
     "/api/docs",
     "/api/staff-session",
     "/media/not-a-real-file",
+    "/credential-tools/issuer.html",
+    "/api/badges/admin/skills/catalog",
   ])
     assert.equal((await fetch(`${url}${route}`)).status, 401, route);
   assert.equal(
@@ -287,9 +289,11 @@ try {
     /(?:src|href)="([^\"]*\/_next\/static\/[^\"]+)"/,
   )?.[1];
   assert.ok(asset, "home page includes a real static asset");
+  // Shared Next assets must load without credentials for the free /skills area.
+  // Sensitive pages and APIs above still require the audience gate.
   assert.equal(
     (await fetch(new URL(asset.replaceAll("&amp;", "&"), url))).status,
-    401,
+    200,
   );
   assert.equal(
     (
@@ -299,6 +303,38 @@ try {
     ).status,
     200,
   );
+  for (const route of [
+    "/skills",
+    "/credential-tools/skills.html",
+    "/credential-tools/skills-ui.js",
+    "/credential-tools/skills-explorer.js",
+    "/credential-tools/skills.css",
+    "/credential-tools/onet-in-it.svg",
+    "/credential-tools/awards.css",
+    "/credential-tools/portal-theme.css",
+    "/credential-tools/portal-frame.js",
+  ])
+    assert.equal((await fetch(`${url}${route}`)).status, 200, route);
+  for (const route of [
+    "/api/badges/public/skills/search",
+    "/api/badges/public/skills/occupations",
+    "/api/badges/public/skills/onet/search",
+    "/api/badges/public/skills/onet/outlook",
+  ])
+    assert.equal(
+      (
+        await fetch(`${url}${route}`, {
+          method: "POST",
+          headers: {
+            origin: "https://outside.example.test",
+            "content-type": "application/json",
+          },
+          body: "{}",
+        })
+      ).status,
+      403,
+      route,
+    );
   const docs = await fetch(`${url}/api/docs`, { headers: { authorization } });
   assert.equal(docs.status, 200);
   assert.ok((await docs.json()).openapi);
