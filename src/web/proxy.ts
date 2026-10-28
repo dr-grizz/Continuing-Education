@@ -1,14 +1,19 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
-import { hostedDemoConfig } from "../domain/hosted-demo";
+import { hostedRuntimeConfig, isHostedRuntime } from "../domain/hosted-demo";
 import { limitHostedRequest } from "./server/request-limits";
+import {
+  hostedHsts,
+  privateResponsePath,
+  responseSecurityHeaders,
+} from "./server/security-headers";
 
 // Optional audience gate. Public demos require verified Canvas identities.
 // Signed Stripe webhooks are exempt from browser-origin checks.
-export function proxy(request: NextRequest) {
+function handleRequest(request: NextRequest) {
   let demo;
   try {
-    demo = hostedDemoConfig();
+    demo = hostedRuntimeConfig();
     if (!demo && process.env.WEBSITE_SITE_NAME)
       throw new Error("Hosted demo is not configured.");
   } catch {
@@ -61,5 +66,18 @@ export function proxy(request: NextRequest) {
   if (demo.gate === "basic")
     response.headers.set("Cache-Control", "private, no-store");
   response.headers.set("X-Robots-Tag", "noindex, nofollow");
+  return response;
+}
+
+// Apply to every branch, including proxy-generated 401/403/429/503 responses.
+export function proxy(request: NextRequest) {
+  const response = handleRequest(request);
+  const path = request.nextUrl.pathname;
+  for (const [key, value] of Object.entries(responseSecurityHeaders(path)))
+    response.headers.set(key, value);
+  if (isHostedRuntime())
+    response.headers.set("Strict-Transport-Security", hostedHsts);
+  if (privateResponsePath(path) || response.status >= 400)
+    response.headers.set("Cache-Control", "private, no-store");
   return response;
 }

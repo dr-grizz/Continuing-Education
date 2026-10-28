@@ -1,3 +1,4 @@
+import { isHostedRuntime } from "../../domain/hosted-demo";
 import { NextRequest, NextResponse } from "next/server";
 
 export const staffCookie = "ce-staff-session";
@@ -36,7 +37,7 @@ export async function staffAuthInfo(): Promise<StaffAuthInfo> {
 }
 /** Canonical HTTPS origin when TLS terminates at Azure's reverse proxy. */
 export function portalOrigin(request: NextRequest) {
-  return process.env.HOSTED_DEMO === "true" && process.env.WEB_URL
+  return isHostedRuntime() && process.env.WEB_URL
     ? new URL(process.env.WEB_URL).origin
     : request.nextUrl.origin;
 }
@@ -45,7 +46,7 @@ export function isPortalRequest(request: NextRequest, expected: string) {
   // Trust only the configured host, never an arbitrary forwarded-host value.
   // App Service enforces HTTPS; Node receives an internal origin behind it.
   return (
-    process.env.HOSTED_DEMO === "true" &&
+    isHostedRuntime() &&
     portalOrigin(request) === expected &&
     request.headers.get("host") === new URL(expected).host &&
     request.headers.get("x-forwarded-proto") === "https"

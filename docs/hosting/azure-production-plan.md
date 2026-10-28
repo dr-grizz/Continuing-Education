@@ -1,13 +1,13 @@
 # Separate Azure App Service + PostgreSQL deployment plan
 
 Status: Planning — documentation only; not approved, validated or deployed.
-Prepared October 27, 2026 against `main` commit `684a85d`. Recheck the source before execution.
+Prepared October 27, 2026 against `main` commit `684a85d`; amended October 28 for the [explicit beta profile](../adr/0014-hosted-beta-profile.md). Recheck the source before execution.
 
 ## 1. Handoff and authorization
 
 Prepare a **separate paid Linux App Service deployment using Azure Database for PostgreSQL Flexible Server**. The owner will provision/select the target hosting environment. The target app's `DATABASE_URL` is expected to exist already. This document authorizes no cloud writes, new paid resources, database migrations or application behavior changes by itself. A future agent should present concrete target IDs, configuration changes and migration effects before executing the next authorized deployment.
 
-The current application can run on paid infrastructure, but remains a hosted prototype: real Stripe charges, guest provisioning and real Canvas enrollment are not enabled. First deploy the current safe application on the new infrastructure; a genuine production service requires the separate application work and acceptance in section 9. Do not bypass guards or rename flags to imply production readiness.
+The current application supports an explicit hosted beta on paid infrastructure, while retaining prototype behavior: real Stripe charges, guest provisioning and real Canvas enrollment are not enabled. First deploy the current safe application on the new infrastructure; a genuine production service requires the separate application work and acceptance in section 9. Do not bypass guards or rename flags to imply production readiness.
 
 Use this file as the handoff, rather than replacing `.azure/deployment-plan.md`, which belongs to the F1 demo. If a deployment skill requires that exact path, use an isolated future deployment checkout and preserve the existing demo plan; do not overwrite it in the shared source. Only mark this plan validated after collecting actual target-specific evidence.
 
@@ -55,7 +55,7 @@ Azure PostgreSQL      Embedded credentials
                      + bundled Python renderer
 ```
 
-Use the existing minimal Linux/amd64 Node 24 release, with Next standalone output and the compiled API. `node scripts/start-demo.mjs` currently supervises both processes; its name does not restrict it to F1, but its hosted-prototype safeguards remain mandatory. The script starts no listener on 4178 and performs no migrations. Keep its current heap limits initially; measure total RSS/native/Python memory before tuning.
+Use the existing minimal Linux/amd64 Node 24 release, with Next standalone output and the compiled API. `node scripts/start-demo.mjs` currently supervises both processes; its name does not restrict it to F1, but its hosted demo/beta safeguards remain mandatory. The script starts no listener on 4178 and performs no migrations. Keep its current heap limits initially; measure total RSS/native/Python memory before tuning.
 
 Start with **one application instance and no automatic scale-out**. Temporary Canvas previews and some credential sessions remain process-local; key/fingerprint initialization and concurrent restart behavior need explicit review before overlapping writers or multiple replicas. PostgreSQL transactions alone do not prove the whole application safe for scale-out. Paid Always On does not add a background fulfillment worker.
 
@@ -66,6 +66,8 @@ Preserve the app's existing connection string. Azure PostgreSQL may use direct p
 ## 4. Complete target settings checklist
 
 This is a **planned target settings inventory**, not a filled dotenv file or instruction to alter the running demo. Target-specific values/secrets are intentionally absent. The executing agent must privately export a rollback copy, compute a proposed patch, preserve all unrelated settings, and read back the persisted result without displaying secrets. App settings edits restart App Service. Never apply a full settings replacement generated from the demo template or from incomplete CLI output.
+
+Use the separate [beta environment example](../../deploy/azure-beta.env.example) as a patch checklist. It deliberately has no `DATABASE_URL` assignment and selects `HOSTED_BETA=true`, `HOSTED_DEMO=false`, `PROTOTYPE_MODE=true` and Canvas-only sign-in. The local beta profile and packaged-runtime checks were added October 28; actual target Azure validation remains pending.
 
 ### App Service resource configuration (not environment variables)
 
@@ -88,7 +90,8 @@ This is a **planned target settings inventory**, not a filled dotenv file or ins
 | --- | --- |
 | `DATABASE_URL` | **Already configured on the target app: preserve verbatim.** Do not put a placeholder, Neon URL, local URL, password or Key Vault secret value in tracked files. Verify privately that it reaches the intended Azure database with certificate validation and permitted credentials. If invalid/missing, stop and report; do not silently replace it. |
 | `NODE_ENV` | `production` for the optimized runtime. |
-| `HOSTED_DEMO` | `true` for the current code's required hosted-mode validation, secure origin handling and test-only behavior. There is no implemented `HOSTED_PRODUCTION` switch. |
+| `HOSTED_BETA` | `true` for this separate beta deployment; requires Canvas-only authentication, HTTPS, broker tokens and the retained simulation safeguards. |
+| `HOSTED_DEMO` | `false` or absent on beta. Demo and beta cannot both be enabled. Keep the existing demo's value unchanged. |
 | `PROTOTYPE_MODE` | `true`; current code refuses the alternate mode. A production hosting SKU does not remove this limitation. |
 | `WEB_URL` | Exact new public HTTPS origin, no path/query/trailing-slash ambiguity. Never use `cuce-demo.azurewebsites.net`. |
 | `API_PORT` | `3051`. |
@@ -162,7 +165,7 @@ Each phase has an exit gate. Keep this document's status accurate and save secre
 1. **Confirm target and application intent.** Fill section 2, verify a clean source checkout/revision, and preserve unrelated work. Read `CONTEXT.md`, relevant ADRs, this plan and current startup/package code. Record that this is a new paid environment, not a demo upgrade. Resolve a later production-service ADR before changing prototype safety behavior.
 2. **Inventory and compare settings privately.** Read the target app/plan, existing settings/references, database identity, networking and storage. Make a rollback export with restricted local access. Prepare a patch from section 4, preserving `DATABASE_URL` and unrelated settings byte-for-byte. Show secret names and nonsecret changes only; never publish the full Azure CLI settings output. Stop on missing target/database rather than provisioning replacements implicitly.
 3. **Prepare isolated deployment artifacts after approval.** If configuration code is needed, add future files under `infra/production/` and `deploy/production/`; do not mutate the F1 templates. Import/reference existing resources carefully, rather than redeclaring or replacing the app/settings. Plan target parameters without embedding the database URL. Do not create any CD workflow. Build on Linux/amd64 Node 24 from lockfiles with synthetic build/test settings, never production DB credentials.
-4. **Validate application/release locally.** Run the required backend/auth/security/migration/build checks and full browser matrix before release. Use disposable databases. Build the portable Python runtime and run `npm run package:demo`, `npm run verify:demo` and `npm run verify:demo -- --badges` in an isolated build directory; these existing scripts use `artifacts/azure-demo` as a local output name, not as an Azure target. Add release revision/schema metadata and ZIP contents exactly as the existing verified packaging procedure does. Exclude dotenv files, private config/data/keys and caches. Preserve package/checksums and a known-good rollback artifact.
+4. **Validate application/release locally.** Run the required backend/auth/security/migration/build checks and full browser matrix before release. The packaged verifier now also restarts into the independent beta profile to check Canvas-only sign-in, secure OAuth flow cookies and continued live-event refusal. Use disposable databases. Build the portable Python runtime and run `npm run package:demo`, `npm run verify:demo` and `npm run verify:demo -- --badges` in an isolated build directory; these existing scripts use `artifacts/azure-demo` as a local output name, not as an Azure target. Add release revision/schema metadata and ZIP contents exactly as the existing verified packaging procedure does. Exclude dotenv files, private config/data/keys and caches. Preserve package/checksums and a known-good rollback artifact.
 5. **Prepare target database, identity and storage.** Follow section 5 and the reviewed bootstrap. Provision/reuse the target's persistent private badge directory only after confirming it is not the demo's storage. For new issuer identity generate keys through the application only when ready; for approved existing credentials restore/import the matching identity explicitly. Verify filesystem access restrictions under actual App Service mount semantics, no HTTP serving of private files and backup restoration. Do not assume POSIX mode bits alone enforce isolation on mounted storage.
 6. **Apply the reviewed target-only configuration.** Use authenticated CLI patch operations; do not replace the complete settings object. Capture readback and verify no unrelated secret/setting changed and `DATABASE_URL` is unchanged. Configure runtime/startup, Always On, TLS, health/networking and selected feature flags. Coordinate these restarts with the release window; do not enable the new hostname/DNS audience prematurely.
 7. **Deploy manually after target validation.** Use a command equivalent to `az webapp deploy --resource-group "$PRODUCTION_RESOURCE_GROUP" --name "$PRODUCTION_WEBAPP_NAME" --src-path "$VERIFIED_ZIP" --type zip --clean true --restart true --track-status true --timeout 600000 --output none`, with explicit confirmed subscription context and guarded target IDs. Validate selected SKU capabilities, not the demo pipeline's hard-coded F1 check. Stop if target names are unfilled or refer to `cuce-demo`. Do not trigger or edit demo CD for this release. Keep private data outside `wwwroot` because clean ZIP replacement removes release files.
@@ -196,7 +199,7 @@ For a database problem, stop new writes, preserve the current state, restore to 
 
 These are follow-up implementation requirements, not settings changes authorized by this plan:
 
-- Replace/amend the hosted-prototype contract through a reviewed ADR and explicit product acceptance. Current `HOSTED_DEMO=true`/`PROTOTYPE_MODE=true`, live-key rejection and simulated enrollment are intentional safeguards.
+- Replace/amend the hosted-prototype contract through a reviewed ADR and explicit product acceptance. Beta uses `HOSTED_BETA=true` and retains `PROTOTYPE_MODE=true`, live-key rejection and simulated enrollment as intentional safeguards.
 - Implement/test approved real payment/refund/reconciliation behavior and financial audit/idempotency, then configure separate live Stripe keys/webhooks only after code explicitly supports them.
 - Implement approved identity/guest provisioning and real Canvas enrollment, failure recovery and lifecycle handling. Current read-only Canvas course integration and role assignment do not provision access.
 - Replace prototype database media storage with the agreed production storage design (ADR 0011 references ADR 0006), or document and approve a bounded alternative with privacy/backup/retention controls.

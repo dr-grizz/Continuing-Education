@@ -12,7 +12,7 @@ const {
 // No cloud operations or schema changes on process restart. Migrate explicitly
 // before deployment with the direct database URL, then start this release.
 if (!assertPrototypeRuntime())
-  throw new Error("npm start requires HOSTED_DEMO=true.");
+  throw new Error("npm start requires HOSTED_DEMO=true or HOSTED_BETA=true.");
 assertHostedDatabase(process.env.DATABASE_URL);
 const apiPort = Number(process.env.API_PORT || "3051");
 const port = Number(process.env.PORT || "8080");

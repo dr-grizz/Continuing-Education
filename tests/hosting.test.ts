@@ -7,7 +7,11 @@ import {
   assertPrototypeRuntime,
   assertHostedDatabase,
   hostedDemoConfig,
+  hostedRuntimeConfig,
+  isHostedRuntime,
 } from "../src/domain/hosted-demo";
+import { canvasStaffConfig } from "../src/server/staff-auth-config";
+import { canvasLearnerConfig } from "../src/server/learner-auth-config";
 
 async function main() {
   const original = { ...process.env };
@@ -15,6 +19,7 @@ async function main() {
   try {
     delete process.env.WEBSITE_SITE_NAME;
     delete process.env.HOSTED_DEMO;
+    delete process.env.HOSTED_BETA;
     assert.equal(proxy(new NextRequest("http://localhost/")).status, 200);
     assert.throws(() =>
       assertPrototypeRuntime({
@@ -151,6 +156,49 @@ async function main() {
     assert.throws(() =>
       hostedDemoConfig({ ...process.env, STAFF_AUTH_MODE: "mock" }),
     );
+    // Beta is an independent opt-in, with the same safeguards and no mock gate.
+    delete process.env.HOSTED_DEMO;
+    process.env.HOSTED_BETA = "true";
+    assert.equal(isHostedRuntime(), true);
+    assert.ok(assertPrototypeRuntime());
+    assert.equal(proxy(request("/")).status, 200);
+    assert.equal(proxy(request("/")).headers.get("www-authenticate"), null);
+    assert.equal(proxy(request("/api/demo-session", "POST")).status, 403);
+    assert.equal(
+      proxy(
+        request("/api/demo-session", "POST", { origin: process.env.WEB_URL! }),
+      ).status,
+      200,
+    );
+    assert.equal(proxy(request("/api/webhooks/stripe", "POST")).status, 200);
+    assert.equal(proxy(request("/healthz")).status, 200);
+    for (const invalid of [
+      { HOSTED_DEMO: "true" },
+      { HOSTED_BETA: "yes" },
+      { PROTOTYPE_MODE: "false" },
+      { DEMO_ACCESS_GATE: "basic" },
+      { DEMO_ACCESS_GATE: undefined },
+      { STAFF_AUTH_MODE: "mock" },
+      { LEARNER_AUTH_MODE: "mock" },
+      { WEB_URL: "http://demo.example.test" },
+      { STAFF_API_TOKEN: "short" },
+      { STAFF_API_TOKEN: process.env.LEARNER_API_TOKEN },
+      { STRIPE_SECRET_KEY: "sk_live_example" },
+    ])
+      assert.throws(() => hostedRuntimeConfig({ ...process.env, ...invalid }));
+    const betaAuth = {
+      ...process.env,
+      CANVAS_BASE_URL: "https://canvas.example.test",
+      CANVAS_STAFF_CLIENT_ID: "123",
+      CANVAS_STAFF_CLIENT_SECRET: "synthetic-client-secret",
+      CANVAS_STAFF_REDIRECT_URI:
+        "https://demo.example.test/api/auth/canvas/callback",
+      CANVAS_COURSES_ENABLED: "false",
+      CANVAS_STAFF_LOOKUP_ACCOUNT_ID: "",
+    };
+    assert.equal(canvasStaffConfig(betaAuth).secureCookies, true);
+    assert.equal(canvasLearnerConfig(betaAuth).secureCookies, true);
+    assert.deepEqual(canvasLearnerConfig(betaAuth).scopes, ["/auth/userinfo"]);
     const internal = new NextRequest(
       "http://0.0.0.0:8080/api/auth/canvas/start",
       { headers: { host: "demo.example.test", "x-forwarded-proto": "https" } },
@@ -179,6 +227,8 @@ async function main() {
       ),
       false,
     );
+    delete process.env.HOSTED_BETA;
+    process.env.HOSTED_DEMO = "true";
     delete process.env.DEMO_ACCESS_GATE;
     Object.assign(process.env, {
       STAFF_AUTH_MODE: "mock",

@@ -124,6 +124,86 @@ async function main() {
       STRIPE_SECRET_KEY: "",
     });
     assert.equal(requestPeer(peerRequest), "192.0.2.10");
+    const assertHeaders = (response: Response) => {
+      assert.match(
+        response.headers.get("content-security-policy")!,
+        /frame-ancestors 'self'/,
+      );
+      assert.equal(response.headers.get("x-frame-options"), "SAMEORIGIN");
+      assert.equal(response.headers.get("x-content-type-options"), "nosniff");
+      assert.equal(
+        response.headers.get("strict-transport-security"),
+        "max-age=31536000",
+      );
+    };
+    for (const path of [
+      "/",
+      "/api/staff-session",
+      "/staff",
+      "/learning",
+      "/settings",
+      "/sign-in",
+    ]) {
+      const response = proxy(
+        new NextRequest(`https://demo.example.test${path}`),
+      );
+      assertHeaders(response);
+      if (path !== "/")
+        assert.match(
+          response.headers.get("cache-control")!,
+          /private, no-store/,
+        );
+    }
+    for (const path of [
+      "/_next/static/example.js",
+      "/course-images/example.jpg",
+      "/staffing",
+    ]) {
+      const response = proxy(
+        new NextRequest(`https://demo.example.test${path}`),
+      );
+      assertHeaders(response);
+      assert.equal(response.headers.get("cache-control"), null);
+    }
+    const editor = proxy(
+      new NextRequest("https://demo.example.test/credential-tools/issuer.html"),
+    );
+    assert.match(
+      editor.headers.get("content-security-policy")!,
+      /script-src 'self'/,
+    );
+    assert.equal(editor.headers.get("referrer-policy"), "no-referrer");
+    const csrf = proxy(
+      new NextRequest("https://demo.example.test/api/staff-session", {
+        method: "POST",
+      }),
+    );
+    assert.equal(csrf.status, 403);
+    assertHeaders(csrf);
+    assert.equal(csrf.headers.get("referrer-policy"), "no-referrer");
+    assert.match(csrf.headers.get("cache-control")!, /no-store/);
+    process.env.DEMO_ACCESS_GATE = "basic";
+    process.env.DEMO_ACCESS_USERNAME = "demo";
+    process.env.DEMO_ACCESS_PASSWORD = "e".repeat(48);
+    const unauthorized = proxy(new NextRequest("https://demo.example.test/"));
+    assert.equal(unauthorized.status, 401);
+    assertHeaders(unauthorized);
+    process.env.DEMO_ACCESS_GATE = "invalid";
+    const unavailable = proxy(new NextRequest("https://demo.example.test/"));
+    assert.equal(unavailable.status, 503);
+    assertHeaders(unavailable);
+    process.env.DEMO_ACCESS_GATE = "none";
+    delete process.env.HOSTED_DEMO;
+    delete process.env.HOSTED_BETA;
+    delete process.env.WEBSITE_SITE_NAME;
+    assert.equal(
+      proxy(new NextRequest("http://localhost/")).headers.get(
+        "strict-transport-security",
+      ),
+      null,
+    );
+    process.env.HOSTED_DEMO = "true";
+    process.env.WEBSITE_SITE_NAME = "demo";
     for (let i = 0; i < 20; i++)
       assert.equal(
         proxy(
@@ -156,6 +236,29 @@ async function main() {
     assert.doesNotThrow(() =>
       enforceCanvasLoginLimit("canvas:https://other.example.test", "4242"),
     );
+    delete process.env.HOSTED_DEMO;
+    process.env.HOSTED_BETA = "true";
+    for (let i = 0; i < 20; i++)
+      enforceCanvasLoginLimit(
+        "canvas:https://canvas.example.test",
+        "beta-user",
+      );
+    assert.throws(
+      () =>
+        enforceCanvasLoginLimit(
+          "canvas:https://canvas.example.test",
+          "beta-user",
+        ),
+      (error: any) => error.getStatus() === 429,
+    );
+    assert.doesNotThrow(() =>
+      enforceCanvasLoginLimit(
+        "canvas:https://canvas.example.test",
+        "other-beta-user",
+      ),
+    );
+    delete process.env.HOSTED_BETA;
+    process.env.HOSTED_DEMO = "true";
     for (let i = 0; i < 10; i++) {
       const response = proxy(
         new NextRequest(
@@ -188,6 +291,22 @@ async function main() {
       ).status,
       429,
     );
+    const rateLimited = proxy(
+      new NextRequest(
+        "https://demo.example.test/api/registrations/example/checkout",
+        {
+          method: "POST",
+          headers: {
+            origin: process.env.WEB_URL!,
+            "x-forwarded-for": "192.0.2.30",
+            cookie: "__Host-ce-learner-session=synthetic-session",
+          },
+        },
+      ),
+    );
+    assert.equal(rateLimited.status, 429);
+    assertHeaders(rateLimited);
+    assert.match(rateLimited.headers.get("cache-control")!, /no-store/);
     let sharedCeilingReached = false;
     for (let i = 1; i <= 121; i++) {
       const response = proxy(

@@ -18,7 +18,7 @@ The [demo deployment plan](docs/hosting/deployment-plan.md) contains the Azure o
 
 For a small hosted demonstration, review the [security controls and limits](docs/hosting/demo-security.md), then use the [Azure F1 + Neon guide](docs/hosting/azure-f1-neon.md) and [deployment environment reference](deploy/README.md). The current demo uses Canvas OAuth without a shared audience password gate and a minimal prebuilt Linux runtime on Azure F1. Successful `azure-demo` pushes deploy through the [OIDC continuous-deployment workflow](docs/hosting/azure-demo-cd.md).
 
-For a separate paid App Service environment using Azure PostgreSQL, use the [agent deployment handoff plan](docs/hosting/azure-production-plan.md). It preserves the existing target `DATABASE_URL` and the F1/Neon demo, inventories the new environment's settings, and leaves CD deferred. Paid hosting alone does not enable live payments or real Canvas enrollment.
+For a separate paid App Service environment using Azure PostgreSQL, use the [agent deployment handoff plan](docs/hosting/azure-production-plan.md). It preserves the existing target `DATABASE_URL` and the F1/Neon demo, inventories the new environment's settings, and leaves CD deferred. Its separate [beta settings example](deploy/azure-beta.env.example) uses `HOSTED_BETA=true` with Canvas-only sign-in. Paid hosting alone does not enable live payments or real Canvas enrollment.
 
 ## Run locally
 

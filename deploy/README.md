@@ -1,6 +1,6 @@
 # Azure demo environment variables
 
-For the separate paid App Service + Azure PostgreSQL environment, use the [deployment handoff and complete target settings checklist](../docs/hosting/azure-production-plan.md). The demo template below remains specific to F1/Neon; do not apply it over the new app's existing `DATABASE_URL`.
+For the separate paid App Service + Azure PostgreSQL environment, use the [deployment handoff and complete target settings checklist](../docs/hosting/azure-production-plan.md). Use [azure-beta.env.example](azure-beta.env.example) for `HOSTED_BETA=true`, `HOSTED_DEMO=false`, `PROTOTYPE_MODE=true` and Canvas-only authentication; beta still uses test payments and simulated enrollment. The demo template below remains specific to F1/Neon; do not apply it over the new app's existing `DATABASE_URL`.
 
 [azure-demo.env.example](azure-demo.env.example) lists the settings for the Azure F1 demo. It is a template, not the live configuration. Azure reads the actual values from **App Service → Environment variables**. Copying or editing this example does not update Azure.
 

@@ -1,3 +1,4 @@
+import { isHostedRuntime } from "../domain/hosted-demo";
 import { createHash } from "node:crypto";
 import {
   courseReadsEnabled,
@@ -140,11 +141,10 @@ export function staffAuthInfo() {
     return {
       mode,
       configured: true,
-      secureCookies: process.env.HOSTED_DEMO === "true",
-      portalOrigin:
-        process.env.HOSTED_DEMO === "true"
-          ? new URL(process.env.WEB_URL!).origin
-          : null,
+      secureCookies: isHostedRuntime(),
+      portalOrigin: isHostedRuntime()
+        ? new URL(process.env.WEB_URL!).origin
+        : null,
     };
   try {
     const config = canvasStaffConfig();

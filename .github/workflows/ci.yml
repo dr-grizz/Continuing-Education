@@ -75,7 +75,7 @@ jobs:
           ENV
           cp .env src/web/.env.local
       - run: npm ci
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - run: python3 -m pip install -r badge-service/certificate-renderer/requirements.txt pypdf==6.10.0
@@ -165,14 +165,14 @@ jobs:
         run: tail -n 100 logs/*.log || true
       - name: Upload the accessibility report
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-report
           path: playwright-report/
           retention-days: 7
       - name: Retain the verified release for deployment and rollback
         if: success() && github.event_name == 'push' && github.ref == 'refs/heads/azure-demo'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: azure-demo-${{ github.sha }}
           path: |
@@ -199,7 +199,7 @@ jobs:
       RELEASE_SHA: ${{ github.sha }}
       APPROVED_SCHEMA: ${{ vars.AZURE_DEMO_SCHEMA_HASH }}
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: azure-demo-${{ github.sha }}
           path: release
@@ -210,7 +210,7 @@ jobs:
             echo "Database migrations changed. Back up and migrate explicitly, then update AZURE_DEMO_SCHEMA_HASH."
             exit 1
           }
-      - uses: azure/login@v2
+      - uses: azure/login@v3
         with:
           client-id: ${{ vars.AZURE_DEMO_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_DEMO_TENANT_ID }}

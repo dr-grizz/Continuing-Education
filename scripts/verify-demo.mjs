@@ -36,6 +36,7 @@ const authorization = `Basic ${Buffer.from(`demo:${password}`).toString("base64"
 const env = {
   ...process.env,
   HOSTED_DEMO: "true",
+  HOSTED_BETA: "false",
   PROTOTYPE_MODE: "true",
   NODE_ENV: "production",
   WEB_URL: "https://localhost:3352",
@@ -75,6 +76,18 @@ async function stop() {
   const exited = once(child, "exit");
   child.kill("SIGTERM");
   await exited;
+}
+function assertSecurityHeaders(response) {
+  assert.match(
+    response.headers.get("content-security-policy"),
+    /frame-ancestors 'self'/,
+  );
+  assert.equal(response.headers.get("x-frame-options"), "SAMEORIGIN");
+  assert.equal(response.headers.get("x-content-type-options"), "nosniff");
+  assert.equal(
+    response.headers.get("strict-transport-security"),
+    "max-age=31536000",
+  );
 }
 try {
   // The clean /tmp directory has no fallback access to the repo's node_modules.
@@ -310,8 +323,12 @@ try {
     "/api/docs",
     "/api/staff-session",
     "/media/not-a-real-file",
-  ])
-    assert.equal((await fetch(`${url}${route}`)).status, 401, route);
+  ]) {
+    const denied = await fetch(`${url}${route}`);
+    assert.equal(denied.status, 401, route);
+    assertSecurityHeaders(denied);
+    assert.match(denied.headers.get("cache-control"), /no-store/);
+  }
   assert.equal(
     (await fetch(url, { headers: { authorization: "Basic wrong" } })).status,
     401,
@@ -351,6 +368,7 @@ try {
     redirect: "manual",
   });
   assert.equal(throttled.status, 429);
+  assertSecurityHeaders(throttled);
   assert.ok(Number(throttled.headers.get("retry-after")) > 0);
   const html = await page.text();
   const asset = html.match(
@@ -539,6 +557,127 @@ try {
       "PASS HTTPS browser: gate credentials, keyboard skip navigation, API reference link, catalog axe scan and 320px reflow (screen reader not reviewed)",
     );
   }
+  // Verify the separate beta opt-in against the compiled proxy and API too.
+  // Only the authorization redirect is exercised; no Canvas requests are sent.
+  await stop();
+  Object.assign(env, {
+    HOSTED_DEMO: "false",
+    HOSTED_BETA: "true",
+    DEMO_ACCESS_GATE: "none",
+    STAFF_AUTH_MODE: "canvas",
+    LEARNER_AUTH_MODE: "canvas",
+    CANVAS_BASE_URL: "https://canvas.example.test",
+    CANVAS_STAFF_CLIENT_ID: "packaged-beta-test",
+    CANVAS_STAFF_CLIENT_SECRET: random(),
+    CANVAS_STAFF_REDIRECT_URI: `${env.WEB_URL}/api/auth/canvas/callback`,
+    CANVAS_STAFF_LOOKUP_ACCOUNT_ID: "",
+  });
+  delete env.CANVAS_STAFF_AUTHORIZE_URL;
+  delete env.CANVAS_STAFF_TOKEN_URL;
+  await startRuntime();
+  const betaPage = await fetch(url);
+  assert.equal(betaPage.status, 200);
+  assertSecurityHeaders(betaPage);
+  assert.equal(betaPage.headers.get("www-authenticate"), null);
+  for (const route of [
+    "/staff",
+    "/learning",
+    "/settings",
+    "/sign-in",
+    "/api/me",
+    "/api/staff-session",
+  ]) {
+    const privatePage = await fetch(`${url}${route}`);
+    assert.equal(privatePage.status, route === "/api/me" ? 401 : 200, route);
+    assertSecurityHeaders(privatePage);
+    assert.match(privatePage.headers.get("cache-control"), /no-store/, route);
+  }
+  for (const route of [
+    "/?tab=courses&q=securitytest",
+    "/collections/data-informed-leader",
+    "/courses/10000000-0000-4000-8000-000000000001",
+    "/api/health",
+    "/api/offerings?search=Data",
+  ]) {
+    const flagged = await fetch(`${url}${route}`);
+    assert.ok(
+      [200, 401, 404].includes(flagged.status),
+      `${route}: ${flagged.status}`,
+    );
+    assertSecurityHeaders(flagged);
+  }
+  const cachedAsset = await fetch(new URL(asset.replaceAll("&amp;", "&"), url));
+  assert.equal(cachedAsset.status, 200);
+  assertSecurityHeaders(cachedAsset);
+  assert.match(cachedAsset.headers.get("cache-control"), /public.*immutable/);
+  assert.doesNotMatch(cachedAsset.headers.get("cache-control"), /no-store/);
+  const betaSession = await fetch(`${url}/api/staff-session`);
+  assert.equal(betaSession.status, 200);
+  assert.equal((await betaSession.json()).auth.mode, "canvas");
+  for (const route of ["/api/staff-session", "/api/demo-session"]) {
+    const impersonate = await fetch(`${url}${route}`, {
+      method: "POST",
+      headers: { origin: env.WEB_URL, "content-type": "application/json" },
+      body: JSON.stringify({ email: "hosting-smoke@example.test" }),
+    });
+    assert.equal(impersonate.status, 403, route);
+  }
+  for (const route of [
+    "/api/auth/canvas/start",
+    "/api/auth/learner/canvas/start",
+  ]) {
+    // Use the raw HTTP client so the synthetic reverse-proxy Host is retained.
+    const redirect = await new Promise((resolve, reject) => {
+      http
+        .get(
+          `${url}${route}`,
+          {
+            headers: {
+              host: new URL(env.WEB_URL).host,
+              "x-forwarded-proto": "https",
+            },
+          },
+          (response) => {
+            response.resume();
+            resolve({
+              status: response.statusCode,
+              headers: new Headers(
+                Object.entries(response.headers)
+                  .filter(([, v]) => v !== undefined)
+                  .map(([k, v]) => [k, Array.isArray(v) ? v.join(", ") : v]),
+              ),
+            });
+          },
+        )
+        .on("error", reject);
+    });
+    assert.equal(redirect.status, 303, route);
+    assertSecurityHeaders(redirect);
+    assert.match(redirect.headers.get("cache-control"), /no-store/);
+    assert.equal(redirect.headers.get("referrer-policy"), "no-referrer");
+    assert.equal(
+      new URL(redirect.headers.get("location")).origin,
+      env.CANVAS_BASE_URL,
+    );
+    assert.match(redirect.headers.get("set-cookie"), /__Host-/);
+    assert.match(redirect.headers.get("set-cookie"), /Secure/);
+  }
+  assert.equal(
+    (
+      await fetch(`${url}/api/webhooks/stripe`, {
+        method: "POST",
+        headers: { "stripe-signature": signature },
+        body: payload,
+      })
+    ).status,
+    400,
+  );
+  console.log(
+    "PASS packaged beta: independent startup, Canvas-only identities, HTTPS OAuth redirects/Secure cookies, private learner access and live-event refusal",
+  );
+  console.log(
+    "PASS packaged security headers on pages/API/errors/OAuth, private no-store and immutable public asset caching",
+  );
   const processes = execFileSync("ps", ["-axo", "pid,ppid,rss,command"], {
     encoding: "utf8",
   });
