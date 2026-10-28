@@ -1,4 +1,5 @@
 "use client";
+import { IndividualProgress } from "../../components/progress";
 import { useDemoAuth } from "../../components/demo-auth";
 import { CanvasLinkButton } from "../../components/canvas-link";
 import { LoadingCards } from "../../components/loading";
@@ -505,6 +506,9 @@ export default function LearningPage() {
         Demo session for {auth.displayName}. Your course registrations are saved
         for this email.
       </Typography>
+      {auth.ready && auth.signedIn && (
+        <IndividualProgress key={auth.learnerId} />
+      )}
       {checkoutResult && (
         <Alert
           ref={checkoutMessage}

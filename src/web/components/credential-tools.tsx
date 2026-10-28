@@ -11,6 +11,7 @@ export type CredentialTool =
   | "awards"
   | "certificates"
   | "issuances"
+  | "skills"
   | "my-badges";
 const labels: Record<CredentialTool, string> = {
   issuer: "Badge designer",
@@ -18,6 +19,7 @@ const labels: Record<CredentialTool, string> = {
   awards: "Manual and CSV badge awards",
   certificates: "Certificate designer and issuance",
   issuances: "Badge and certificate issuance register",
+  skills: "Public skills and career explorer",
   "my-badges": "My earned badges and certificates",
 };
 export function CredentialTools({ tool }: { tool: CredentialTool }) {
@@ -81,8 +83,15 @@ export function CredentialTools({ tool }: { tool: CredentialTool }) {
       window.removeEventListener("message", receive);
       setDirty(false);
     };
-  }, [tool, dark, router, setDirty]);
-  const params = new URLSearchParams({ theme: dark ? "dark" : "light" });
+  }, [tool, router, setDirty]);
+  useEffect(() => {
+    frame.current?.contentWindow?.postMessage(
+      { type: "cu-badge-theme", theme: dark ? "dark" : "light" },
+      location.origin,
+    );
+  }, [dark, ready]);
+  // Theme changes must not reload the document and discard editor/search input.
+  const params = new URLSearchParams({ theme: "light" });
   if (query.get("draft")) params.set("draft", query.get("draft")!);
   return (
     <Paper variant="outlined" sx={{ overflow: "hidden", minWidth: 0 }}>
@@ -94,6 +103,10 @@ export function CredentialTools({ tool }: { tool: CredentialTool }) {
         title={labels[tool]}
         src={`/credential-tools/${tool}.html?${params}`}
         onLoad={() => {
+          frame.current?.contentWindow?.postMessage(
+            { type: "cu-badge-theme", theme: dark ? "dark" : "light" },
+            location.origin,
+          );
           loaded.current = true;
           setReady(true);
           setError("");

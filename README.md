@@ -6,6 +6,16 @@ Local Next.js + Material UI website, NestJS REST API, PostgreSQL and request-dri
 
 [Badges and certificates](docs/badges-and-certificates.md) run inside the portal API and use the same PostgreSQL database. The staff tools and **My Badges** include design/image uploads, publication and course rules, manual/CSV awards, certificate PDFs and learner sharing through portal sessions. `npm run dev` starts the combined application; no separate badge process or SQLite runtime is required. Install the Python renderer once for certificate PDFs and provision explicit learner identity links. Historical SQLite stores have an explicit, backed-up import command; signing keys remain private files.
 
+[Email certificates](docs/certificate-email.md) adds individual/cohort previews, PDF attachments or private download links, duplicate protection, optional automatic delivery and sending history. Sending defaults off; `continuinged@cedarville.edu` still requires a configured and verified provider. Apply migration `026_certificate_email` before restarting the API.
+
+[QR and claim-code distribution](docs/credential-distribution.md) delivers an earned badge, its certificate, or both to the same authenticated learner. The certificate and award workspaces include recipient-bound codes, QR images, expiry, revocation and claim history; `npm run badges:seed-demo` prepares two fictional paired accomplishments locally.
+
+[Skills and careers](docs/skills-and-careers.md) adds assessed O*NET skills to badge drafts and frozen awards, related occupations, regional BLS wages and national projections. The free `/skills` explorer also supports O*NET v2 occupation search and national outlook when the private server `ONET_API_KEY` is configured. Apply migration `028_skills_labor_market`, run `npm run skills:import`, and verify API access with `npm run skills:verify-api`; the public reference area requires no account and includes source attribution.
+
+## Individual progress and cohorts
+
+[Progress and cohorts](docs/individual-progress-cohorts.md) lets course managers and staff administrators define versioned course requirements, assign learners, record documented evidence/corrections and track explicit learner cohorts. Learners see their own completion progress in My learning. Apply migration `025_individual_progress_cohorts` with `npm run db:migrate`; no badge issuance, prerequisite enforcement or automatic Canvas completion sync is triggered by these reports.
+
 ## Implementation progress
 
 Start with the [next steps](docs/next-steps.md) for the current checkpoint and recommended work sequence. Open project decisions, their owners and due dates are tracked in the [M0 decision register](docs/decision-register.md). See the [prototype implementation progress](docs/prototype/implementation-progress.md) for completed tasks, remaining todos, recent changes and verification evidence. The [implementation plan](docs/implementation-plan.md) describes the broader delivery scope and production gates.
