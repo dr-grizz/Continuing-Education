@@ -240,8 +240,6 @@ try {
     "/api/docs",
     "/api/staff-session",
     "/media/not-a-real-file",
-    "/credential-tools/issuer.html",
-    "/api/badges/admin/skills/catalog",
   ])
     assert.equal((await fetch(`${url}${route}`)).status, 401, route);
   assert.equal(
@@ -335,6 +333,11 @@ try {
       403,
       route,
     );
+  for (const route of [
+    "/credential-tools/issuer.html",
+    "/api/badges/admin/skills/catalog",
+  ])
+    assert.equal((await fetch(`${url}${route}`)).status, 401, route);
   const docs = await fetch(`${url}/api/docs`, { headers: { authorization } });
   assert.equal(docs.status, 200);
   assert.ok((await docs.json()).openapi);
