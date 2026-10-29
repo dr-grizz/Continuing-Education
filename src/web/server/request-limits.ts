@@ -34,6 +34,7 @@ export function limitHostedRequest(request: NextRequest) {
   retry = limiter.consume(`${group}:peer:${digest(requestPeer(request))}`, 120);
   if (retry) return retry;
   const session =
+    request.cookies.get("__Host-ce-bootstrap-session")?.value ||
     request.cookies.get("__Host-ce-learner-session")?.value ||
     request.cookies.get("__Host-ce-staff-session")?.value;
   if (session) {

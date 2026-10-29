@@ -37,6 +37,8 @@ import {
   SwaggerModule,
 } from "@nestjs/swagger";
 import { prisma, sql } from "../domain/prisma";
+import { db } from "../domain/db";
+import { refreshApplicationSettings } from "../domain/application-settings";
 import { PrototypeGuard, requireAnyScope, requireScope } from "./auth";
 import {
   RefundReasonDto,
@@ -867,6 +869,7 @@ class DemoRequestInterceptor implements NestInterceptor {
 })
 class AppModule {}
 async function main() {
+  await refreshApplicationSettings(db, true);
   staffAuthMode();
   learnerAuthMode();
   // Refuse to start until npm run db:migrate has recorded the Prisma baseline.
@@ -884,6 +887,18 @@ async function main() {
   // rawBody keeps the exact bytes Stripe signed, for webhook verification.
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     rawBody: true,
+  });
+  // Private application configuration is refreshed in the API process; the
+  // independent Microsoft setup session never becomes a Canvas staff session.
+  app.use(async (_request: any, response: any, next: any) => {
+    try {
+      await refreshApplicationSettings(db);
+      next();
+    } catch {
+      response
+        .status(503)
+        .json({ message: "Application configuration is unavailable." });
+    }
   });
   if (process.env.BADGES_ENABLED !== "false") {
     // Credentials share this API process and its PostgreSQL pool. No second listener.

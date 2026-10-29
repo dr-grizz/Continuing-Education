@@ -105,6 +105,10 @@ jobs:
         run: npm run test:canvas
       - name: Individual progress and cohort reporting (disposable database)
         run: npm run test:progress
+      - name: Initial setup and private System Info (disposable database)
+        run: npm run test:bootstrap
+      - name: Portable release dependency links
+        run: node --test tests/release-links.test.mjs
       - name: Request-driven demo tests (disposable database, no worker)
         run: npm run test:demo
       - name: Build

@@ -18,7 +18,9 @@ export const credentialSecurityHeaders = {
 export const hostedHsts = "max-age=31536000";
 
 export function privateResponsePath(path: string) {
-  return /^\/(api|staff|learning|settings|sign-in)(\/|$)/i.test(path);
+  return /^\/(api|staff|learning|settings|sign-in|setup|system-info)(\/|$)/i.test(
+    path,
+  );
 }
 
 export function responseSecurityHeaders(path: string) {

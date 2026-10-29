@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { completeLearnerLogin } from "../../../../../server/learner-auth";
+import { completeBootstrapCanvas } from "../../../../../server/bootstrap";
 import {
   authCookieName,
   isPortalRequest,
@@ -21,6 +22,8 @@ export async function GET(request: NextRequest) {
     );
   // Purpose is bound to a separate single-use state record and browser nonce.
   // Neither flow can consume the other's state or create the other's session.
+  if (request.nextUrl.searchParams.get("state")?.startsWith("bootstrap."))
+    return completeBootstrapCanvas(request);
   if (request.nextUrl.searchParams.get("state")?.startsWith("learner."))
     return completeLearnerLogin(request);
   let origin = portalOrigin(request);

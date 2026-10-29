@@ -1,8 +1,8 @@
 generator client {
-  provider     = "prisma-client"
-  output       = "../src/generated/prisma"
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
   // The server and worker compile to CommonJS (tsconfig.server.json).
-  moduleFormat = "cjs"
+  moduleFormat        = "cjs"
   // Extensionless imports work in both ts-node and compiled CommonJS.
   importFileExtension = ""
 }
@@ -63,23 +63,23 @@ model entitlements {
 /// mock profiles and the email-less legacy sample learner remain separate.
 model learners {
   progress_participants progress_participants[]
-  id               String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  id                    String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   /// CHECK learners_email_check: lowercase, trimmed, 3-254 characters when set.
   /// Canvas identity-only login supplies no verified email, so it remains null.
-  email            String?            @unique
-  created_at       DateTime           @default(now()) @db.Timestamptz(6)
+  email                 String?                 @unique
+  created_at            DateTime                @default(now()) @db.Timestamptz(6)
   /// Deactivated learners cannot sign in or act; existing enrollments continue.
-  active           Boolean            @default(true)
+  active                Boolean                 @default(true)
   /// Set while deactivated. CHECK learners_access_check: set exactly when active is false.
-  deactivated_at   DateTime?          @db.Timestamptz(6)
-  version          Int                @default(1)
-  display_name     String?
-  auth_provider    String             @default("mock")
-  external_subject String?
-  learner_sessions learner_sessions[]
-  entitlements     entitlements[]
-  saved_courses    saved_courses[]
-  pathway_follows  pathway_follows[]
+  deactivated_at        DateTime?               @db.Timestamptz(6)
+  version               Int                     @default(1)
+  display_name          String?
+  auth_provider         String                  @default("mock")
+  external_subject      String?
+  learner_sessions      learner_sessions[]
+  entitlements          entitlements[]
+  saved_courses         saved_courses[]
+  pathway_follows       pathway_follows[]
 
   @@unique([auth_provider, external_subject])
 }
@@ -781,6 +781,65 @@ model credential_workspaces {
   credential_publishing_activity   credential_publishing_activity[]
 }
 
+/// Single persisted setup gate. Completion is retained across deployments.
+model bootstrap_control {
+  id                     Int                      @id
+  generation             String                   @unique @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  owner_tenant           String?                  @db.Uuid
+  owner_object           String?                  @db.Uuid
+  expires_at             DateTime                 @db.Timestamptz(6)
+  completed_at           DateTime?                @db.Timestamptz(6)
+  handoff_staff_id       String?                  @db.Uuid
+  handoff_linked_at      DateTime?                @db.Timestamptz(6)
+  created_at             DateTime                 @default(now()) @db.Timestamptz(6)
+  bootstrap_sessions     bootstrap_sessions[]
+  bootstrap_oauth_states bootstrap_oauth_states[]
+}
+
+/// Only digests of temporary setup session cookies are persisted.
+model bootstrap_sessions {
+  token_hash         String            @id @db.Char(64)
+  generation         String            @db.Uuid
+  display_name       String
+  email              String
+  configuration_hash String            @db.Char(64)
+  authenticated_at   DateTime          @db.Timestamptz(6)
+  expires_at         DateTime          @db.Timestamptz(6)
+  created_at         DateTime          @default(now()) @db.Timestamptz(6)
+  bootstrap_control  bootstrap_control @relation(fields: [generation], references: [generation], onDelete: NoAction, onUpdate: NoAction, map: "bootstrap_sessions_generation_fkey")
+
+  @@index([expires_at], map: "bootstrap_sessions_expiry")
+}
+
+/// One-use provider state, bound to browser, setup generation and configuration.
+model bootstrap_oauth_states {
+  state_hash        String            @id @db.Char(64)
+  browser_hash      String            @db.Char(64)
+  generation        String            @db.Uuid
+  purpose           String
+  encrypted_payload String
+  expires_at        DateTime          @db.Timestamptz(6)
+  created_at        DateTime          @default(now()) @db.Timestamptz(6)
+  bootstrap_control bootstrap_control @relation(fields: [generation], references: [generation], onDelete: NoAction, onUpdate: NoAction, map: "bootstrap_oauth_states_generation_fkey")
+
+  @@index([expires_at], map: "bootstrap_oauth_states_expiry")
+}
+
+/// Write-only private application settings, encrypted using a server-held key.
+model application_settings {
+  name            String   @id
+  encrypted_value String
+  updated_by      String
+  updated_at      DateTime @default(now()) @db.Timestamptz(6)
+}
+
+/// Shared, bounded setup-key attempt window across application instances.
+model bootstrap_key_limits {
+  id                Int      @id
+  window_started_at DateTime @db.Timestamptz(6)
+  attempts          Int
+}
+
 // Versioned progress snapshots and append-only staff evidence; see migration 025.
 model progress_cohort_members {
   cohort_id             String                @db.Uuid
@@ -866,7 +925,6 @@ model progress_steps {
   @@unique([plan_id, position])
 }
 
-
 model credential_email_settings {
   workspace             String                @id
   automatic             Int                   @default(0)
@@ -878,7 +936,6 @@ model credential_email_settings {
   updated_by            String
   credential_workspaces credential_workspaces @relation(fields: [workspace], references: [id], onDelete: NoAction, onUpdate: NoAction)
 }
-
 
 model credential_email_deliveries {
   workspace                         String
@@ -906,7 +963,6 @@ model credential_email_deliveries {
   @@index([workspace, state, created_at], map: "credential_email_queue")
 }
 
-
 model credential_email_events {
   workspace                   String
   id                          String
@@ -920,7 +976,6 @@ model credential_email_events {
 
   @@id([workspace, id])
 }
-
 
 model credential_claims {
   workspace               String
@@ -949,7 +1004,6 @@ model credential_claims {
   @@index([workspace, source_id, badge_id, kind, created_at], map: "credential_claim_lookup")
 }
 
-
 model credential_claim_events {
   workspace             String
   id                    String
@@ -963,7 +1017,6 @@ model credential_claim_events {
   @@id([workspace, id])
   @@index([workspace, actor, at], map: "credential_claim_attempts")
 }
-
 
 model labor_releases {
   id                String              @id @db.Uuid
@@ -982,13 +1035,11 @@ model labor_releases {
   @@unique([kind, checksum])
 }
 
-
 model labor_active {
   kind           String         @id
   release_id     String         @db.Uuid
   labor_releases labor_releases @relation(fields: [release_id, kind], references: [id, kind], onDelete: NoAction, onUpdate: NoAction)
 }
-
 
 model labor_skills {
   release_id              String                    @db.Uuid
@@ -1003,7 +1054,6 @@ model labor_skills {
   @@id([release_id, id])
 }
 
-
 model labor_occupations {
   release_id              String                    @db.Uuid
   code                    String
@@ -1015,7 +1065,6 @@ model labor_occupations {
 
   @@id([release_id, code])
 }
-
 
 model labor_skill_occupations {
   release_id        String            @db.Uuid
@@ -1029,7 +1078,6 @@ model labor_skill_occupations {
 
   @@id([release_id, skill_id, occupation_code])
 }
-
 
 model labor_wages {
   release_id     String         @db.Uuid
@@ -1045,7 +1093,6 @@ model labor_wages {
 
   @@id([release_id, soc_code, region])
 }
-
 
 model labor_projections {
   release_id      String         @db.Uuid

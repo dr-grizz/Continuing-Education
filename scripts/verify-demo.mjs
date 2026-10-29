@@ -5,6 +5,7 @@ import {
   mkdtemp,
   mkdir,
   readFile,
+  readdir,
   rm,
   symlink,
   unlink,
@@ -17,6 +18,7 @@ import { randomBytes } from "node:crypto";
 import path from "node:path";
 import https from "node:https";
 import http from "node:http";
+import { checkReleaseLinks } from "./release-links.mjs";
 const require = createRequire(import.meta.url);
 const Stripe = require("stripe");
 const stripe = new Stripe("sk_test_local_verification");
@@ -29,6 +31,8 @@ let browser;
 let logs = "";
 const random = () => randomBytes(32).toString("hex");
 const url = "http://127.0.0.1:3350";
+const runtimeScript =
+  process.env.CUCE_VERIFY_START_SCRIPT || "scripts/start-demo.mjs";
 const password = random();
 const webhookSecret = `whsec_${random()}`;
 const badges = process.argv.includes("--badges");
@@ -37,7 +41,9 @@ const env = {
   ...process.env,
   HOSTED_DEMO: "true",
   HOSTED_BETA: "false",
+  DEMO_ACCESS_GATE: "basic",
   PROTOTYPE_MODE: "true",
+  MIGRATE_ON_START: "false",
   NODE_ENV: "production",
   WEB_URL: "https://localhost:3352",
   DEMO_ACCESS_USERNAME: "demo",
@@ -91,7 +97,12 @@ function assertSecurityHeaders(response) {
 }
 try {
   // The clean /tmp directory has no fallback access to the repo's node_modules.
-  await cp("artifacts/azure-demo", directory, { recursive: true });
+  await cp(
+    process.env.CUCE_RELEASE_DIRECTORY || "artifacts/azure-demo",
+    directory,
+    { recursive: true, verbatimSymlinks: true },
+  );
+  await checkReleaseLinks(directory);
   // A separate throwaway TLS PostgreSQL instance exercises the hosted guard,
   // compiled Prisma runtime and migrations without touching the local database.
   const certDirectory = path.join(directory, "test-certs");
@@ -200,7 +211,7 @@ try {
     const alias = path.join(badgeData, "release-alias");
     await symlink(directory, alias, "dir");
     for (const unsafe of [directory, alias]) {
-      const rejected = spawnSync(process.execPath, ["scripts/start-demo.mjs"], {
+      const rejected = spawnSync(process.execPath, [runtimeScript], {
         cwd: directory,
         env: { ...env, BADGE_DATA_DIR: unsafe },
         encoding: "utf8",
@@ -212,7 +223,7 @@ try {
     await unlink(alias);
   }
   const startRuntime = async () => {
-    child = spawn(process.execPath, ["scripts/start-demo.mjs"], {
+    child = spawn(process.execPath, [runtimeScript], {
       cwd: directory,
       env,
       stdio: ["ignore", "pipe", "pipe"],
@@ -620,10 +631,215 @@ try {
     CANVAS_STAFF_CLIENT_SECRET: random(),
     CANVAS_STAFF_REDIRECT_URI: `${env.WEB_URL}/api/auth/canvas/callback`,
     CANVAS_STAFF_LOOKUP_ACCOUNT_ID: "",
+    BOOTSTRAP_ENABLED: "true",
+    BOOTSTRAP_KEY: random(),
+    BOOTSTRAP_EXPIRES_AT: new Date(Date.now() + 60 * 60_000).toISOString(),
+    AUTH_SECRET: random(),
   });
   delete env.CANVAS_STAFF_AUTHORIZE_URL;
   delete env.CANVAS_STAFF_TOKEN_URL;
+  const startupMigrations = runtimeScript === "scripts/start-production.mjs";
+  let migrationSnapshot;
+  const databaseSnapshot = () =>
+    JSON.parse(
+      execFileSync(
+        process.execPath,
+        [
+          "-e",
+          `
+    const {Pool}=require('pg');
+    const pool=new Pool({connectionString:process.env.DATABASE_URL});
+    (async()=>{
+      const history=(await pool.query('SELECT migration_name,checksum,finished_at,rolled_back_at FROM _prisma_migrations ORDER BY migration_name')).rows;
+      const offerings=(await pool.query('SELECT id,title FROM offerings ORDER BY id')).rows;
+      console.log(JSON.stringify({history,offerings}));
+    })().catch(()=>process.exitCode=1).finally(()=>pool.end());
+  `,
+        ],
+        {
+          cwd: directory,
+          env,
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "pipe"],
+        },
+      ),
+    );
+  if (startupMigrations) {
+    execFileSync(
+      "docker",
+      ["exec", container, "createdb", "-U", "portal", "ce_startup_test"],
+      { stdio: "pipe" },
+    );
+    const fresh = new URL(env.DATABASE_URL);
+    fresh.pathname = "/ce_startup_test";
+    env.DATABASE_URL = fresh.href;
+    delete env.MIGRATION_DATABASE_URL;
+    env.MIGRATE_ON_START = "true";
+    for (const override of [
+      { HOSTED_DEMO: "true" },
+      {
+        DATABASE_URL: new URL(
+          "postgresql://rejected:rejected@" +
+            fresh.host +
+            fresh.pathname +
+            fresh.search,
+        ).href,
+      },
+    ]) {
+      const rejected = spawnSync(process.execPath, [runtimeScript], {
+        cwd: directory,
+        env: { ...env, ...override },
+        encoding: "utf8",
+        timeout: 25000,
+      });
+      assert.notEqual(rejected.status, 0);
+      assert.match(rejected.stderr, /Beta database migration failed/);
+      assert.ok(!rejected.stderr.includes(fresh.href));
+    }
+    console.log(
+      "PASS startup migration rejects invalid profile and database credentials before service startup",
+    );
+  }
   await startRuntime();
+  if (startupMigrations) {
+    migrationSnapshot = databaseSnapshot();
+    const committed = (
+      await readdir(path.join(directory, "prisma/migrations"))
+    ).filter((name) => /^\d{3}_/.test(name));
+    assert.equal(migrationSnapshot.history.length, committed.length);
+    assert.ok(
+      migrationSnapshot.history.every(
+        (row) => row.finished_at && !row.rolled_back_at,
+      ),
+    );
+    assert.equal(migrationSnapshot.offerings.length, 6);
+    await stop();
+    await startRuntime();
+    assert.deepEqual(databaseSnapshot(), migrationSnapshot);
+    console.log(
+      "PASS clean release initializes fresh PostgreSQL before API/web startup; restart preserves migration history and sample data",
+    );
+  }
+  assert.equal((await fetch(`${url}/api/health`)).status, 200);
+  const setupPage = await fetch(`${url}/setup`);
+  assert.equal(setupPage.status, 200);
+  assert.match(setupPage.headers.get("cache-control"), /no-store/);
+  const setupHeaders = {
+    host: new URL(env.WEB_URL).host,
+    "x-forwarded-proto": "https",
+    origin: env.WEB_URL,
+    "content-type": "application/json",
+  };
+  const setupRequest = (
+    method,
+    body = "",
+    cookie = "",
+    requestPath = "/api/bootstrap",
+  ) =>
+    new Promise((resolve, reject) => {
+      const request = http.request(
+        `${url}${requestPath}`,
+        { method, headers: { ...setupHeaders, ...(cookie ? { cookie } : {}) } },
+        (response) => {
+          const chunks = [];
+          response.on("data", (chunk) => chunks.push(chunk));
+          response.on("end", () =>
+            resolve(
+              new Response(Buffer.concat(chunks), {
+                status: response.statusCode,
+                headers: new Headers(
+                  Object.entries(response.headers)
+                    .filter(([, value]) => value !== undefined)
+                    .map(([key, value]) => [
+                      key,
+                      Array.isArray(value) ? value.join(", ") : value,
+                    ]),
+                ),
+              }),
+            ),
+          );
+        },
+      );
+      request.on("error", reject);
+      request.end(body);
+    });
+  assert.equal((await setupRequest("GET")).status, 200);
+  assert.equal(
+    (
+      await setupRequest(
+        "POST",
+        JSON.stringify({ action: "start", key: "invalid" }),
+      )
+    ).status,
+    403,
+  );
+  const setupStart = await setupRequest(
+    "POST",
+    JSON.stringify({ action: "start", key: env.BOOTSTRAP_KEY }),
+  );
+  assert.equal(setupStart.status, 200);
+  assert.deepEqual(await setupStart.json(), {
+    ok: true,
+    diagnosticsAuthorized: true,
+  });
+  assert.match(
+    setupStart.headers.get("set-cookie"),
+    /__Host-ce-bootstrap-session=/,
+  );
+  assert.match(setupStart.headers.get("set-cookie"), /HttpOnly/);
+  assert.match(setupStart.headers.get("set-cookie"), /Secure/);
+  const setupSession = setupStart.headers
+    .get("set-cookie")
+    .match(/__Host-ce-bootstrap-session=[^;]+/)[0];
+  assert.equal(
+    (await setupRequest("GET", "", "", "/api/system-info")).status,
+    401,
+  );
+  const infoResponse = await setupRequest(
+    "GET",
+    "",
+    setupSession,
+    "/api/system-info",
+  );
+  assert.equal(infoResponse.status, 200);
+  assert.match(infoResponse.headers.get("cache-control"), /no-store/);
+  const systemReport = await infoResponse.json();
+  assert.equal(systemReport.database.state, "current");
+  assert.ok(
+    systemReport.database.migrations.some(
+      (row) => row.name === "026_bootstrap_key" && row.state === "applied",
+    ),
+  );
+  assert.ok(!JSON.stringify(systemReport).includes(env.DATABASE_URL));
+  assert.ok(!JSON.stringify(systemReport).includes(env.BOOTSTRAP_KEY));
+  const infoPage = await fetch(`${url}/system-info`);
+  assert.equal(infoPage.status, 200);
+  assert.match(infoPage.headers.get("cache-control"), /no-store/);
+  console.log(
+    "PASS packaged System Info authorizes setup session, rejects anonymous access, and reports database migrations without secrets",
+  );
+  const fakeSetup = await setupRequest(
+    "GET",
+    "",
+    `__Host-ce-bootstrap-session=${random()}`,
+  );
+  assert.equal(fakeSetup.status, 401);
+  console.log(
+    "PASS standalone setup page/private headers, key-only authorization, secure session cookie and forged-session rejection",
+  );
+  await stop();
+  env.BOOTSTRAP_ENABLED = "false";
+  await startRuntime();
+  const disabledSetup = await setupRequest("GET");
+  assert.equal(disabledSetup.status, 403);
+  assert.match(
+    (await disabledSetup.json()).message,
+    /unavailable|expired|closed/i,
+  );
+  assert.equal((await fetch(`${url}/api/health`)).status, 200);
+  console.log(
+    "PASS packaged disabled setup responds with private JSON 403 instead of an internal server error",
+  );
   const betaPage = await fetch(url);
   assert.equal(betaPage.status, 200);
   assertSecurityHeaders(betaPage);
@@ -727,6 +943,140 @@ try {
   console.log(
     "PASS packaged security headers on pages/API/errors/OAuth, private no-store and immutable public asset caching",
   );
+  execFileSync(
+    process.execPath,
+    [
+      "-e",
+      `
+    const {Pool}=require('pg');const {protectSetting}=require('./dist/src/domain/application-settings.js');
+    const pool=new Pool({connectionString:process.env.DATABASE_URL});
+    pool.query("INSERT INTO application_settings(name,encrypted_value,updated_by) VALUES($1,$2,$3)",['CANVAS_STAFF_CLIENT_ID',protectSetting('999999','setting:CANVAS_STAFF_CLIENT_ID'),'synthetic-smoke']).catch(()=>process.exitCode=1).finally(()=>pool.end());
+  `,
+    ],
+    { cwd: directory, env, stdio: "pipe" },
+  );
+  let refreshedClient = false;
+  for (let attempt = 0; attempt < 25; attempt++) {
+    const response = await fetch(
+      `${env.API_URL}/api/v1/auth/staff/canvas/start`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${env.STAFF_API_TOKEN}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          browserNonce: randomBytes(32).toString("base64url"),
+        }),
+      },
+    );
+    if (
+      response.ok &&
+      new URL((await response.json()).authorizationUrl).searchParams.get(
+        "client_id",
+      ) === "999999"
+    ) {
+      refreshedClient = true;
+      break;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+  assert.equal(refreshedClient, true);
+  console.log(
+    "PASS encrypted saved settings refresh in the running API without exposing secrets or restarting services",
+  );
+  // Exercise the real compiled setup route with an unavailable database. The
+  // web-only child bypasses app startup solely in this isolated smoke test.
+  const faultWeb = spawn(
+    process.execPath,
+    [path.join(directory, "src/web/server.js")],
+    {
+      cwd: directory,
+      stdio: "ignore",
+      env: {
+        ...env,
+        PORT: "3353",
+        HOSTNAME: "127.0.0.1",
+        BOOTSTRAP_ENABLED: "true",
+        DATABASE_URL: "postgresql://synthetic:synthetic@127.0.0.1:1/not_used",
+      },
+    },
+  );
+  try {
+    let faultReady = false;
+    for (let i = 0; i < 80; i++) {
+      if (faultWeb.exitCode !== null)
+        throw new Error("Fault-test web process exited before readiness.");
+      try {
+        if ((await fetch("http://127.0.0.1:3353/api/health")).ok) {
+          faultReady = true;
+          break;
+        }
+      } catch {}
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    assert.ok(faultReady);
+    const faultRequest = (body, requestPath = "/api/bootstrap", cookie = "") =>
+      new Promise((resolve, reject) => {
+        const request = http.request(
+          "http://127.0.0.1:3353" + requestPath,
+          {
+            method: body ? "POST" : "GET",
+            headers: { ...setupHeaders, ...(cookie ? { cookie } : {}) },
+          },
+          (response) => {
+            const chunks = [];
+            response.on("data", (chunk) => chunks.push(chunk));
+            response.on("end", () =>
+              resolve({
+                status: response.statusCode,
+                cookies: response.headers["set-cookie"],
+                body: JSON.parse(Buffer.concat(chunks).toString()),
+              }),
+            );
+          },
+        );
+        request.on("error", reject);
+        request.end(body ? JSON.stringify(body) : undefined);
+      });
+    assert.equal((await faultRequest()).status, 200);
+    assert.equal(
+      (await faultRequest({ action: "start", key: "wrong" })).status,
+      403,
+    );
+    const failure = await faultRequest({
+      action: "start",
+      key: env.BOOTSTRAP_KEY,
+    });
+    assert.equal(failure.status, 503);
+    assert.equal(failure.body.stage, "database_connect");
+    assert.equal(failure.body.diagnosticsAuthorized, true);
+    const diagnosticCookie = failure.cookies
+      .find((value) => value.startsWith("__Host-ce-setup-diagnostics="))
+      .split(";")[0];
+    const diagnosticReport = await faultRequest(
+      undefined,
+      "/api/system-info",
+      diagnosticCookie,
+    );
+    assert.equal(diagnosticReport.status, 200);
+    assert.equal(diagnosticReport.body.database.state, "unavailable");
+    assert.equal(
+      diagnosticReport.body.database.error.code,
+      "DB_CONNECTION_FAILED",
+    );
+    assert.equal(failure.body.code, "DB_CONNECTION_FAILED");
+    assert.ok(!JSON.stringify(failure.body).includes("postgresql://"));
+    console.log(
+      "PASS compiled setup keeps the key form available with the database down and reports a safe post-key database_connect failure",
+    );
+  } finally {
+    if (faultWeb.exitCode === null) {
+      const exited = once(faultWeb, "exit");
+      faultWeb.kill("SIGTERM");
+      await exited;
+    }
+  }
   const processes = execFileSync("ps", ["-axo", "pid,ppid,rss,command"], {
     encoding: "utf8",
   });
