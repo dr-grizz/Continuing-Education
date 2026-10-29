@@ -1,4 +1,4 @@
-/** Both hosted profiles use the same TLS, identity and simulation safeguards. */
+/** Hosted profiles share identity and simulation safeguards. */
 export function isHostedRuntime(env = process.env) {
   return env.HOSTED_DEMO === "true" || env.HOSTED_BETA === "true";
 }
@@ -89,11 +89,22 @@ export function assertPrototypeRuntime(env = process.env) {
   return hosted;
 }
 
-export function assertHostedDatabase(value: string | undefined) {
+export function assertHostedDatabase(
+  value: string | undefined,
+  env: Record<string, string | undefined> = process.env,
+) {
   const url = new URL(value || "invalid:");
+  const testingException =
+    env.HOSTED_BETA_ALLOW_INSECURE_DATABASE === "true" &&
+    env.HOSTED_BETA === "true" &&
+    env.HOSTED_DEMO !== "true" &&
+    env.PROTOTYPE_MODE === "true";
   if (
     !["postgres:", "postgresql:"].includes(url.protocol) ||
-    !["require", "verify-full"].includes(url.searchParams.get("sslmode") || "")
+    (!testingException &&
+      !["require", "verify-full"].includes(
+        url.searchParams.get("sslmode") || "",
+      ))
   )
     throw new Error(
       "Hosted DATABASE_URL must use PostgreSQL with sslmode=require or verify-full.",

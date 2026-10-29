@@ -23,6 +23,7 @@ async function proxy(
   // Broker routes issue sessions and must never be exposed by this generic proxy.
   if (
     path[0]?.toLowerCase() === "auth" ||
+    path[0]?.toLowerCase() === "bootstrap" ||
     path[0]?.toLowerCase() === "webhooks" ||
     path.some((segment) => !/^[a-zA-Z0-9_-]+$/.test(segment))
   )

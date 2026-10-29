@@ -2,6 +2,10 @@
 
 Local Next.js + Material UI website, NestJS REST API, PostgreSQL and request-driven simulated enrollment. Seeded offerings and learner/payment test data are synthetic; the configured Canvas connection can import real course metadata into unpublished drafts. Stripe sandbox Checkout is supported when configured; learner login can use existing CU accounts through [Canvas OAuth](docs/canvas-learner-auth.md), while guest provisioning and Canvas enrollment remain simulated. Staff can use configurable Canvas OAuth and opt-in [Canvas course previews and synchronization](docs/canvas-courses.md), using that same OAuth connection. Explicit selected-course sync creates unpublished offering drafts with duplicate protection, preserved staff edits and required-information warnings; Canvas API access remains read-only. See [Canvas staff authentication](docs/canvas-staff-auth.md).
 
+## Contributing across demo and beta
+
+Follow the [two-repository sync, merge and deployment runbook](docs/repository-sync.md) before importing or backporting code, opening integration PRs, or releasing either site. Shared application code travels between repositories; deployment settings, credentials and database operations remain environment-specific. Committing/pushing, merging PRs and deploying are separate approval steps for agents.
+
 ## Badges and certificates
 
 [Badges and certificates](docs/badges-and-certificates.md) run inside the portal API and use the same PostgreSQL database. The staff tools and **My Badges** include design/image uploads, publication and course rules, manual/CSV awards, certificate PDFs and learner sharing through portal sessions. `npm run dev` starts the combined application; no separate badge process or SQLite runtime is required. Install the Python renderer once for certificate PDFs and provision explicit learner identity links. Historical SQLite stores have an explicit, backed-up import command; signing keys remain private files.

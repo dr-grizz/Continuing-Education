@@ -9,13 +9,16 @@ import {
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
+import { makeReleaseLinksPortable } from "./release-links.mjs";
 const require = createRequire(import.meta.url);
 const { nodeFileTrace } = require("next/dist/compiled/@vercel/nft");
 
 // Build on Ubuntu/Node 24 for Linux App Service. Next traces its own runtime;
 // trace the compiled API separately so build tools and unused UI modules do not
 // consume F1's 1 GB disk. Never ship local dotenv files, data or caches.
-const destination = path.resolve("artifacts/azure-demo");
+const destination = path.resolve(
+  process.env.CUCE_RELEASE_DIRECTORY || "artifacts/azure-demo",
+);
 if (existsSync(destination))
   throw new Error(
     "artifacts/azure-demo already exists; move it aside before packaging again.",
@@ -35,7 +38,12 @@ const safe = (source) => {
   );
 };
 await mkdir(destination, { recursive: true });
-await cp(standalone, destination, { recursive: true, filter: safe });
+await cp(standalone, destination, {
+  recursive: true,
+  filter: safe,
+  verbatimSymlinks: true,
+});
+await makeReleaseLinksPortable(standalone, destination);
 const { fileList, warnings } = await nodeFileTrace(
   [
     "dist/src/server/main.js",
@@ -130,5 +138,5 @@ if (bytes > 600 * 1024 * 1024)
     "Runtime exceeds the 600 MiB packaging budget; review before deploying to F1.",
   );
 console.log(
-  `Release prepared at artifacts/azure-demo (${Math.ceil(bytes / 1024 / 1024)} MiB; no migrations or cloud operations).`,
+  `Release prepared at ${destination} (${Math.ceil(bytes / 1024 / 1024)} MiB; no migrations or cloud operations).`,
 );

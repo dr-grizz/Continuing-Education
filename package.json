@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "setup": "node scripts/setup.mjs",
-    "postinstall": "prisma generate",
+    "postinstall": "prisma generate && node scripts/generate-system-info.mjs",
     "db:up": "docker compose up -d --wait db",
     "db:migrate": "ts-node -P tsconfig.server.json scripts/db-migrate.ts",
     "db:migrate:status": "prisma migrate status",
@@ -42,7 +42,11 @@
     "test:progress": "ts-node -P tsconfig.server.json tests/progress.integration.ts",
     "badges:seed-demo": "ts-node -P tsconfig.server.json scripts/seed-distribution-demo.ts",
     "skills:import": "node scripts/import-labor-market.mjs",
-    "skills:verify-api": "node scripts/verify-onet.mjs"
+    "skills:verify-api": "node scripts/verify-onet.mjs",
+    "prebuild": "node scripts/generate-system-info.mjs",
+    "predev": "node scripts/generate-system-info.mjs",
+    "predev:web": "node scripts/generate-system-info.mjs",
+    "test:bootstrap": "ts-node -P tsconfig.server.json tests/bootstrap.integration.ts"
   },
   "engines": {
     "node": ">=24"
