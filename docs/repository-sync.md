@@ -1,5 +1,7 @@
 # Sync, merge and deploy between the two repositories
 
+Start a future sync with the [reusable prompt](sync-prompt.md).
+
 This is the contributor and agent runbook for keeping shared application code aligned while running demo and beta independently. Keep this guide identical in both repositories. Repository-specific publishing guides retain ownership of their infrastructure details. The [October 29 integration record](repo-sync-2026-10-29.md) is historical evidence, not a substitute for checking current branches and workflows.
 
 ## Repositories and release branches
