@@ -30,9 +30,27 @@ function handleRequest(request: NextRequest) {
   )
     return NextResponse.next();
   const expected = `Basic ${Buffer.from(`${demo.username}:${demo.password}`).toString("base64")}`;
+  // O*NET reference information has a free, registration-free area even when
+  // the demonstration catalog is audience-gated. Credential APIs stay scoped.
+  const publicReference =
+    (["GET", "HEAD"].includes(request.method) &&
+      (path === "/skills" ||
+        path === "/skills/" ||
+        path.startsWith("/_next/static/") ||
+        path === "/brand/cedarville-continuing-education-white.png" ||
+        path === "/api/badges/public/skills/catalog" ||
+        path === "/api/badges/public/skills/onet/status" ||
+        /^\/credential-tools\/(skills\.html|skills-ui\.js|skills-explorer\.js|skills\.css|onet-in-it\.svg|awards\.css|issuer\.css|portal-theme\.css|portal-frame\.js)$/.test(
+          path,
+        ))) ||
+    (request.method === "POST" &&
+      /^\/api\/badges\/public\/skills\/(search|occupations|onet\/(search|outlook))$/.test(
+        path,
+      ));
   const digest = (value: string) => createHash("sha256").update(value).digest();
   if (
     demo.gate === "basic" &&
+    !publicReference &&
     !timingSafeEqual(
       digest(request.headers.get("authorization") || ""),
       digest(expected),

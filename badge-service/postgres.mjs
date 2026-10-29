@@ -16,6 +16,11 @@ export const badgeTables = [
   "award_batches",
   "certificate_templates",
   "certificates",
+  "email_settings",
+  "email_deliveries",
+  "email_events",
+  "claims",
+  "claim_events",
 ];
 const transactions = new AsyncLocalStorage();
 export class PostgresBadgeDatabase {

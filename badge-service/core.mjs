@@ -352,6 +352,9 @@ export class BadgeStore {
           criteria: version.design.criteria,
           image: version.artwork,
           design: version.design,
+          ...(version.design.skills?.length
+            ? { skills: version.design.skills }
+            : {}),
         },
         courseMapping: {
           id: mapping.id,

@@ -62,6 +62,7 @@ model entitlements {
 /// Portal learner. Existing-account Canvas login uses installation/user ID;
 /// mock profiles and the email-less legacy sample learner remain separate.
 model learners {
+  progress_participants progress_participants[]
   id               String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   /// CHECK learners_email_check: lowercase, trimmed, 3-254 characters when set.
   /// Canvas identity-only login supplies no verified email, so it remains null.
@@ -126,6 +127,7 @@ model offering_prices {
 /// Saleable offering. CHECK offerings_schedule_check: cohort requires start_date and end_date;
 /// self_paced requires both to be null. CHECK offerings_check: end_date >= start_date.
 model offerings {
+  progress_plans        progress_plans[]
   id                    String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   title                 String
   category              String
@@ -706,16 +708,18 @@ model credential_certificate_templates {
 }
 
 model credential_certificates {
-  workspace             String
-  id                    String
-  source_id             String
-  badge_id              String
-  learner               String
-  created_at            String
-  created_by            String
-  snapshot_json         String
-  signature             String
-  credential_workspaces credential_workspaces @relation(fields: [workspace], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  workspace                   String
+  id                          String
+  source_id                   String
+  badge_id                    String
+  learner                     String
+  created_at                  String
+  created_by                  String
+  snapshot_json               String
+  signature                   String
+  credential_workspaces       credential_workspaces         @relation(fields: [workspace], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  credential_claims           credential_claims[]
+  credential_email_deliveries credential_email_deliveries[]
 
   @@id([workspace, id])
   @@unique([workspace, source_id, badge_id])
@@ -767,7 +771,291 @@ model credential_workspaces {
   credential_badges                credential_badges[]
   credential_certificate_templates credential_certificate_templates[]
   credential_certificates          credential_certificates[]
+  credential_claim_events          credential_claim_events[]
+  credential_claims                credential_claims[]
   credential_course_mappings       credential_course_mappings[]
+  credential_email_deliveries      credential_email_deliveries[]
+  credential_email_events          credential_email_events[]
+  credential_email_settings        credential_email_settings?
   credential_metadata              credential_metadata[]
   credential_publishing_activity   credential_publishing_activity[]
+}
+
+// Versioned progress snapshots and append-only staff evidence; see migration 025.
+model progress_cohort_members {
+  cohort_id             String                @db.Uuid
+  participant_id        String                @db.Uuid
+  plan_id               String                @db.Uuid
+  active                Boolean               @default(true)
+  changed_at            DateTime              @default(now()) @db.Timestamptz(6)
+  changed_by            String
+  progress_cohorts      progress_cohorts      @relation(fields: [cohort_id, plan_id], references: [id, plan_id], onDelete: NoAction, onUpdate: NoAction)
+  progress_participants progress_participants @relation(fields: [participant_id, plan_id], references: [id, plan_id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([cohort_id, participant_id])
+}
+
+model progress_cohorts {
+  id                      String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                    String
+  plan_id                 String                    @db.Uuid
+  created_at              DateTime                  @default(now()) @db.Timestamptz(6)
+  created_by              String
+  progress_cohort_members progress_cohort_members[]
+  progress_plans          progress_plans            @relation(fields: [plan_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([id, plan_id])
+}
+
+model progress_evidence {
+  id                    String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sequence              BigInt                @unique @default(autoincrement())
+  participant_id        String                @db.Uuid
+  plan_id               String                @db.Uuid
+  step_id               String                @db.Uuid
+  state                 String
+  note                  String
+  reference             String                @default("")
+  recorded_at           DateTime              @default(now()) @db.Timestamptz(6)
+  recorded_by           String
+  progress_participants progress_participants @relation(fields: [participant_id, plan_id], references: [id, plan_id], onDelete: NoAction, onUpdate: NoAction)
+  progress_steps        progress_steps        @relation(fields: [step_id, plan_id], references: [id, plan_id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([participant_id, step_id, sequence(sort: Desc)], map: "progress_latest_evidence")
+}
+
+model progress_participants {
+  id                      String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  plan_id                 String                    @db.Uuid
+  learner_id              String                    @db.Uuid
+  assigned_at             DateTime                  @default(now()) @db.Timestamptz(6)
+  assigned_by             String
+  progress_cohort_members progress_cohort_members[]
+  progress_evidence       progress_evidence[]
+  learners                learners                  @relation(fields: [learner_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  progress_plans          progress_plans            @relation(fields: [plan_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([id, plan_id])
+  @@unique([plan_id, learner_id])
+}
+
+model progress_plans {
+  id                    String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  offering_id           String                  @db.Uuid
+  revision              Int
+  created_at            DateTime                @default(now()) @db.Timestamptz(6)
+  created_by            String
+  progress_cohorts      progress_cohorts[]
+  progress_participants progress_participants[]
+  offerings             offerings               @relation(fields: [offering_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  progress_steps        progress_steps[]
+
+  @@unique([offering_id, revision])
+}
+
+model progress_steps {
+  id                String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  plan_id           String              @db.Uuid
+  title             String
+  position          Int
+  required          Boolean
+  progress_evidence progress_evidence[]
+  progress_plans    progress_plans      @relation(fields: [plan_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([id, plan_id])
+  @@unique([plan_id, position])
+}
+
+
+model credential_email_settings {
+  workspace             String                @id
+  automatic             Int                   @default(0)
+  mode                  String                @default("attachment")
+  subject               String                @default("Your certificate: {{achievement}}")
+  message               String                @default("Hello {{name}},\n\nCongratulations on completing {{achievement}}. Your certificate is included below.\n\nContinuing Education\nCedarville University")
+  revision              Int                   @default(1)
+  updated_at            String
+  updated_by            String
+  credential_workspaces credential_workspaces @relation(fields: [workspace], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+
+model credential_email_deliveries {
+  workspace                         String
+  id                                String
+  certificate_id                    String
+  recipient                         String
+  learner_id                        String
+  batch_id                          String
+  actor                             String
+  created_at                        String
+  expires_at                        String
+  state                             String
+  snapshot_json                     String
+  resend_of                         String?
+  send_started_at                   String?
+  provider_id                       String?
+  credential_certificates           credential_certificates       @relation(fields: [workspace, certificate_id], references: [workspace, id], onDelete: NoAction, onUpdate: NoAction)
+  credential_workspaces             credential_workspaces         @relation(fields: [workspace], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  credential_email_deliveries       credential_email_deliveries?  @relation("credential_email_deliveriesTocredential_email_deliveries", fields: [workspace, resend_of], references: [workspace, id], onDelete: NoAction, onUpdate: NoAction)
+  other_credential_email_deliveries credential_email_deliveries[] @relation("credential_email_deliveriesTocredential_email_deliveries")
+  credential_email_events           credential_email_events[]
+
+  @@id([workspace, id])
+  @@index([workspace, certificate_id, recipient, created_at], map: "credential_email_duplicate")
+  @@index([workspace, state, created_at], map: "credential_email_queue")
+}
+
+
+model credential_email_events {
+  workspace                   String
+  id                          String
+  delivery_id                 String
+  at                          String
+  state                       String
+  detail                      String
+  actor                       String
+  credential_email_deliveries credential_email_deliveries @relation(fields: [workspace, delivery_id], references: [workspace, id], onDelete: NoAction, onUpdate: NoAction)
+  credential_workspaces       credential_workspaces       @relation(fields: [workspace], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([workspace, id])
+}
+
+
+model credential_claims {
+  workspace               String
+  id                      String
+  source_id               String
+  badge_id                String
+  learner                 String
+  kind                    String
+  certificate_id          String?
+  code_hash               String
+  origin                  String
+  created_at              String
+  expires_at              String
+  created_by              String
+  state                   String                    @default("active")
+  claimed_at              String?
+  claimed_by              String?
+  revoked_at              String?
+  revoked_by              String?
+  credential_claim_events credential_claim_events[]
+  credential_certificates credential_certificates?  @relation(fields: [workspace, certificate_id], references: [workspace, id], onDelete: NoAction, onUpdate: NoAction)
+  credential_workspaces   credential_workspaces     @relation(fields: [workspace], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([workspace, id])
+  @@unique([workspace, code_hash])
+  @@index([workspace, source_id, badge_id, kind, created_at], map: "credential_claim_lookup")
+}
+
+
+model credential_claim_events {
+  workspace             String
+  id                    String
+  claim_id              String?
+  at                    String
+  action                String
+  actor                 String
+  credential_claims     credential_claims?    @relation(fields: [workspace, claim_id], references: [workspace, id], onDelete: NoAction, onUpdate: NoAction)
+  credential_workspaces credential_workspaces @relation(fields: [workspace], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([workspace, id])
+  @@index([workspace, actor, at], map: "credential_claim_attempts")
+}
+
+
+model labor_releases {
+  id                String              @id @db.Uuid
+  kind              String
+  version           String
+  checksum          String
+  imported_at       DateTime            @default(now()) @db.Timestamptz(6)
+  sources           Json
+  labor_active      labor_active[]
+  labor_occupations labor_occupations[]
+  labor_projections labor_projections[]
+  labor_skills      labor_skills[]
+  labor_wages       labor_wages[]
+
+  @@unique([id, kind])
+  @@unique([kind, checksum])
+}
+
+
+model labor_active {
+  kind           String         @id
+  release_id     String         @db.Uuid
+  labor_releases labor_releases @relation(fields: [release_id, kind], references: [id, kind], onDelete: NoAction, onUpdate: NoAction)
+}
+
+
+model labor_skills {
+  release_id              String                    @db.Uuid
+  id                      String
+  name                    String
+  description             String
+  category                String
+  url                     String
+  labor_skill_occupations labor_skill_occupations[]
+  labor_releases          labor_releases            @relation(fields: [release_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([release_id, id])
+}
+
+
+model labor_occupations {
+  release_id              String                    @db.Uuid
+  code                    String
+  soc_code                String
+  title                   String
+  description             String
+  labor_releases          labor_releases            @relation(fields: [release_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  labor_skill_occupations labor_skill_occupations[]
+
+  @@id([release_id, code])
+}
+
+
+model labor_skill_occupations {
+  release_id        String            @db.Uuid
+  skill_id          String
+  occupation_code   String
+  importance        Decimal?          @db.Decimal
+  data_date         String?
+  basis             String
+  labor_occupations labor_occupations @relation(fields: [release_id, occupation_code], references: [release_id, code], onDelete: NoAction, onUpdate: NoAction)
+  labor_skills      labor_skills      @relation(fields: [release_id, skill_id], references: [release_id, id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([release_id, skill_id, occupation_code])
+}
+
+
+model labor_wages {
+  release_id     String         @db.Uuid
+  soc_code       String
+  region         String
+  region_name    String
+  year           Int
+  median_annual  Decimal?       @db.Decimal
+  median_hourly  Decimal?       @db.Decimal
+  annual_marker  String?
+  hourly_marker  String?
+  labor_releases labor_releases @relation(fields: [release_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([release_id, soc_code, region])
+}
+
+
+model labor_projections {
+  release_id      String         @db.Uuid
+  soc_code        String
+  title           String
+  base_year       Int
+  end_year        Int
+  percent_change  Decimal?       @db.Decimal
+  annual_openings Decimal?       @db.Decimal
+  labor_releases  labor_releases @relation(fields: [release_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([release_id, soc_code])
 }

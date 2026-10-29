@@ -31,6 +31,7 @@ const navLinks = [
   ["/", "Courses"],
   ["/learning", "My learning"],
   ["/badges", "My Badges"],
+  ["/skills", "Skills and Careers"],
   ["/staff", "Admin"],
 ];
 export default function Shell({ children }: { children: React.ReactNode }) {

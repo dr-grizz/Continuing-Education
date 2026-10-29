@@ -38,7 +38,11 @@
     "badges:link-learner": "ts-node -P tsconfig.server.json scripts/link-badge-learner.ts",
     "badges:import-sqlite": "ts-node -P tsconfig.server.json scripts/import-badge-sqlite.ts",
     "test:security": "ts-node -P tsconfig.server.json tests/security.test.ts",
-    "test:staff-lookup": "ts-node -P tsconfig.server.json tests/staff-lookup.integration.ts"
+    "test:staff-lookup": "ts-node -P tsconfig.server.json tests/staff-lookup.integration.ts",
+    "test:progress": "ts-node -P tsconfig.server.json tests/progress.integration.ts",
+    "badges:seed-demo": "ts-node -P tsconfig.server.json scripts/seed-distribution-demo.ts",
+    "skills:import": "node scripts/import-labor-market.mjs",
+    "skills:verify-api": "node scripts/verify-onet.mjs"
   },
   "engines": {
     "node": ">=24"

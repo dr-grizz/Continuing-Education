@@ -1,11 +1,13 @@
 import { renderBadge as artwork } from '/badge-artwork.js';
+import '/skills-ui.js';
 const $=id=>document.getElementById(id);
 const keys=['title','description','criteria','issuer','label','footer','shape','icon','font','primary','accent','text','border','iconSize'];
 const value=key=>$(key).type==='range' ? Number($(key).value) : $(key).type==='color' ? $(key).value.toUpperCase() : $(key).value;
 const initial=Object.fromEntries(keys.map(key=>[key,value(key)]));
 let currentId=null, revision=null, logo=null, artworkImage=null, baseline=null, svg='', busy=false;
 const xml=value=>String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'}[c]));
-function design(){return Object.fromEntries([...keys.map(key=>[key,value(key)]),['logo',logo],['artworkImage',artworkImage]]);}
+const skillPicker=window.CUSkills.createPicker($('details-panel'),()=>{render();message('');});
+function design(){const skills=skillPicker.get();return {...Object.fromEntries([...keys.map(key=>[key,value(key)]),['logo',logo],['artworkImage',artworkImage]]),...(skills.length?{skills}:{})};}
 function message(text){$('status').textContent=text;}
 function render(){
   const d=design();svg=artwork(d);$('badge-preview').innerHTML=svg;
@@ -18,7 +20,7 @@ function render(){
   $('use-templates').hidden=!artworkImage;$('artwork-state').hidden=!artworkImage;
   $('save-state').textContent=baseline===JSON.stringify(d)?`Saved · revision ${revision}`:currentId?'Unsaved changes':'Unsaved draft';
 }
-function populate(d){for(const key of keys)$(key).value=d[key];logo=d.logo||null;artworkImage=d.artworkImage||null;$('logo').value='';$('artwork-image').value='';render();}
+function populate(d){skillPicker.set(d.skills||[]);for(const key of keys)$(key).value=d[key];logo=d.logo||null;artworkImage=d.artworkImage||null;$('logo').value='';$('artwork-image').value='';render();}
 function selectTab(name){
   for(const tab of ['visual','details']){const selected=tab===name;$(tab+'-panel').hidden=!selected;$(tab+'-tab').setAttribute('aria-selected',String(selected));$(tab+'-tab').tabIndex=selected?0:-1;}
 }
@@ -49,7 +51,7 @@ $('remove-logo').addEventListener('click',()=>{logo=null;$('logo').value='';rend
 function canReplace(){return (baseline||JSON.stringify({...initial,logo:null,artworkImage:null}))===JSON.stringify(design())||window.confirm('Discard your unsaved changes?');}
 $('new-design').addEventListener('click',()=>{if(!canReplace())return;currentId=null;revision=null;baseline=null;populate({...initial,logo:null,artworkImage:null});selectTab('details');message('New badge draft ready.');});
 async function request(path,body){const response=await fetch(path,body?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}:{});const data=await response.json();if(!response.ok)throw new Error(data.error||'The draft could not be saved.');return data;}
-function validDetails(){if(!$('title').value.trim()||!$('description').value.trim()||!$('issuer').value.trim()){selectTab('details');message('Add a badge title, description and issuer before saving.');return false;}return true;}
+function validDetails(){if(!$('title').value.trim()||!$('description').value.trim()||!$('issuer').value.trim()){selectTab('details');message('Add a badge title, description and issuer before saving.');return false;}if(!skillPicker.valid()){selectTab('details');return false;}return true;}
 async function library(){
   const {drafts}=await request('/api/designer/drafts');$('draft-list').replaceChildren();$('draft-count').textContent=`${drafts.length} ${drafts.length===1?'draft':'drafts'}`;
   if(!drafts.length){const empty=document.createElement('p');empty.className='empty';empty.textContent='Save your first badge to start your collection.';$('draft-list').append(empty);}
