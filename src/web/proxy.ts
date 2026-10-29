@@ -11,6 +11,12 @@ import {
 // Optional audience gate. Public demos require verified Canvas identities.
 // Signed Stripe webhooks are exempt from browser-origin checks.
 function handleRequest(request: NextRequest) {
+  // CU Launch process liveness must not depend on profile, sessions or the database.
+  if (
+    request.nextUrl.pathname === "/api/health" &&
+    ["GET", "HEAD"].includes(request.method)
+  )
+    return NextResponse.next();
   let demo;
   try {
     demo = hostedRuntimeConfig();
