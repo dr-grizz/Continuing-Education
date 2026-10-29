@@ -97,6 +97,24 @@ async function main() {
     writerToken: "test-writer",
     readerToken: "test-reader",
     awardToken: "test-awarder",
+    onetOptions: {
+      apiKey: "private-onet-test-key",
+      fetcher: async (url: string) =>
+        Response.json(
+          url.includes("online/search")
+            ? {
+                occupation: [
+                  { code: "25-9031.00", title: "Instructional Coordinators" },
+                ],
+              }
+            : {
+                outlook: {
+                  category: "Bright",
+                  description: "Original provider wording.",
+                },
+              },
+        ),
+    },
   });
   await new Promise<void>((r) =>
     app.server.listen(Number(new URL(reserved).port), "127.0.0.1", r),
@@ -136,6 +154,76 @@ async function main() {
       route.split("/"),
     );
   try {
+    const officialLogo = await fetch(`${reserved}/onet-in-it.svg`);
+    equal(officialLogo.status, 200);
+    equal(
+      officialLogo.headers.get("content-type"),
+      "image/svg+xml; charset=utf-8",
+    );
+    equal((await call("public/skills/catalog", undefined, "")).status, 200);
+    equal((await call("admin/skills/catalog", undefined, "")).status, 401);
+    equal((await call("admin/skills/catalog")).status, 200);
+    const onetStatus = await call("public/skills/onet/status", undefined, "");
+    equal(onetStatus.status, 200);
+    equal((await onetStatus.json()).configured, true);
+    const careerSearch = await call(
+      "public/skills/onet/search",
+      { query: "teaching" },
+      "",
+    );
+    equal(careerSearch.status, 200);
+    equal((await careerSearch.json()).occupations[0].code, "25-9031.00");
+    const outlook = await call(
+      "public/skills/onet/outlook",
+      { code: "25-9031.00" },
+      "",
+    );
+    equal(outlook.status, 200);
+    equal(
+      (await outlook.json()).outlook.description,
+      "Original provider wording.",
+    );
+    equal(
+      (await call("public/skills/onet/outlook", { code: "../private" }, ""))
+        .status,
+      400,
+    );
+    equal(
+      (
+        await call(
+          "public/skills/onet/search",
+          { query: "teaching" },
+          "",
+          "https://outside.example",
+        )
+      ).status,
+      403,
+    );
+    equal((await call("public/skills/onet/arbitrary", {}, "")).status, 404);
+    equal(
+      (await call("public/skills/search", { query: "Critical" }, "")).status,
+      200,
+    );
+    equal(
+      (
+        await call(
+          "public/skills/occupations",
+          { skills: [null], region: "US" },
+          "",
+        )
+      ).status,
+      400,
+    );
+    equal(
+      (
+        await call(
+          "public/skills/occupations",
+          { skills: [], region: "US" },
+          "",
+        )
+      ).status,
+      200,
+    );
     equal((await call("admin/catalog", undefined, "")).status, 401);
     scope = false;
     equal((await call("admin/catalog")).status, 403);
@@ -369,6 +457,196 @@ async function main() {
       actor: "forged",
     });
     equal(certResponse.status, 200);
+    const emailCertificate = await certResponse.json();
+    equal(
+      (await call("admin/certificates/email/catalog", undefined, "")).status,
+      401,
+    );
+    scope = false;
+    equal((await call("admin/certificates/email/catalog")).status, 403);
+    scope = true;
+    equal((await call("admin/certificates/email/catalog")).status, 200);
+    equal((await call("admin/certificates/email/history")).status, 200);
+    const emailBody = {
+      certificateIds: [emailCertificate.id],
+      mode: "attachment",
+      subject: "Your certificate: {{achievement}}",
+      message: "Hello {{name}}, your certificate is attached.",
+      recipient: "forged@example.test",
+      actor: "forged",
+    };
+    equal(
+      (
+        await call(
+          "admin/certificates/email/preview",
+          emailBody,
+          undefined,
+          "https://outside.example",
+        )
+      ).status,
+      403,
+    );
+    equal(
+      (
+        await call(
+          "admin/certificates/email/preview",
+          emailBody,
+          `ce-demo-learner=${learnerId}`,
+        )
+      ).status,
+      401,
+    );
+    const emailPreviewResponse = await call(
+      "admin/certificates/email/preview",
+      emailBody,
+    );
+    equal(emailPreviewResponse.status, 200);
+    const emailPreview = await emailPreviewResponse.json();
+    equal(emailPreview.emails[0].recipient.includes("forged"), false);
+    equal(
+      (
+        await call("admin/certificates/email/send", {
+          batchId: emailPreview.batchId,
+          confirmed: true,
+        })
+      ).status,
+      400,
+    );
+    equal(
+      (await call("certificate-download", { token: "invalid" }, "")).status,
+      400,
+    );
+    equal(
+      (
+        await call(
+          "certificate-download",
+          { token: "invalid" },
+          "",
+          "https://outside.example",
+        )
+      ).status,
+      403,
+    );
+    equal((await call("certificate-download", undefined, "")).status, 404);
+    equal(
+      (await call("admin/distribution/catalog", undefined, "")).status,
+      401,
+    );
+    scope = false;
+    equal((await call("admin/distribution/catalog")).status, 403);
+    scope = true;
+    app.distribution.recipients.directory = async () => ({
+      contacts: new Map([
+        ["demo-alex", { active: true, portalId: learnerId }],
+        ["demo-jordan", { active: true, portalId: otherLearnerId }],
+      ]),
+      cohorts: [],
+    });
+    equal((await call("admin/distribution/catalog")).status, 200);
+    const claimBody = {
+      sourceId: "workspace",
+      badgeId: badge.id,
+      kind: "both",
+      days: 7,
+      confirmed: true,
+      actor: "forged",
+    };
+    equal(
+      (
+        await call(
+          "admin/distribution/create",
+          claimBody,
+          undefined,
+          "https://outside.example",
+        )
+      ).status,
+      403,
+    );
+    equal(
+      (await call("admin/distribution/create", claimBody, mine)).status,
+      401,
+    );
+    const createClaim = await call("admin/distribution/create", claimBody);
+    equal(createClaim.status, 200);
+    const claim = await createClaim.json();
+    equal(
+      (
+        await app.store.db
+          .prepare("SELECT created_by FROM claims WHERE id=?")
+          .get(claim.id)
+      ).created_by,
+      `portal:${staffId}`,
+    );
+    const claimDetail = await (
+      await call(`admin/distribution/${claim.id}`)
+    ).json();
+    equal(typeof claimDetail.code, "string");
+    equal(claimDetail.qr.startsWith("data:image/png;base64,"), true);
+    equal(
+      (await call("me/claims/redeem", { code: claimDetail.code }, "")).status,
+      401,
+    );
+    equal(
+      (
+        await call(
+          "me/claims/redeem",
+          { code: claimDetail.code, learner: "demo-alex" },
+          other,
+        )
+      ).status,
+      400,
+    );
+    equal(
+      (await call("me/claims/redeem", { code: claimDetail.code }, other))
+        .status,
+      400,
+    );
+    equal(
+      (
+        await call(
+          "me/claims/redeem",
+          { code: claimDetail.code },
+          mine,
+          "https://outside.example",
+        )
+      ).status,
+      403,
+    );
+    const receipt = await (
+      await call("me/claims/redeem", { code: claimDetail.code }, mine)
+    ).json();
+    equal(receipt.badgeId, badge.id);
+    equal(receipt.certificateId, emailCertificate.id);
+    equal(receipt.kind, "both");
+    equal(
+      (
+        await (
+          await call("me/claims/redeem", { code: claimDetail.code }, mine)
+        ).json()
+      ).replayed,
+      true,
+    );
+    equal(
+      (await call(`admin/distribution/${claim.id}/revoke`, { confirmed: true }))
+        .status,
+      200,
+    );
+    equal(
+      (await call("me/claims/redeem", { code: claimDetail.code }, mine)).status,
+      400,
+    );
+    equal(
+      (
+        await call(
+          `me/badges/workspace/${badge.id}/certificate`,
+          undefined,
+          mine,
+        )
+      ).status,
+      200,
+    );
+    equal((await call("admin/distribution/history")).status, 200);
+    equal((await call(`public/claims/${claim.id}`, undefined, "")).status, 404);
     const register = await (await call("admin/issuances")).json();
     equal(register.records[0].certificate.recipientName, "Alex Morgan");
     equal(

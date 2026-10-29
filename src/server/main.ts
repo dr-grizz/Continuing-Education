@@ -1,4 +1,5 @@
 import "reflect-metadata";
+import { ProgressController, ProgressService } from "./progress";
 import { CanvasCoursesService } from "./canvas-courses";
 import { CanvasCoursesController } from "./canvas-courses-controller";
 import {
@@ -844,6 +845,7 @@ class DemoRequestInterceptor implements NestInterceptor {
 }
 @Module({
   controllers: [
+    ProgressController,
     CanvasCoursesController,
     CatalogController,
     WorkflowController,
@@ -852,6 +854,7 @@ class DemoRequestInterceptor implements NestInterceptor {
     LearnerAuthController,
   ],
   providers: [
+    ProgressService,
     { provide: APP_INTERCEPTOR, useClass: DemoRequestInterceptor },
     CanvasCoursesService,
     PortalService,

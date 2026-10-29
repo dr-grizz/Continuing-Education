@@ -75,6 +75,7 @@ import {
 } from "../../../components/unsaved-changes";
 import { StaffTransactions } from "../../../components/staff-transactions";
 import { StaffLearners } from "../../../components/staff-learners";
+import { StaffProgress } from "../../../components/progress";
 import { StaffDashboard } from "../../../components/staff-dashboard";
 import {
   OfferingForm,
@@ -172,6 +173,7 @@ export default function Staff({
 }
 type Session = ReturnType<typeof useStaffSession>;
 type TabName =
+  | "progress"
   | "canvas"
   | "dashboard"
   | "offerings"
@@ -247,6 +249,14 @@ const sections: {
     label: "Exceptions",
     group: "Learners",
     icon: <ReportProblemIcon />,
+  },
+  {
+    tab: "progress",
+    slug: "progress",
+    label: "Progress and cohorts",
+    group: "Learners",
+    icon: <SchoolIcon />,
+    scope: "reports:read",
   },
   {
     tab: "learners",
@@ -1361,6 +1371,12 @@ function StaffWorkspace({
             canReconcile={can("payments:reconcile")}
             canRequest={can("refunds:request")}
             onChanged={setMessage}
+          />
+        )}
+        {loaded && tab === "progress" && (
+          <StaffProgress
+            offerings={courses}
+            canManage={can("progress:manage")}
           />
         )}
         {tab === "learners" && (

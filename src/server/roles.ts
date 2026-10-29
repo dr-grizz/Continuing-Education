@@ -5,6 +5,7 @@ import { StaffRole } from "../generated/prisma/enums";
 export const roleScopes: Record<StaffRole, readonly string[]> = {
   approver: ["approvals:decide"],
   catalog_manager: [
+    "progress:manage",
     "catalog:write",
     "canvas:read",
     "canvas:sync",
@@ -28,6 +29,7 @@ export const roleScopes: Record<StaffRole, readonly string[]> = {
   // Also holds the former Finance role's permissions (removed October 8, 2026):
   // the university Finance department works in Stripe, not in the portal.
   staff_admin: [
+    "progress:manage",
     "badges:manage",
     "canvas:read",
     "canvas:sync",
@@ -87,6 +89,8 @@ export const scopeDescriptions: Record<string, string> = {
     "Read published Canvas courses using your own OAuth authorization",
   "canvas:manage":
     "Enable or pause scheduled Canvas course reads under your authorization",
+  "progress:manage":
+    "Define progress requirements, manage cohorts and record documented completion evidence",
   "staff:read":
     "View the staff workspace: offerings, approvals, exceptions, activity",
   "reports:read": "Read reports and the audit log",

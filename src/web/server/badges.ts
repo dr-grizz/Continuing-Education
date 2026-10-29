@@ -36,7 +36,43 @@ export class BadgeAccessError extends Error {
 // Explicit route inventory: never turn this into an arbitrary authenticated proxy.
 export function badgeRoute(method: string, route: string) {
   const get = method === "GET";
+  if (get && route === "public/skills/onet/status") return "public";
+  if (
+    method === "POST" &&
+    /^public\/skills\/onet\/(search|outlook)$/.test(route)
+  )
+    return "public";
+  if (get && route === "public/skills/catalog") return "public";
+  if (method === "POST" && /^public\/skills\/(search|occupations)$/.test(route))
+    return "public";
+  if (get && route === "admin/skills/catalog") return "staff";
+  if (method === "POST" && /^admin\/skills\/(search|occupations)$/.test(route))
+    return "staff";
+  if (get && new RegExp(`^me/badges/${award}/careers/[A-Z]{2}$`).test(route))
+    return "learner";
+  if (
+    get &&
+    (route === "admin/distribution/catalog" ||
+      route === "admin/distribution/history" ||
+      new RegExp(`^admin/distribution/${uuid}$`).test(route))
+  )
+    return "staff";
+  if (
+    method === "POST" &&
+    (route === "admin/distribution/create" ||
+      new RegExp(`^admin/distribution/${uuid}/revoke$`).test(route))
+  )
+    return "staff";
+  if (method === "POST" && route === "me/claims/redeem") return "learner";
+  if (method === "POST" && route === "certificate-download") return "public";
   if (get && new RegExp(`^public/${award}$`).test(route)) return "public";
+  if (get && /^admin\/certificates\/email\/(catalog|history)$/.test(route))
+    return "staff";
+  if (
+    method === "POST" &&
+    /^admin\/certificates\/email\/(preview|send|settings)$/.test(route)
+  )
+    return "staff";
   if (
     get &&
     (route === "me/badges" ||
@@ -270,10 +306,19 @@ export async function badgeProxy(request: NextRequest, segments: string[]) {
     if (
       role === "learner" &&
       body &&
+      route !== "me/claims/redeem" &&
       (typeof body.shared !== "boolean" ||
         Object.keys(body).some((key) => key !== "shared"))
     )
       return fail(400, "Choose whether to enable sharing.");
+    if (
+      route === "me/claims/redeem" &&
+      body &&
+      (typeof body.code !== "string" ||
+        body.code.length > 100 ||
+        Object.keys(body).some((key) => key !== "code"))
+    )
+      return fail(400, "Enter only your claim code (up to 100 characters).");
     if (body) headers["Content-Type"] = "application/json";
     const response = await fetch(
       new URL(

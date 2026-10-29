@@ -88,11 +88,48 @@ async function main() {
       "/api/offerings",
       "/api/docs",
       "/media/private",
-      "/_next/static/test.js",
+      "/api/badges/public/skills/onet/arbitrary",
+      "/credential-tools/issuer.html",
+      "/api/badges/admin/skills/catalog",
       "/healthz/extra",
       "/api/webhooks/stripe/extra",
     ])
       assert.equal(proxy(request(path)).status, 401, path);
+    for (const path of [
+      "/skills",
+      "/credential-tools/skills.html",
+      "/credential-tools/skills-ui.js",
+      "/credential-tools/skills-explorer.js",
+      "/credential-tools/skills.css",
+      "/credential-tools/awards.css",
+      "/credential-tools/issuer.css",
+      "/credential-tools/portal-theme.css",
+      "/credential-tools/portal-frame.js",
+      "/credential-tools/onet-in-it.svg",
+      "/api/badges/public/skills/catalog",
+      "/api/badges/public/skills/onet/status",
+      "/_next/static/test.js",
+    ])
+      assert.equal(proxy(request(path)).status, 200, path);
+    for (const path of [
+      "/api/badges/public/skills/search",
+      "/api/badges/public/skills/occupations",
+      "/api/badges/public/skills/onet/search",
+      "/api/badges/public/skills/onet/outlook",
+    ]) {
+      assert.equal(proxy(request(path, "POST")).status, 403, path);
+      assert.equal(
+        proxy(request(path, "POST", { origin: "https://attacker.test" }))
+          .status,
+        403,
+        path,
+      );
+      assert.equal(
+        proxy(request(path, "POST", { origin: process.env.WEB_URL! })).status,
+        200,
+        path,
+      );
+    }
     assert.equal(
       proxy(request("/", "GET", { authorization: "Basic wrong" })).status,
       401,

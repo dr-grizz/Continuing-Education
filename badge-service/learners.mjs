@@ -57,6 +57,11 @@ export class LearnerAwards {
         : null,
       format: credential.format,
       badgeVersionId: row.badge_version_id || null,
+      skills: valid
+        ? credential.achievement?.skills ||
+          credential.achievement?.design?.skills ||
+          []
+        : [],
     };
   }
   async list(learner) {
