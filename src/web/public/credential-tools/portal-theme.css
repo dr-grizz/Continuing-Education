@@ -1,16 +1,16 @@
 /* Portal surfaces follow src/web/app/theme.tsx; certificate/badge artwork keeps
    its own chosen colors. The editor remains a separate accessible document. */
-:root { color-scheme: light; --portal-bg:#fff; --portal-text:#1c2b36; --portal-muted:#52616d; --portal-line:#dde2e7; --portal-primary:#17364b; --portal-on-primary:#fff; }
+:root { color-scheme: light; --portal-bg:#fff; --portal-text:#1c2b36; --portal-muted:#52616d; --portal-line:#dde2e7; --portal-primary:#003a63; --portal-on-primary:#fff; }
 :root[data-theme=dark] { color-scheme:dark; --portal-bg:#17222c; --portal-text:#e6edf2; --portal-muted:#a9b6c1; --portal-line:#52616d; --portal-primary:#9cc3df; --portal-on-primary:#0d1b25; }
 html, body { min-height:0!important; background:var(--portal-bg)!important; color:var(--portal-text)!important; margin:0!important; }
-body, button, input, select, textarea { font-family:system-ui,-apple-system,sans-serif!important; }
+body, button, input, select, textarea { font-family:var(--font-sans, "myriad-pro", "Helvetica Neue", Tahoma, Arial, sans-serif)!important; }
 main, main.cu-awards, main.cu-badges { width:100%!important; max-width:none!important; margin:0!important; padding:16px!important; box-sizing:border-box; }
 h1,h2,h3 { font-family:inherit!important; color:var(--portal-text)!important; }
-h1 { font-size:1.7rem!important; font-weight:700!important; letter-spacing:-.015em!important; }
-section,article,fieldset,.editor,.preview-card,.library,.card,.mapping,.version-card,.records,.summary>div,.cu-card,.ca-card,.cc-preview-card,.cu-toolbar,.ca-heading,.cu-stats>div,.ca-summary>div { background:var(--portal-bg)!important; color:var(--portal-text)!important; border-color:var(--portal-line)!important; border-radius:10px; box-shadow:none!important; }
+h1 { font-size:1.7rem!important; font-weight:700!important; text-transform:uppercase; line-height:1.2!important; }
+section,article,fieldset,.editor,.preview-card,.library,.card,.mapping,.version-card,.records,.summary>div,.cu-card,.ca-card,.cc-preview-card,.cu-toolbar,.ca-heading,.cu-stats>div,.ca-summary>div { background:var(--portal-bg)!important; color:var(--portal-text)!important; border-color:var(--portal-line)!important; border-radius:4px; box-shadow:none!important; }
 p,li,label,legend,summary,dt,dd,th,td,small,.muted,.scope,.note,.cu-note,.ca-note,.cu-intro,.ca-intro { color:var(--portal-text)!important; }
 a { color:var(--portal-primary)!important; }
-button,.button,input,select,textarea { border-radius:8px!important; border:1px solid var(--portal-muted)!important; color:var(--portal-text)!important; background:var(--portal-bg)!important; min-height:40px; max-width:100%; }
+button,.button,input,select,textarea { border-radius:4px!important; border:1px solid var(--portal-muted)!important; color:var(--portal-text)!important; background:var(--portal-bg)!important; min-height:40px; max-width:100%; }
 button.primary,button.cu-primary,.ca-primary,.cc-primary,.button.primary,button[type=submit] { background:var(--portal-primary)!important; color:var(--portal-on-primary)!important; }
 button:disabled { opacity:.6; }
 input[type=checkbox],input[type=radio] { min-height:20px; min-width:20px; }
@@ -55,3 +55,7 @@ tbody tr:hover { background:var(--portal-bg)!important; }
 .table-wrap { contain:inline-size layout paint; }
 
 .table-wrap:focus-visible { outline:3px solid var(--portal-primary)!important; outline-offset:-3px; }
+
+/* Interface chrome only: keep badge SVG and certificate artwork unchanged. */
+button,.button { border-radius:0!important; font-weight:700; }
+@media(prefers-reduced-motion:reduce) { *,*::before,*::after { animation:none!important; transition:none!important; scroll-behavior:auto!important; } }

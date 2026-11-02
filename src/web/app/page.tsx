@@ -309,7 +309,13 @@ export default function Catalog() {
       </Typography>
       <Typography
         color="text.secondary"
-        sx={{ mt: 2, maxWidth: 680, fontSize: 18, lineHeight: 1.7 }}
+        sx={{
+          mt: 2,
+          maxWidth: 680,
+          fontSize: 18,
+          lineHeight: 1.7,
+          fontFamily: "var(--font-editorial, Georgia, serif)",
+        }}
       >
         Explore non-credit courses for your work, leadership and service. Find a
         course, collection or pathway that fits your goals and your schedule.
