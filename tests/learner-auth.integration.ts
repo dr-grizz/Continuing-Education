@@ -65,8 +65,23 @@ async function main() {
   client = (await import("../src/domain/prisma")).prisma;
   pool = (await import("../src/domain/db")).db;
   const prisma = client;
-  const { CanvasLearnerAuthService } =
+  const { CanvasLearnerAuthService, learnerReturnTo } =
     await import("../src/server/canvas-learner-auth");
+  assert.equal(
+    learnerReturnTo("/credential-tools/claim.html"),
+    "/credential-tools/claim.html",
+  );
+  assert.equal(
+    learnerReturnTo("https://outside.example/credential-tools/claim.html"),
+    "/learning",
+  );
+  assert.equal(learnerReturnTo("//outside.example/claim"), "/learning");
+  assert.equal(
+    learnerReturnTo(
+      "/credential-tools/claim.html?next=https://outside.example",
+    ),
+    "/learning",
+  );
   const { CanvasStaffAuthService, secretDigest } =
     await import("../src/server/canvas-staff-auth");
   const { LearnerAuthController, LearnerBrokerGuard } =

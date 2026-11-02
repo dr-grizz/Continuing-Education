@@ -104,7 +104,9 @@ let activePreviewRenders = 0;
 export async function renderCertificate(snapshot) {
   const preview = process.env.BADGE_DEMO_PREVIEW === "true";
   if (preview && activePreviewRenders >= 1)
-    fail("Certificate preview is busy. Wait for the current PDF and try again.");
+    fail(
+      "Certificate preview is busy. Wait for the current PDF and try again.",
+    );
   if (preview) activePreviewRenders++;
   try {
     const bundled = join(
@@ -326,7 +328,9 @@ export class Certificates {
       )
       .run(id, source, row.id, row.learner, at, actor, json, signature);
     await this.store.audit("certificate-created", row.id, actor);
-    return this.summary(await this.find(source, row.id));
+    const created = await this.find(source, row.id);
+    if (this.email) await this.email.afterIssuance(created, actor);
+    return this.summary(created);
   }
   async validateBatch(template, names, achievement, issuer) {
     await renderCertificate({
@@ -362,10 +366,7 @@ export class Certificates {
       return await this.insert(body.sourceId, fresh, t, name, actor);
     });
   }
-  async download(source, id, learner) {
-    await this.row(source, id, learner);
-    const row = await this.find(source, id);
-    if (!row) fail("No certificate has been created for this award.");
+  verify(row) {
     if (
       !verify(
         null,
@@ -375,6 +376,12 @@ export class Certificates {
       )
     )
       fail("Certificate integrity check failed.");
+  }
+  async download(source, id, learner) {
+    await this.row(source, id, learner);
+    const row = await this.find(source, id);
+    if (!row) fail("No certificate has been created for this award.");
+    this.verify(row);
     const pdf = await renderCertificate(JSON.parse(row.snapshot_json));
     return {
       filename: `cu-certificate-${row.id}.pdf`,

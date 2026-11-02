@@ -1,0 +1,160 @@
+.skills-picker,
+.skills-explorer {
+  margin-top: 24px;
+}
+.skills-search-controls {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.skills-search-controls input {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+.skills-picker label,
+.skills-careers label {
+  display: block;
+  margin-top: 14px;
+  font-weight: 600;
+}
+.skills-picker input,
+.skills-picker textarea,
+.skills-careers select {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  min-height: 40px;
+}
+.skills-picker textarea {
+  display: block;
+  resize: vertical;
+}
+.skills-result,
+.skills-selection,
+.skills-occupation {
+  border: 1px solid var(--portal-line, #a9bbc8);
+  border-radius: 8px;
+  padding: 16px;
+  margin: 12px 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.skills-result h4,
+.skills-selection h4,
+.skills-occupation h4 {
+  font-size: 1rem !important;
+  margin: 0 0 8px;
+}
+.skills-result small,
+.skills-selection small {
+  display: block;
+  margin: 8px 0;
+}
+.skills-note {
+  font-size: 13px;
+  line-height: 1.55;
+}
+.skills-results {
+  max-height: 420px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.skills-status:not(:empty),
+.skills-explorer-status:not(:empty) {
+  padding: 10px 0;
+  font-weight: 500;
+}
+.skills-explore-button {
+  margin: 18px 0 0;
+}
+.skills-careers {
+  margin-top: 16px;
+}
+.skills-careers p {
+  line-height: 1.55;
+}
+.skills-careers details {
+  padding: 12px;
+  border: 1px solid var(--portal-line, #a9bbc8);
+  border-radius: 6px;
+}
+.skills-picker :focus-visible,
+.skills-careers :focus-visible {
+  outline: 3px solid var(--portal-primary, #003a63);
+  outline-offset: 3px;
+}
+.skills-careers li {
+  margin: 6px 0;
+}
+.skills-career-button {
+  margin-top: 12px;
+}
+@media (max-width: 500px) {
+  .skills-search-controls {
+    display: block;
+  }
+  .skills-search-controls button {
+    margin-top: 10px;
+    width: 100%;
+  }
+  .skills-result,
+  .skills-selection,
+  .skills-occupation {
+    padding: 12px;
+  }
+  .skills-explorer {
+    min-width: 0;
+  }
+  .skills-careers p,
+  .skills-note {
+    overflow-wrap: anywhere;
+  }
+}
+
+.skills-onet-search {
+  margin-top: 28px;
+  border-top: 1px solid var(--portal-line, #a9bbc8);
+  padding-top: 18px;
+}
+.skills-onet-search label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.skills-onet-search input {
+  min-height: 40px;
+  box-sizing: border-box;
+  max-width: 100%;
+}
+.skills-onet-search :focus-visible {
+  outline: 3px solid var(--portal-primary, #003a63);
+  outline-offset: 3px;
+}
+
+.skills-onet-credit {
+  margin: 18px 0;
+  padding: 14px;
+  border: 1px solid var(--portal-line, #a9bbc8);
+  border-radius: 8px;
+}
+.skills-onet-logo {
+  text-align: center;
+  margin: 0 0 10px;
+}
+.skills-onet-logo a {
+  display: inline-block;
+  background: #fff;
+  padding: 8px;
+  border-radius: 4px;
+}
+.skills-onet-logo img {
+  display: block;
+  width: 130px;
+  height: 60px;
+  border: none;
+  max-width: 100%;
+}
+.skills-onet-credit .skills-note {
+  margin-bottom: 0;
+}

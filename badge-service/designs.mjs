@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { resolveSkillSelections } from "./skills.mjs";
 export const defaultDesign = {
   title: "Faithful Leadership",
   description:
@@ -83,6 +84,24 @@ export function validateDesign(input) {
       throw new Error("Invalid badge design");
     design[key] = input[key];
   }
+  if (input.skills !== undefined) {
+    if (
+      !Array.isArray(input.skills) ||
+      input.skills.length > 20 ||
+      input.skills.some(
+        (s) =>
+          !s ||
+          typeof s.id !== "string" ||
+          typeof s.releaseId !== "string" ||
+          typeof s.name !== "string" ||
+          s.source !== "O*NET" ||
+          typeof s.assessment !== "string" ||
+          s.assessment.trim().length < 10,
+      )
+    )
+      throw new Error("Invalid assessed skill alignment");
+    if (input.skills.length) design.skills = structuredClone(input.skills);
+  }
   return design;
 }
 // Schema changes belong to the portal's Prisma migrations.
@@ -101,7 +120,11 @@ export async function listDrafts(db) {
   }));
 }
 export async function saveDraft(db, input, id = null, revision = null) {
-  const design = validateDesign(input);
+  const skills = await resolveSkillSelections(db, input?.skills);
+  const design = validateDesign({
+    ...input,
+    ...(skills.length ? { skills } : { skills: undefined }),
+  });
   const at = new Date().toISOString();
   if (!id) {
     id = randomUUID();

@@ -1,5 +1,608 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, Page, test } from "@playwright/test";
+
+test.describe("credential claims", () => {
+  const claimId = "70000000-0000-4000-8000-000000000001",
+    badgeId = "70000000-0000-4000-8000-000000000002",
+    certificateId = "70000000-0000-4000-8000-000000000003",
+    code = "01234-56789-ABCDE-FGHJK";
+  async function setupStaff(page: Page, linked = true) {
+    await page.request.post("/api/staff-session", {
+      data: { email: "admin@cuce.test" },
+    });
+    const qr = await require("qrcode").toDataURL(
+      "https://portal.example.test/credential-tools/claim.html#" + code,
+    );
+    let state = "active",
+      created = false;
+    const summary = () => ({
+      id: claimId,
+      badgeId,
+      sourceId: "workspace",
+      recipientName: "Alex Morgan (Demo)",
+      learnerId: "demo-distribution-alex",
+      kind: "both",
+      certificateId,
+      state,
+      createdAt: "2026-10-28T12:00:00.000Z",
+      expiresAt: "2026-11-04T12:00:00.000Z",
+    });
+    await page.route("**/api/badges/admin/distribution/**", async (route) => {
+      const path = new URL(route.request().url()).pathname.split(
+        "/distribution/",
+      )[1];
+      if (path === "catalog")
+        return route.fulfill({
+          json: {
+            origin: "https://portal.example.test",
+            local: false,
+            errors: [],
+            awards: [
+              {
+                id: badgeId,
+                sourceId: "workspace",
+                title: "DEMO learning accomplishment",
+                recipientName: "Alex Morgan (Demo)",
+                certificateId,
+                linked,
+                status: "issued",
+                signatureValid: true,
+                demo: true,
+              },
+            ],
+          },
+        });
+      if (path === "history")
+        return route.fulfill({
+          json: { distributions: created ? [summary()] : [], limit: 250 },
+        });
+      if (path === "create") {
+        expect(route.request().postDataJSON()).toEqual({
+          sourceId: "workspace",
+          badgeId,
+          kind: "both",
+          days: 7,
+          confirmed: true,
+        });
+        created = true;
+        return route.fulfill({ json: summary() });
+      }
+      if (path === claimId + "/revoke") {
+        expect(route.request().postDataJSON()).toEqual({ confirmed: true });
+        state = "revoked";
+        return route.fulfill({ json: summary() });
+      }
+      if (path === claimId)
+        return route.fulfill({
+          json: {
+            ...summary(),
+            code: state === "active" ? code : null,
+            url:
+              state === "active"
+                ? "https://portal.example.test/credential-tools/claim.html#" +
+                  code
+                : null,
+            qr: state === "active" ? qr : null,
+            events: [
+              {
+                at: "2026-10-28T12:00:00.000Z",
+                action: state === "active" ? "created" : "revoked",
+                actor: "portal:synthetic-staff",
+              },
+            ],
+          },
+        });
+      return route.fulfill({
+        status: 404,
+        json: { error: "Unknown test route" },
+      });
+    });
+    await page.goto("/staff/certificates");
+    const frame = page.frameLocator("iframe");
+    await expect(frame.locator("#cd-award option")).toHaveCount(2);
+    return frame;
+  }
+  test("staff creates paired QR/code distribution, reviews it, downloads QR and revokes it with keyboard access", async ({
+    page,
+  }) => {
+    const frame = await setupStaff(page);
+    await frame
+      .getByLabel("Issued accomplishment and recipient")
+      .selectOption("workspace/" + badgeId);
+    await expect(frame.getByLabel("Distribute", { exact: true })).toHaveValue(
+      "both",
+    );
+    const confirm = frame.getByLabel(
+      "I confirm the recipient and the issued accomplishment selected above.",
+    );
+    await confirm.focus();
+    await page.keyboard.press("Space");
+    await page.keyboard.press("Tab");
+    await expect(
+      frame.getByRole("button", {
+        name: "Create QR and claim code",
+        exact: true,
+      }),
+    ).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(frame.locator("#cd-detail")).toBeFocused();
+    await expect(frame.getByLabel("Claim code", { exact: true })).toHaveValue(
+      code,
+    );
+    await expect(
+      frame.getByRole("img", { name: /Claim QR code for Alex/ }),
+    ).toBeVisible();
+    const download = page.waitForEvent("download");
+    await frame.getByRole("button", { name: "Download QR image" }).click();
+    expect((await download).suggestedFilename()).toBe(
+      "credential-claim-" + claimId + ".png",
+    );
+    await scan(page, "Paired credential claim distribution");
+    await frame.getByLabel("I confirm revoking this claim code.").check();
+    await frame
+      .getByRole("button", { name: "Revoke claim code", exact: true })
+      .click();
+    await expect(frame.locator("#cd-status")).toContainText(
+      "Claim code revoked",
+    );
+    await expect(frame.locator("#cd-detail img")).toHaveCount(0);
+    await expect(frame.locator("#cd-history")).toContainText("revoked");
+    await page.setViewportSize({ width: 320, height: 800 });
+    expect(
+      await frame
+        .locator("html")
+        .evaluate((el) => el.scrollWidth <= el.clientWidth + 1),
+    ).toBe(true);
+  });
+  test("staff cannot distribute to an unlinked learner", async ({ page }) => {
+    const frame = await setupStaff(page, false);
+    await expect(frame.locator("#cd-award option").last()).toBeDisabled();
+    await expect(
+      frame.getByRole("button", {
+        name: "Create QR and claim code",
+        exact: true,
+      }),
+    ).toBeDisabled();
+    await scan(page, "Unlinked credential claim recipient");
+  });
+  test("QR claim code survives sign-in without appearing in request URLs and opens both downloads", async ({
+    page,
+  }) => {
+    let signedIn = false;
+    await page.route("**/api/demo-session", async (route) => {
+      if (route.request().method() === "POST") signedIn = true;
+      return route.fulfill({
+        json: {
+          id: signedIn ? "70000000-0000-4000-8000-000000000010" : null,
+          email: signedIn ? "claim-learner@example.test" : null,
+          display_name: signedIn ? "Demo Claim Learner" : null,
+          auth: { mode: "mock", configured: true },
+        },
+      });
+    });
+    await page.route("**/api/badges/me/claims/redeem", async (route) => {
+      expect(route.request().url()).not.toContain(code);
+      expect(route.request().postDataJSON()).toEqual({ code });
+      return route.fulfill({
+        json: {
+          claimId,
+          kind: "both",
+          sourceId: "workspace",
+          badgeId,
+          certificateId,
+          title: "DEMO learning accomplishment",
+          demonstration: true,
+          replayed: false,
+        },
+      });
+    });
+    await page.route("**/api/badges/me/badges/**/download", (route) =>
+      route.fulfill({
+        json: { format: "cu-pilot-credential-v1", demonstration: true },
+      }),
+    );
+    await page.route("**/api/badges/me/badges/**/certificate", (route) =>
+      route.fulfill({
+        json: {
+          filename: "demo-certificate.pdf",
+          contentType: "application/pdf",
+          data: Buffer.from("%PDF-1.4 synthetic").toString("base64"),
+        },
+      }),
+    );
+    await page.goto("/credential-tools/claim.html#" + code);
+    await expect(page).not.toHaveURL(/#/);
+    await expect(page.getByLabel("Claim code", { exact: true })).toHaveValue(
+      code,
+    );
+    await page
+      .getByRole("link", { name: "Sign in to claim", exact: true })
+      .click();
+    await page.getByLabel(/^Email/).fill("claim-learner@example.test");
+    await page.getByLabel(/^Password/).fill("demo-only");
+    await page.getByRole("button", { name: "Sign in", exact: true }).click();
+    await expect(page).toHaveURL(/\/credential-tools\/claim\.html$/);
+    await expect(page.getByLabel("Claim code", { exact: true })).toHaveValue(
+      code,
+    );
+    await page.getByRole("button", { name: "Claim accomplishment" }).click();
+    await expect(
+      page.getByRole("heading", { name: "DEMO learning accomplishment" }),
+    ).toBeVisible();
+    await expect(
+      page.getByText(
+        "Your badge and certificate recognize the same accomplishment.",
+        { exact: true },
+      ),
+    ).toBeVisible();
+    expect(
+      await page.evaluate(() => sessionStorage.getItem("ce-pending-claim")),
+    ).toBeNull();
+    await expect(page.locator("#claim-receipt")).toBeFocused();
+    const badge = page.waitForEvent("download");
+    await page
+      .getByRole("button", { name: "Download badge credential" })
+      .click();
+    expect((await badge).suggestedFilename()).toBe(
+      "badge-" + badgeId + ".json",
+    );
+    const pdf = page.waitForEvent("download");
+    await page
+      .getByRole("button", { name: "Download certificate PDF" })
+      .click();
+    expect((await pdf).suggestedFilename()).toBe("demo-certificate.pdf");
+    await scan(page, "Claimed paired accomplishment");
+  });
+  test("claim failures retain the code and do not reveal another learner or award", async ({
+    page,
+  }) => {
+    await page.route("**/api/demo-session", (route) =>
+      route.fulfill({
+        json: {
+          id: "70000000-0000-4000-8000-000000000010",
+          email: "claim-learner@example.test",
+        },
+      }),
+    );
+    await page.route("**/api/badges/me/claims/redeem", (route) =>
+      route.fulfill({
+        status: 400,
+        json: {
+          error:
+            "This claim code is invalid, expired, revoked, or belongs to another learner.",
+        },
+      }),
+    );
+    await page.goto("/credential-tools/claim.html#" + code);
+    await page.getByRole("button", { name: "Claim accomplishment" }).click();
+    await expect(page.locator("#claim-status")).toContainText(
+      "invalid, expired, revoked",
+    );
+    await expect(page.getByLabel("Claim code", { exact: true })).toHaveValue(
+      code,
+    );
+    await expect(page.locator("#claim-receipt")).not.toBeVisible();
+    await scan(page, "Unavailable credential claim");
+  });
+});
+
+test.describe("certificate email", () => {
+  const ids = [
+    "60000000-0000-4000-8000-000000000001",
+    "60000000-0000-4000-8000-000000000002",
+    "60000000-0000-4000-8000-000000000003",
+  ];
+  async function setupEmail(page: Page, ready = true) {
+    await page.request.post("/api/staff-session", {
+      data: { email: "admin@cuce.test" },
+    });
+    const records = ids.map((id, i) => ({
+      id,
+      badgeId: id,
+      sourceId: "workspace",
+      learnerId: `synthetic-${i}`,
+      recipientName: ["Alex Morgan", "Jordan Morgan", "Missing Contact"][i],
+      achievement: "Synthetic learning",
+      createdAt: "2026-10-28T12:00:00.000Z",
+    }));
+    const settings = {
+      automatic: false,
+      mode: "attachment",
+      subject: "Your certificate: {{achievement}}",
+      message: "Hello {{name}},\n\nYour certificate is attached.",
+      revision: 0,
+    };
+    let emails: any[] = [],
+      sent = false,
+      history: any[] = [];
+    await page.route("**/api/badges/admin/certificates/catalog", (route) =>
+      route.fulfill({
+        json: {
+          templates: [],
+          defaults: {
+            style: "classic",
+            primary: "#003A63",
+            accent: "#FDB813",
+            title: "Certificate of Completion",
+            introduction: "Presented to",
+            completionText: "for completing",
+            closing: "Congratulations",
+            department: "Continuing Education",
+            signerName: "Staff",
+            signerTitle: "University",
+            footer: "Learning",
+            paper: "letter",
+            header: "",
+          },
+          certificates: records,
+          awards: records.map((r) => ({
+            ...r,
+            id: r.badgeId,
+            title: r.achievement,
+            issuer: "University",
+            issuedAt: r.createdAt,
+            status: "issued",
+            signatureValid: true,
+            certificate: r,
+          })),
+          errors: [],
+        },
+      }),
+    );
+    await page.route(
+      "**/api/badges/admin/certificates/email/catalog",
+      (route) =>
+        route.fulfill({
+          json: {
+            settings,
+            configuration: {
+              sender: "continuinged@cedarville.edu",
+              ready,
+              linksReady: true,
+              provider: ready ? "resend" : null,
+              reason: ready
+                ? null
+                : "Sending is disabled. Configure an email provider and credentials.",
+            },
+            contacts: Object.fromEntries(
+              records.map((r, i) => [
+                r.id,
+                {
+                  address:
+                    i < 2
+                      ? `${i === 0 ? "alex" : "jordan"}@example.test`
+                      : null,
+                  cohortIds: i < 2 ? ["cohort-test"] : [],
+                },
+              ]),
+            ),
+            cohorts: [{ id: "cohort-test", name: "Synthetic cohort" }],
+          },
+        }),
+    );
+    await page.route(
+      "**/api/badges/admin/certificates/email/history",
+      (route) => route.fulfill({ json: { deliveries: history, limit: 250 } }),
+    );
+    await page.route(
+      "**/api/badges/admin/certificates/email/preview",
+      async (route) => {
+        const body = route.request().postDataJSON();
+        emails = body.certificateIds.map((id: string) => {
+          const r = records.find((r) => r.id === id)!;
+          return {
+            id,
+            certificateId: id,
+            sourceId: "workspace",
+            badgeId: id,
+            recipientName: r.recipientName,
+            recipient: `${id === ids[0] ? "alex" : "jordan"}@example.test`,
+            sender: "continuinged@cedarville.edu",
+            subject: body.subject.replace("{{achievement}}", r.achievement),
+            message: body.message.replace("{{name}}", r.recipientName),
+            mode: body.mode,
+            state: "preview",
+            reason: null,
+          };
+        });
+        await route.fulfill({
+          json: {
+            batchId: "60000000-0000-4000-8000-000000000010",
+            emails,
+            expiresAt: "2026-10-28T12:30:00.000Z",
+          },
+        });
+      },
+    );
+    await page.route(
+      "**/api/badges/admin/certificates/email/send",
+      async (route) => {
+        sent = true;
+        history = emails.map((item) => ({
+          ...item,
+          state: "accepted",
+          createdAt: "2026-10-28T12:00:00.000Z",
+          events: [
+            {
+              at: "2026-10-28T12:00:00.000Z",
+              state: "accepted",
+              detail:
+                "Provider accepted. Inbox delivery has not been verified.",
+              actor: "email-worker",
+            },
+          ],
+        }));
+        await route.fulfill({ json: { queued: emails.length } });
+      },
+    );
+    await page.route("**/api/badges/admin/certificates/pdf/**", (route) =>
+      route.fulfill({
+        json: {
+          filename: "synthetic-certificate.pdf",
+          data: Buffer.from("%PDF-1.4 synthetic").toString("base64"),
+          contentType: "application/pdf",
+        },
+      }),
+    );
+    await page.goto("/staff/certificates");
+    const frame = page.frameLocator("iframe");
+    await expect(frame.locator("#ce-sender")).toHaveText(
+      "Sender: continuinged@cedarville.edu",
+    );
+    return { frame, sent: () => sent };
+  }
+  test("individual preview, PDF review, keyboard focus and deliberate send", async ({
+    page,
+  }) => {
+    const { frame, sent } = await setupEmail(page);
+    const button = frame
+      .locator("#cc-records .cc-record")
+      .first()
+      .getByRole("button", { name: "Email certificate", exact: true });
+    await button.focus();
+    await page.keyboard.press("Enter");
+    const dialog = frame.getByRole("region", {
+      name: "Preview certificate emails",
+    });
+    await expect(dialog).toBeVisible();
+    await expect(frame.locator("#ce-mode")).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(frame.locator("#ce-subject")).toBeFocused();
+    await expect(
+      dialog.getByRole("button", { name: "Send emails", exact: true }),
+    ).toBeDisabled();
+    await dialog
+      .getByRole("button", { name: "Build personalized previews" })
+      .click();
+    await expect(
+      dialog.getByText("To: alex@example.test", { exact: true }),
+    ).toBeVisible();
+    await expect(dialog.locator("pre")).toContainText("Hello Alex Morgan");
+    const download = page.waitForEvent("download");
+    await dialog
+      .getByRole("button", { name: "Review certificate PDF" })
+      .click();
+    expect((await download).suggestedFilename()).toBe(
+      "synthetic-certificate.pdf",
+    );
+    await scan(page, "Certificate email individual preview");
+    await dialog.locator("#ce-confirm").check();
+    await dialog
+      .getByRole("button", { name: "Send emails", exact: true })
+      .click();
+    await expect(dialog.locator("#ce-dialog-status")).toContainText(
+      "1 email queued",
+    );
+    expect(sent()).toBe(true);
+    await page.keyboard.press("Escape");
+    await expect(dialog).not.toBeVisible();
+    await expect(button).toBeFocused();
+    await expect(frame.locator("#ce-history")).toContainText(
+      "Provider accepted",
+    );
+  });
+  test("cohort selection personalizes separately and changing content invalidates confirmation", async ({
+    page,
+  }) => {
+    const { frame } = await setupEmail(page);
+    await frame
+      .getByLabel("Filter certificates by cohort")
+      .selectOption("cohort-test");
+    await expect(frame.locator("#ce-choices input")).toHaveCount(2);
+    await frame
+      .getByRole("button", { name: "Select visible certificates" })
+      .click();
+    await frame
+      .getByRole("button", { name: "Preview selected emails" })
+      .click();
+    const dialog = frame.getByRole("region", {
+      name: "Preview certificate emails",
+    });
+    await dialog
+      .getByLabel("Delivery format", { exact: true })
+      .selectOption("both");
+    await dialog
+      .getByRole("button", { name: "Build personalized previews" })
+      .click();
+    await expect(dialog.locator(".cc-email-preview")).toHaveCount(2);
+    await expect(dialog.locator("pre").nth(0)).toContainText(
+      "Hello Alex Morgan",
+    );
+    await expect(dialog.locator("pre").nth(1)).toContainText(
+      "Hello Jordan Morgan",
+    );
+    await dialog.locator("#ce-confirm").check();
+    await dialog.getByLabel("Subject", { exact: true }).fill("Updated subject");
+    await expect(
+      dialog.getByRole("button", { name: "Send emails", exact: true }),
+    ).toBeDisabled();
+    await expect(dialog.locator(".cc-email-preview")).toHaveCount(0);
+    await dialog
+      .getByRole("button", { name: "Build personalized previews" })
+      .click();
+    await scan(page, "Certificate email cohort preview");
+    await dialog.getByRole("button", { name: "Close", exact: true }).click();
+    await page.setViewportSize({ width: 320, height: 800 });
+    await expect(frame.locator("html")).toHaveJSProperty(
+      "scrollWidth",
+      await frame.locator("html").evaluate((el) => el.clientWidth),
+    );
+  });
+  test("unconfigured sender provider permits previews but blocks sending and automatic delivery", async ({
+    page,
+  }) => {
+    const { frame, sent } = await setupEmail(page, false);
+    await frame
+      .getByText("Email settings and automatic delivery", { exact: true })
+      .click();
+    await expect(
+      frame.getByLabel("Automatically email newly issued certificates"),
+    ).toBeDisabled();
+    await expect(frame.locator("#ce-choices input").last()).toBeDisabled();
+    await frame
+      .locator("#cc-records .cc-record")
+      .first()
+      .getByRole("button", { name: "Email certificate", exact: true })
+      .click();
+    const dialog = frame.getByRole("region", {
+      name: "Preview certificate emails",
+    });
+    await dialog
+      .getByRole("button", { name: "Build personalized previews" })
+      .click();
+    await expect(dialog.locator("#ce-dialog-status")).toContainText(
+      "Sending is disabled",
+    );
+    await expect(dialog.locator("#ce-confirm")).toBeDisabled();
+    expect(sent()).toBe(false);
+    await scan(page, "Unconfigured certificate email preview");
+  });
+  test("secure download capability stays out of request URLs and page history", async ({
+    page,
+  }) => {
+    const token = ids[0] + "." + "A".repeat(43);
+    let posted = false;
+    await page.route("**/api/badges/certificate-download", async (route) => {
+      expect(route.request().url()).not.toContain(token);
+      expect(route.request().postDataJSON()).toEqual({ token });
+      posted = true;
+      await route.fulfill({
+        status: 400,
+        json: { error: "Certificate link is invalid or expired." },
+      });
+    });
+    await page.goto("/credential-tools/certificate-download.html#" + token);
+    await expect(page).not.toHaveURL(/#/);
+    await page
+      .getByRole("button", { name: "Download certificate PDF" })
+      .click();
+    await expect(page.getByRole("status")).toHaveText(
+      "Certificate link is invalid or expired.",
+    );
+    expect(posted).toBe(true);
+    await scan(page, "Expired private certificate download");
+  });
+});
 // WCAG 2.2 A/AA rules on the key learner and staff screens, in light, dark and
 // phone layouts. Uses synthetic accounts only: a demo learner on example.test
 // and the seeded demo staff administrator on cuce.test.
@@ -2958,4 +3561,897 @@ test("credential integration: keyboard, unsaved design and 320px reflow", async 
       `${slug} editor reflow: ${JSON.stringify(overflow)}`,
     ).toBe(true);
   }
+});
+
+test.describe("individual progress and cohort reporting", () => {
+  const planId = "00000000-0000-4000-8000-000000000801",
+    learnerId = "00000000-0000-4000-8000-000000000802",
+    participantId = "00000000-0000-4000-8000-000000000803",
+    stepId = "00000000-0000-4000-8000-000000000804";
+  async function setup(
+    page: Page,
+    { editable = true, empty = false, fail = false } = {},
+  ) {
+    const plan = {
+      id: planId,
+      title: "Synthetic learning course",
+      revision: 1,
+      offeringId: planId,
+    };
+    const step = {
+      id: stepId,
+      title: "Required project",
+      position: 1,
+      required: true,
+      state: "awaiting_verification",
+      eventId: null,
+      note: "",
+      reference: "",
+      recordedAt: null,
+      source: null,
+    };
+    const participant = {
+      id: participantId,
+      learnerId,
+      name: "Alex Synthetic",
+      active: true,
+      steps: [step],
+      completed: 0,
+      required: 1,
+      percent: 0,
+      state: "awaiting_verification",
+    };
+    const report = {
+      plan,
+      steps: [step],
+      participants: empty ? [] : [participant],
+      summary: {
+        learners: empty ? 0 : 1,
+        completed: 0,
+        inProgress: 0,
+        awaitingVerification: empty ? 0 : 1,
+        notStarted: 0,
+      },
+    };
+    await page.route("**/api/demo-session", (r) =>
+      r.fulfill({
+        json: {
+          id: null,
+          email: null,
+          auth: { mode: "mock", configured: true },
+        },
+      }),
+    );
+    await page.route("**/api/staff-session", (r) =>
+      r.fulfill({
+        json: {
+          member: {
+            id: learnerId,
+            email: "staff@example.test",
+            display_name: "Progress tester",
+            active: true,
+            version: 1,
+            roles: [editable ? "catalog_manager" : "approver"],
+            scopes: [
+              "reports:read",
+              "staff:read",
+              ...(editable ? ["progress:manage"] : []),
+            ],
+          },
+          auth: { mode: "mock", configured: true },
+        },
+      }),
+    );
+    await page.route("**/api/staff/offerings", (r) =>
+      r.fulfill({
+        json: [
+          {
+            id: planId,
+            title: plan.title,
+            category: "Learning",
+            summary: "Synthetic",
+            description: "Synthetic",
+            format: "Online",
+            course_type: "self_paced",
+            published: true,
+            listed: true,
+            capacity: 10,
+            price_cents: 0,
+            outcomes: [],
+            version: 1,
+            collections: [],
+          },
+        ],
+      }),
+    );
+    for (const endpoint of ["approval-requests", "exceptions"])
+      await page.route(`**/api/${endpoint}`, (r) => r.fulfill({ json: [] }));
+    await page.route("**/api/reconciliation", (r) =>
+      r.fulfill({ json: { audit: [] } }),
+    );
+    await page.route("**/api/prototype/simulation", (r) =>
+      r.fulfill({ json: { provisioningOutcome: "normal" } }),
+    );
+    await page.route("**/api/staff/progress", (r) =>
+      fail
+        ? r.fulfill({
+            status: 503,
+            json: { message: "Progress temporarily unavailable" },
+          })
+        : r.fulfill({
+            json: {
+              plans: empty
+                ? []
+                : [
+                    {
+                      ...plan,
+                      offering_id: planId,
+                      participants: 1,
+                      steps: [step],
+                    },
+                  ],
+              cohorts: [],
+              learners: [
+                {
+                  id: learnerId,
+                  email: "alex@example.test",
+                  display_name: "Alex Synthetic",
+                },
+              ],
+            },
+          }),
+    );
+    await page.route(`**/api/staff/progress/plans/${planId}/report`, (r) =>
+      r.fulfill({ json: report }),
+    );
+    await page.route(
+      `**/api/staff/progress/participants/${participantId}/history`,
+      (r) => r.fulfill({ json: [] }),
+    );
+    return { report, step, participant };
+  }
+  test("staff report and evidence dialog: names, keyboard, focus and axe", async ({
+    page,
+  }) => {
+    await setup(page);
+    await page.goto("/staff/progress");
+    await expect(
+      page.getByRole("table", {
+        name: "Individual completion and cohort matrix",
+      }),
+    ).toBeVisible();
+    const open = page.getByRole("button", {
+      name: "View progress for Alex Synthetic",
+    });
+    await open.focus();
+    await page.keyboard.press("Enter");
+    await expect(
+      page.getByRole("dialog", { name: "Alex Synthetic: completion progress" }),
+    ).toBeVisible();
+    await page
+      .getByRole("button", { name: "Record evidence for Required project" })
+      .click();
+    const dialog = page.getByRole("dialog", {
+      name: "Record evidence: Required project",
+    });
+    await expect(dialog).toBeVisible();
+    await expect(
+      dialog.getByRole("button", { name: "Record verification" }),
+    ).toBeDisabled();
+    await dialog
+      .getByRole("textbox", { name: "Evidence or correction note" })
+      .fill("Staff verified the required synthetic project.");
+    await expect(
+      dialog.getByRole("button", { name: "Record verification" }),
+    ).toBeEnabled();
+    await scan(page, "Progress evidence dialog");
+    await page.keyboard.press("Escape");
+    await expect(
+      page.getByRole("dialog", { name: "Alex Synthetic: completion progress" }),
+    ).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(open).toBeFocused();
+    await scan(page, "Progress report");
+  });
+  test("create a requirements revision and cohort, assign a learner and save evidence", async ({
+    page,
+  }) => {
+    const { report, step, participant } = await setup(page);
+    const nextId = "00000000-0000-4000-8000-000000000805",
+      cohortId = "00000000-0000-4000-8000-000000000806";
+    let created = false,
+      cohort = false,
+      assigned = false,
+      completed = false;
+    const nextStep = { ...step, title: "Verified project" };
+    const nextReport = () => ({
+      ...report,
+      plan: { ...report.plan, id: nextId, revision: 2 },
+      steps: [nextStep],
+      participants: assigned
+        ? [
+            {
+              ...participant,
+              steps: [
+                {
+                  ...nextStep,
+                  state: completed ? "completed" : "awaiting_verification",
+                  eventId: completed ? cohortId : null,
+                  recordedAt: completed ? "2026-10-28T12:00:00Z" : null,
+                },
+              ],
+              completed: completed ? 1 : 0,
+              percent: completed ? 100 : 0,
+              state: completed ? "completed" : "awaiting_verification",
+            },
+          ]
+        : [],
+      summary: {
+        learners: assigned ? 1 : 0,
+        completed: completed ? 1 : 0,
+        inProgress: 0,
+        awaitingVerification: assigned && !completed ? 1 : 0,
+        notStarted: 0,
+      },
+    });
+    await page.unroute("**/api/staff/progress");
+    await page.route("**/api/staff/progress", (r) =>
+      r.fulfill({
+        json: {
+          plans: [
+            ...(created
+              ? [
+                  {
+                    id: nextId,
+                    title: report.plan.title,
+                    revision: 2,
+                    offering_id: planId,
+                    participants: assigned ? 1 : 0,
+                    steps: [nextStep],
+                  },
+                ]
+              : []),
+            {
+              ...report.plan,
+              offering_id: planId,
+              participants: 1,
+              steps: [step],
+            },
+          ],
+          cohorts: cohort
+            ? [
+                {
+                  id: cohortId,
+                  name: "October learning cohort",
+                  plan_id: nextId,
+                  title: report.plan.title,
+                  revision: 2,
+                  members: assigned ? 1 : 0,
+                },
+              ]
+            : [],
+          learners: [
+            {
+              id: learnerId,
+              email: "alex@example.test",
+              display_name: "Alex Synthetic",
+            },
+          ],
+        },
+      }),
+    );
+    await page.route("**/api/staff/progress/plans", async (r) => {
+      const body = r.request().postDataJSON();
+      expect(body.previousRevision).toBe(1);
+      expect(body.steps).toEqual([
+        { title: "Verified project", required: true },
+      ]);
+      created = true;
+      await r.fulfill({ json: { id: nextId, revision: 2 } });
+    });
+    await page.route(`**/api/staff/progress/plans/${nextId}/report`, (r) =>
+      r.fulfill({ json: nextReport() }),
+    );
+    await page.route("**/api/staff/progress/cohorts", async (r) => {
+      expect(r.request().postDataJSON().planId).toBe(nextId);
+      cohort = true;
+      await r.fulfill({ json: { id: cohortId } });
+    });
+    await page.route(`**/api/staff/progress/cohorts/${cohortId}/report`, (r) =>
+      r.fulfill({
+        json: {
+          ...nextReport(),
+          cohort: { id: cohortId, name: "October learning cohort" },
+        },
+      }),
+    );
+    await page.route(
+      `**/api/staff/progress/cohorts/${cohortId}/members`,
+      async (r) => {
+        expect(r.request().postDataJSON()).toEqual({ learnerId, active: true });
+        assigned = true;
+        await r.fulfill({ json: { participantId, active: true } });
+      },
+    );
+    await page.route(
+      `**/api/staff/progress/participants/${participantId}/evidence`,
+      async (r) => {
+        const body = r.request().postDataJSON();
+        expect(body.state).toBe("completed");
+        expect(body.previousEventId).toBe(null);
+        completed = true;
+        await r.fulfill({ json: { id: cohortId } });
+      },
+    );
+    await page.goto("/staff/progress");
+    await page.getByRole("button", { name: "Define requirements" }).click();
+    await page
+      .getByRole("textbox", { name: "Required steps (one per line)" })
+      .fill("Verified project");
+    await scan(page, "Completion requirements instructions");
+    await page
+      .getByRole("button", { name: "Create revised checklist" })
+      .click();
+    await expect(
+      page.getByRole("heading", {
+        name: /Synthetic learning course · Requirements v2/,
+      }),
+    ).toBeVisible();
+    await page
+      .getByRole("button", { name: "Create cohort", exact: true })
+      .click();
+    await page
+      .getByRole("textbox", { name: "Cohort name" })
+      .fill("October learning cohort");
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Create cohort", exact: true })
+      .click();
+    await expect(
+      page.getByRole("heading", {
+        name: /October learning cohort · Requirements v2/,
+      }),
+    ).toBeVisible();
+    await page.getByRole("combobox", { name: "Learner to assign" }).click();
+    await page.getByRole("option", { name: "Alex Synthetic" }).click();
+    await page
+      .getByRole("button", { name: "Add to cohort", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "View progress for Alex Synthetic" })
+      .click();
+    await page
+      .getByRole("button", { name: "Record evidence for Verified project" })
+      .click();
+    await page.getByRole("combobox", { name: "Verified status" }).click();
+    await page.getByRole("option", { name: "Completed", exact: true }).click();
+    await page
+      .getByRole("textbox", { name: "Evidence or correction note" })
+      .fill("Staff reviewed the submitted synthetic project.");
+    await page
+      .getByRole("button", { name: "Record verification", exact: true })
+      .click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(page.getByText("1 of 1 required steps · 100%")).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "View progress for Alex Synthetic" }),
+    ).toBeFocused();
+    await scan(page, "Completed cohort report");
+  });
+  test("read-only, empty and unavailable states", async ({ page }) => {
+    await setup(page, { editable: false });
+    await page.goto("/staff/progress");
+    await expect(
+      page.getByRole("table", {
+        name: "Individual completion and cohort matrix",
+      }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Define requirements" }),
+    ).toHaveCount(0);
+    await scan(page, "Read-only progress");
+    await page.unroute("**/api/staff/progress");
+    await page.route("**/api/staff/progress", (r) =>
+      r.fulfill({ json: { plans: [], cohorts: [], learners: [] } }),
+    );
+    await page.reload();
+    await expect(
+      page.getByText(/No completion requirements yet/),
+    ).toBeVisible();
+    await scan(page, "Empty progress");
+    await page.unroute("**/api/staff/progress");
+    await page.route("**/api/staff/progress", (r) =>
+      r.fulfill({
+        status: 503,
+        json: { message: "Progress temporarily unavailable" },
+      }),
+    );
+    await page.reload();
+    await expect(
+      page
+        .getByRole("alert")
+        .filter({ hasText: "Progress temporarily unavailable" }),
+    ).toBeVisible();
+  });
+  test("stale evidence retains note and 320px report reflows", async ({
+    page,
+  }) => {
+    await setup(page);
+    await page.route(
+      `**/api/staff/progress/participants/${participantId}/evidence`,
+      (r) =>
+        r.fulfill({
+          status: 409,
+          json: {
+            message: "Evidence changed. Refresh before recording a correction.",
+          },
+        }),
+    );
+    await page.setViewportSize({ width: 320, height: 800 });
+    await page.goto("/staff/progress");
+    await page
+      .getByRole("button", { name: "View progress for Alex Synthetic" })
+      .click();
+    await page
+      .getByRole("button", { name: "Record evidence for Required project" })
+      .click();
+    const note = page.getByRole("textbox", {
+      name: "Evidence or correction note",
+    });
+    await note.fill("Keep this verification note after a stale update.");
+    await page
+      .getByRole("button", { name: "Record verification", exact: true })
+      .click();
+    await expect(
+      page.getByRole("alert").filter({ hasText: "Evidence changed" }).last(),
+    ).toBeVisible();
+    await expect(note).toHaveValue(
+      "Keep this verification note after a stale update.",
+    );
+    await scan(page, "Stale progress evidence");
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth,
+      ),
+    ).toBeTruthy();
+  });
+  test("learner sees only the completion API response and can refresh", async ({
+    page,
+  }) => {
+    const { report, participant } = await setup(page);
+    await page.unroute("**/api/demo-session");
+    await page.route("**/api/demo-session", (r) =>
+      r.fulfill({
+        json: {
+          id: learnerId,
+          email: "alex@example.test",
+          display_name: "Alex Synthetic",
+          auth: { mode: "mock", configured: true },
+        },
+      }),
+    );
+    for (const endpoint of ["me/learning", "me/saved-courses", "me/pathways"])
+      await page.route(`**/api/${endpoint}`, (r) => r.fulfill({ json: [] }));
+    await page.route("**/api/me/progress", (r) =>
+      r.fulfill({ json: [{ plan: report.plan, progress: participant }] }),
+    );
+    await page.goto("/learning");
+    await expect(
+      page.getByRole("heading", { name: "Completion progress" }),
+    ).toBeVisible();
+    await expect(page.getByText("0 of 1 required steps · 0%")).toBeVisible();
+    await page
+      .getByRole("button", { name: "Refresh completion progress" })
+      .click();
+    await expect(page.getByText("No verification yet")).toBeVisible();
+    await scan(page, "Learner completion progress");
+  });
+});
+
+test.describe("skills and careers", () => {
+  const releaseId = "81000000-0000-4000-8000-000000000001";
+  const skill = {
+    id: "2.A.2.a",
+    releaseId,
+    name: "Critical Thinking",
+    description: "Use reasoning to compare alternative solutions.",
+    category: "essential",
+    url: "https://www.onetcenter.org/content.html#2.A.2.a",
+    source: "O*NET",
+    version: "31.0",
+    attribution: "O*NET 31.0 Database by USDOL/ETA.",
+    license: "https://creativecommons.org/licenses/by/4.0/",
+  };
+  const catalog = {
+    ready: true,
+    skillsRelease: { id: releaseId, version: "31.0" },
+    marketRelease: {
+      id: "bls-fixture",
+      version: "May 2025; 2025–2035",
+      importedAt: "2026-10-28T12:00:00Z",
+    },
+    regions: [
+      { id: "US", name: "United States" },
+      { id: "OH", name: "Ohio" },
+    ],
+    attribution: "O*NET 31.0 Database by USDOL/ETA, CC BY 4.0.",
+    onet: { configured: true },
+  };
+  async function mockSkills(page: Page, configured = true) {
+    await page.route("**/api/badges/**/skills/**", async (route) => {
+      const path = new URL(route.request().url()).pathname;
+      const body =
+        route.request().method() === "POST"
+          ? route.request().postDataJSON()
+          : {};
+      if (path.endsWith("/onet/status"))
+        return route.fulfill({
+          json: {
+            configured,
+            message: configured
+              ? "O*NET API access is configured."
+              : "O*NET API access is not configured. Imported skills and BLS statistics remain available.",
+          },
+        });
+      if (path.endsWith("/onet/search"))
+        return route.fulfill({
+          json: {
+            occupations: [
+              {
+                code: "25-9031.00",
+                title: "Instructional Coordinators",
+                url: "https://www.onetonline.org/link/summary/25-9031.00",
+              },
+            ],
+            limit: 10,
+            retrievedAt: "2026-10-28T12:00:00Z",
+          },
+        });
+      if (path.endsWith("/onet/outlook"))
+        return route.fulfill({
+          json: {
+            code: body.code,
+            outlook: {
+              category: "Bright",
+              description: "Original provider wording.",
+            },
+            brightOutlook: [{ title: "Grow Rapidly" }],
+            region: "US",
+            retrievedAt: "2026-10-28T12:00:00Z",
+            attributionUrl: "https://services.onetcenter.org/",
+            url: "https://www.mynextmove.org/profile/summary/" + body.code,
+          },
+        });
+      if (path.endsWith("/catalog"))
+        return route.fulfill({ json: { ...catalog, onet: { configured } } });
+      if (path.endsWith("/search"))
+        return route.fulfill({ json: { skills: [skill], limit: 25 } });
+      if (path.endsWith("/occupations"))
+        return route.fulfill({
+          json: {
+            skills: [skill],
+            region: body.region,
+            regions: catalog.regions,
+            catalog: { ...catalog, onet: { configured } },
+            note: "Occupational relevance is not proof of learner mastery or an employment guarantee.",
+            occupations: [
+              {
+                code: "15-1252.00",
+                socCode: "15-1252",
+                title: "Software Developers",
+                url: "https://www.onetonline.org/link/summary/15-1252.00",
+                matches: [
+                  {
+                    name: skill.name,
+                    importance: 4,
+                    basis: "importance",
+                    dataDate: "2025-08-01",
+                  },
+                ],
+                wage: {
+                  region: body.region,
+                  regionName: body.region === "OH" ? "Ohio" : "United States",
+                  year: 2025,
+                  medianAnnual: body.region === "OH" ? null : 100000,
+                  medianHourly: 42.5,
+                  annualMarker: body.region === "OH" ? "#" : null,
+                },
+                outlook: {
+                  baseYear: 2025,
+                  endYear: 2035,
+                  percentChange: 12.5,
+                  annualOpenings: 123400,
+                },
+                scopeNote:
+                  "Wages and outlook use SOC 15-1252, which may group multiple O*NET occupations.",
+              },
+            ],
+          },
+        });
+      return route.fulfill({
+        status: 404,
+        json: { error: "Unknown synthetic skills route" },
+      });
+    });
+  }
+  test("public explorer supports skill selection, regional wages, national outlook and keyboard navigation without sign-in", async ({
+    page,
+  }) => {
+    await mockSkills(page);
+    await page.goto("/skills");
+    const frame = page.frameLocator("iframe");
+    const credit = frame.locator(".skills-onet-credit").first();
+    await expect(credit).toContainText(
+      "This site incorporates information from O*NET Web Services by the U.S. Department of Labor, Employment and Training Administration (USDOL/ETA). O*NET® is a trademark of USDOL/ETA.",
+    );
+    const logo = credit.getByRole("img", { name: "O*NET in-it", exact: true });
+    await expect(logo).toHaveAttribute(
+      "src",
+      "/credential-tools/onet-in-it.svg",
+    );
+    await expect(
+      credit.getByRole("link", { name: "O*NET in-it", exact: true }),
+    ).toHaveAttribute("href", "https://services.onetcenter.org/");
+    await expect(
+      credit.getByRole("link", { name: "O*NET in-it", exact: true }),
+    ).toHaveAttribute(
+      "title",
+      "This site incorporates information from O*NET Web Services. Click to learn more.",
+    );
+    await expect
+      .poll(() =>
+        logo.evaluate(
+          (el: HTMLImageElement) => el.complete && el.naturalWidth > 0,
+        ),
+      )
+      .toBeTruthy();
+    await expect(
+      frame.getByRole("button", { name: "Search skills", exact: true }),
+    ).toBeEnabled();
+    await frame.getByLabel("Search O*NET skills or software").fill("critical");
+    const wasDark = await page.evaluate(
+      () => matchMedia("(prefers-color-scheme: dark)").matches,
+    );
+    await page.emulateMedia({ colorScheme: wasDark ? "light" : "dark" });
+    await expect(frame.locator("html")).toHaveAttribute(
+      "data-theme",
+      wasDark ? "light" : "dark",
+    );
+    await expect(
+      frame.getByLabel("Search O*NET skills or software"),
+    ).toHaveValue("critical");
+    await frame
+      .getByRole("button", { name: "Search skills", exact: true })
+      .click();
+    await frame
+      .getByRole("button", { name: "Select Critical Thinking", exact: true })
+      .focus();
+    await page.keyboard.press("Enter");
+    await frame
+      .getByRole("button", { name: "Find related occupations" })
+      .click();
+    await expect(frame.getByText("Median annual wage: $100,000")).toBeVisible();
+    await frame.getByLabel("Wage region").focus();
+    await frame.getByLabel("Wage region").selectOption("OH");
+    await expect(
+      frame.getByText("Median annual wage: Not published (source marker #)"),
+    ).toBeVisible();
+    await expect(frame.getByLabel("Wage region")).toBeFocused();
+    await expect(
+      frame.getByText("United States outlook · 2025–2035 (national)"),
+    ).toBeVisible();
+    await expect(
+      frame.getByText("Annual openings, period average: 123,400 jobs per year"),
+    ).toBeVisible();
+    await frame
+      .getByLabel("Occupation keywords")
+      .fill("instructional designer");
+    await frame
+      .getByRole("button", { name: "Search occupations", exact: true })
+      .click();
+    const api = frame.locator(".onet-results");
+    await api
+      .getByRole("button", { name: "View O*NET outlook for 25-9031.00" })
+      .click();
+    await expect(api.getByText("Original provider wording.")).toBeVisible();
+    await expect(
+      api.getByRole("link", { name: "O*NET Web Services" }),
+    ).toHaveAttribute("href", "https://services.onetcenter.org/");
+    await expect(
+      page.getByRole("heading", {
+        name: "Skills and career explorer",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await scan(page, "Public skills, regional wages and O*NET API outlook");
+    expect(
+      await frame
+        .locator("body")
+        .evaluate((el) => el.scrollWidth <= el.clientWidth + 1),
+    ).toBeTruthy();
+  });
+  test("missing API configuration keeps imported skills usable and handles a provider failure", async ({
+    page,
+  }) => {
+    await mockSkills(page, false);
+    await page.goto("/skills");
+    const frame = page.frameLocator("iframe");
+    await expect(
+      frame.getByRole("button", { name: "Search occupations", exact: true }),
+    ).toBeDisabled();
+    await expect(
+      frame.getByRole("button", { name: "Search skills", exact: true }),
+    ).toBeEnabled();
+    await expect(
+      frame.getByText(/O\*NET API access is not configured/),
+    ).toBeVisible();
+    await scan(page, "Skills explorer with API disabled");
+    await page.unroute("**/api/badges/**/skills/**");
+    await mockSkills(page, true);
+    await page.route("**/api/badges/public/skills/onet/search", (route) =>
+      route.fulfill({
+        status: 429,
+        json: { error: "O*NET is busy. Wait a moment before trying again." },
+      }),
+    );
+    await page.reload();
+    await expect(
+      frame.getByRole("button", { name: "Search occupations", exact: true }),
+    ).toBeEnabled();
+    await frame.getByLabel("Occupation keywords").fill("teaching");
+    await frame
+      .getByRole("button", { name: "Search occupations", exact: true })
+      .click();
+    await expect(
+      frame.getByText("O*NET is busy. Wait a moment before trying again."),
+    ).toBeVisible();
+    await expect(
+      frame.getByRole("button", { name: "Search occupations", exact: true }),
+    ).toBeEnabled();
+  });
+  test("badge designer explains and saves assessed skills after validation", async ({
+    page,
+  }) => {
+    await page.request.post("/api/staff-session", {
+      data: { email: "admin@cuce.test" },
+    });
+    await mockSkills(page);
+    let saved: any = null;
+    await page.route("**/api/badges/designer/drafts**", (route) => {
+      if (route.request().method() === "GET")
+        return route.fulfill({ json: { drafts: saved ? [saved] : [] } });
+      saved = {
+        id: "81000000-0000-4000-8000-000000000002",
+        revision: 1,
+        design: route.request().postDataJSON().design,
+      };
+      return route.fulfill({ json: saved });
+    });
+    await page.goto("/staff/badges");
+    const frame = page.frameLocator("iframe");
+    await frame.getByRole("tab", { name: /Details/ }).click();
+    await expect(
+      frame.getByRole("button", { name: "Search skills", exact: true }),
+    ).toBeEnabled();
+    await frame.getByLabel("Search O*NET skills or software").fill("critical");
+    await frame
+      .getByRole("button", { name: "Search skills", exact: true })
+      .click();
+    await frame
+      .getByRole("button", { name: "Select Critical Thinking", exact: true })
+      .click();
+    await frame
+      .getByRole("button", { name: "Save badge draft", exact: true })
+      .click();
+    expect(saved).toBeNull();
+    await expect(
+      frame.getByText(
+        "Explain how each selected skill is assessed (at least 10 characters).",
+      ),
+    ).toBeVisible();
+    await frame
+      .getByLabel("How is Critical Thinking assessed?")
+      .fill(
+        "Learner compares alternative solutions using a documented rubric.",
+      );
+    await frame
+      .getByRole("button", { name: "Save badge draft", exact: true })
+      .click();
+    await expect(
+      frame.getByText("Badge draft saved and verified."),
+    ).toBeVisible();
+    expect(saved.design.skills[0].id).toBe(skill.id);
+    expect(saved.design.skills[0].assessment).toContain("documented rubric");
+    await scan(page, "Assessed skills badge draft");
+  });
+  test("learner opens career context from an owned aligned award", async ({
+    page,
+  }) => {
+    await mockSkills(page);
+    await page.route("**/api/demo-session", (route) =>
+      route.fulfill({
+        json: {
+          id: "00000000-0000-4000-8000-000000000099",
+          email: null,
+          display_name: "Test Learner",
+          auth: { mode: "canvas", configured: true },
+        },
+      }),
+    );
+    await page.route("**/api/badges/me/badges", (route) =>
+      route.fulfill({
+        json: {
+          badges: [
+            {
+              id: releaseId,
+              sourceId: "workspace",
+              title: "Assessed learning accomplishment",
+              issuer: "Cedarville University",
+              issuedAt: "2026-10-28T12:00:00Z",
+              description: "Synthetic aligned accomplishment.",
+              criteria: "Complete the documented assessment.",
+              signatureValid: true,
+              status: "issued",
+              demo: true,
+              shared: false,
+              certificateAvailable: true,
+              skills: [skill],
+            },
+          ],
+        },
+      }),
+    );
+    await page.route(
+      "**/api/badges/me/badges/workspace/" + releaseId + "/careers/*",
+      (route) => {
+        const region = new URL(route.request().url()).pathname
+          .split("/")
+          .at(-1);
+        return route.fulfill({
+          json: {
+            region,
+            regions: catalog.regions,
+            catalog,
+            alignments: [
+              {
+                ...skill,
+                assessment:
+                  "Compare alternative solutions against the documented rubric.",
+              },
+            ],
+            occupations: [],
+            note: "Owned award skills context.",
+          },
+        });
+      },
+    );
+    await page.goto("/badges");
+    const frame = page.frameLocator("iframe");
+    await frame
+      .getByRole("button", {
+        name: "Skills and career connections",
+        exact: true,
+      })
+      .click();
+    await frame
+      .getByText("How these skills were assessed", { exact: true })
+      .click();
+    await expect(
+      frame.getByText(
+        "Compare alternative solutions against the documented rubric.",
+        { exact: true },
+      ),
+    ).toBeVisible();
+    await frame.getByLabel("Wage region").selectOption("OH");
+    await expect(
+      frame.getByText("Owned award skills context.", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      frame.getByRole("button", {
+        name: "Download certificate PDF",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await scan(page, "Learner owned skill assessment and career context");
+  });
 });

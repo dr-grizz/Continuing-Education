@@ -4,6 +4,10 @@ Badges run inside the existing NestJS API process, using its PostgreSQL pool and
 
 The [interface requirements](prototype/ui-specification.md#badging-and-certificate-interfaces) specify each screen and its expected behavior.
 
+[Certificate email](certificate-email.md) adds individual/cohort previews, attachments and private links, delivery history, duplicate protection and optional automatic delivery. It requires migration `026_certificate_email`; live sending stays disabled until a provider and the requested sender `continuinged@cedarville.edu` are configured and authorized.
+
+[QR/claim-code distribution](credential-distribution.md) supports badge-only, certificate-only and paired delivery to the same linked learner, plus local sample records and claim history.
+
 ## Routes and authority
 
 | Portal route | Function | Required authority |

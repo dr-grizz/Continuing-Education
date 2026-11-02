@@ -230,6 +230,8 @@ Teachable has **no separate enrollment dashboard**; enrollment counts sit inside
 
 **Local reporting (updated October 14, 2026):** an Admin → **Dashboard** tab (`GET /api/v1/staff/dashboard`) demonstrates the enrollment and sales dashboards on prototype data. It has date-range and offering filters, KPI tiles, accessible single-series column charts with table views, offering tables with seat meters, CSV export of aggregates, and a completion placeholder. Sales appear only with `reports:sales`, granted to Staff administrators. Finance is an external department, not a portal role. Refunds and failed payments show as not yet available.
 
+**Individual progress/cohorts (local addition October 28, 2026):** [Progress and cohorts](../docs/individual-progress-cohorts.md) adds versioned per-offering requirements, explicit learner assignments, documented staff verification/corrections, My learning completion views and cohort matrices derived from individual records. Enrollment/payment/following never count as academic completion. This is manual evidence reporting; automatic Canvas completion, cross-course pathway rollups, prerequisite gates and badge automation remain separate work.
+
 The dashboards:
 
 - **Enrollment dashboard** (Program Operations):

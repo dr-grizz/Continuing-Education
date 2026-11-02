@@ -1,0 +1,47 @@
+.cd-workspace {
+  margin-top: 24px;
+}
+.cd-detail {
+  border: 2px solid var(--ca-line, #d8e1e7);
+  border-radius: 8px;
+  padding: 20px;
+  margin: 20px 0;
+}
+.cd-qr {
+  display: block;
+  width: 360px;
+  max-width: 100%;
+  height: auto;
+  background: white;
+}
+.cd-record {
+  border-top: 1px solid var(--ca-line, #d8e1e7);
+  padding: 14px 0;
+}
+.cd-workspace :focus-visible {
+  outline: 3px solid var(--ca-gold, #986a00);
+  outline-offset: 3px;
+}
+.cd-workspace p,
+.cd-workspace li {
+  overflow-wrap: anywhere;
+}
+.cd-workspace .cc-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-top: 16px;
+}
+#cd-status:not(:empty) {
+  padding: 12px;
+  border-left: 4px solid var(--ca-gold, #fdb813);
+}
+@media (max-width: 500px) {
+  .cd-detail {
+    padding: 12px;
+  }
+  .cd-workspace .cc-actions button {
+    width: 100%;
+  }
+}

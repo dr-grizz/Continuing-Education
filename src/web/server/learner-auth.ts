@@ -96,6 +96,7 @@ export async function completeLearnerLogin(request: NextRequest) {
     const destination =
       typeof data.returnTo === "string" &&
       (data.returnTo === "/learning" ||
+        data.returnTo === "/credential-tools/claim.html" ||
         /^\/courses\/[0-9a-f-]{36}$/.test(data.returnTo) ||
         /^\/collections\/[a-z0-9]+(-[a-z0-9]+)*$/.test(data.returnTo))
         ? data.returnTo

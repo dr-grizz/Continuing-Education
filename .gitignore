@@ -39,3 +39,7 @@ artifacts/
 .azure/*.local.*
 # Isolated local validation tooling and private badge runtime
 tmp/
+
+# Generated Python import cache
+__pycache__/
+*.pyc

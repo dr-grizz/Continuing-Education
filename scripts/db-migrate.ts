@@ -1,6 +1,8 @@
 import "dotenv/config";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
+import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import {
   assertPrototypeRuntime,
   assertHostedDatabase,
@@ -13,20 +15,24 @@ import { applyLegacyMigrations, legacyMigrations } from "./legacy-migrations";
 const BASELINE = "000_baseline";
 // Same advisory lock key as the legacy runner, so old and new runners never overlap.
 const LOCK = 21001001;
-const prismaBin = path.resolve(__dirname, "../node_modules/.bin/prisma");
+const prismaCli = require.resolve("prisma/build/index.js");
 
 function prisma(args: string[], databaseUrl: string, quiet: boolean) {
   // PRISMA_CONFIG_PATH lets tests point at a disposable migrations directory.
   const config = process.env.PRISMA_CONFIG_PATH;
-  execFileSync(prismaBin, [...args, ...(config ? ["--config", config] : [])], {
-    stdio: quiet ? "pipe" : "inherit",
-    env: { ...process.env, DATABASE_URL: databaseUrl },
-  });
+  execFileSync(
+    process.execPath,
+    [prismaCli, ...args, ...(config ? ["--config", config] : [])],
+    {
+      stdio: quiet ? "pipe" : "inherit",
+      env: { ...process.env, DATABASE_URL: databaseUrl },
+    },
+  );
 }
 
 export async function migrate(
   databaseUrl = process.env.MIGRATION_DATABASE_URL || process.env.DATABASE_URL,
-  { quiet = false } = {},
+  { quiet = false, verifyHistory = false } = {},
 ) {
   if (
     process.env.NODE_ENV === "production" ||
@@ -41,7 +47,11 @@ export async function migrate(
   }
   if (!databaseUrl) throw new Error("Run npm run setup first.");
   const log = (message: string) => !quiet && console.log(message);
-  const pool = new Pool({ connectionString: databaseUrl, max: 1 });
+  const pool = new Pool({
+    connectionString: databaseUrl,
+    max: 1,
+    connectionTimeoutMillis: 15_000,
+  });
   const client = await pool.connect();
   try {
     await client.query("SELECT pg_advisory_lock($1)", [LOCK]);
@@ -55,6 +65,37 @@ export async function migrate(
     // Prisma applies them in alphabetical order, where "10_x" sorts before
     // "1_x". Rename history recorded under the old names before deploying.
     if (state.prisma) {
+      if (verifyHistory) {
+        const history = await client.query(
+          "SELECT migration_name, checksum, finished_at, rolled_back_at FROM _prisma_migrations",
+        );
+        for (const row of history.rows) {
+          if (row.rolled_back_at) continue;
+          if (!row.finished_at)
+            throw new Error(
+              "Unresolved failed migration; administrator review is required.",
+            );
+          const name = String(row.migration_name).replace(
+            /^(\d{1,2})_/,
+            (_, number: string) => number.padStart(3, "0") + "_",
+          );
+          if (!/^\d{3}_[a-z0-9_]+$/.test(name))
+            throw new Error(
+              "Unrecognized migration history; administrator review is required.",
+            );
+          const checksum = createHash("sha256")
+            .update(
+              readFileSync(
+                path.resolve("prisma/migrations", name, "migration.sql"),
+              ),
+            )
+            .digest("hex");
+          if (checksum !== row.checksum)
+            throw new Error(
+              "Migration checksum mismatch; administrator review is required.",
+            );
+        }
+      }
       const renamed = await client.query(
         `UPDATE _prisma_migrations
            SET migration_name = lpad(split_part(migration_name, '_', 1), 3, '0') || substr(migration_name, position('_' in migration_name))

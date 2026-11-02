@@ -14,6 +14,7 @@ const names = [
   "certificates",
   "issuances",
   "my-badges",
+  "skills",
 ];
 const links = {
   issuer: "/staff/badges",
@@ -48,6 +49,10 @@ for (const name of names) {
 }
 for (const file of [
   "issuer.js",
+  "skills-ui.js",
+  "skills-explorer.js",
+  "skills.css",
+  "onet-in-it.svg",
   "issuer.css",
   "publishing.js",
   "publishing.css",
@@ -57,11 +62,17 @@ for (const file of [
   "awards.js",
   "awards.css",
   "certificates.js",
+  "certificate-email.js",
+  "distribution.js",
+  "distribution.css",
   "certificates.css",
   "my-badges.js",
   "my-badges.css",
 ]) {
-  const shared = /^(awards|certificates|my-badges)\./.test(file);
+  const shared =
+    /^(awards|certificates|certificate-email|distribution|my-badges)\./.test(
+      file,
+    );
   let contents = readFileSync(
     path.join(pilot, shared ? "portal-bridge/assets" : "public", file),
     "utf8",
@@ -76,6 +87,14 @@ for (const file of [
       "'/badge-artwork.js'",
       "'/credential-tools/badge-artwork.js'",
     );
+    contents = contents.replaceAll(
+      "/skills-ui.js",
+      "/credential-tools/skills-ui.js",
+    );
+    contents = contents.replaceAll(
+      "/onet-in-it.svg",
+      "/credential-tools/onet-in-it.svg",
+    );
     contents = contents.replaceAll("/api/", "/api/badges/");
     for (const [key, value] of Object.entries(links))
       contents = contents
@@ -89,4 +108,17 @@ for (const file of [
   }
   writeFileSync(path.join(out, file), contents);
 }
-console.log("Six credential workspaces rebuilt from the pilot source.");
+console.log(
+  "Credential workspaces and public skills explorer rebuilt from source.",
+);
+for (const file of [
+  "certificate-download.html",
+  "certificate-download.js",
+  "claim.html",
+  "claim.js",
+]) {
+  writeFileSync(
+    path.join(out, file),
+    readFileSync(path.join(pilot, "public", file), "utf8"),
+  );
+}

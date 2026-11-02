@@ -53,3 +53,5 @@ Formatting and diff checks passed. Browser assertions confirmed blue image backg
 ## Pull-request preparation
 
 Final `npm run build`, `npm run format:check`, `npm run test:security`, `npm run test:hosting`, and `git diff --check` passed on `codex/style-update`. The production build includes the final owner-supplied fonts and image-only blue backgrounds. Build ran with the available Node 22.22.3; the repository declares Node 24+ as its supported runtime. This supersedes the earlier statement that no production build was performed for the font replacement. Prior scoped browser results and remaining manual/accessibility gaps above still apply. Changes are being committed and proposed to `main`; this does not deploy or merge them.
+
+After incorporating current `origin/main`, generated credential-page conflicts were resolved by rebuilding from the merged source. The skills explorer now receives the shared font loader too. Production build, formatting, security/hosting tests, diff checks, all 12 scoped learner OAuth/accessibility tests and the list/grid image-background/browser checks passed again on the merged tree. Remaining review gaps noted above still apply.

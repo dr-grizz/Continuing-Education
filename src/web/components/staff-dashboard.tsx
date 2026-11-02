@@ -853,12 +853,17 @@ export function StaffDashboard({
               Completion
             </Typography>
             <Paper variant="outlined" sx={{ p: 3 }}>
-              <Typography>Available after the Canvas connection.</Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                {data.completion.reason} Planned: completion rate and trend by
-                offering, cohort and pathway; learners not started, in progress
-                and complete; time to complete.
+              <Typography>
+                Documented completion progress and cohort reports are available
+                in Progress and cohorts.
               </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                Automatic Canvas completion statistics and completion trends are
+                not available yet.
+              </Typography>
+              <Button href="/staff/progress" sx={{ mt: 2 }}>
+                Open progress and cohorts
+              </Button>
             </Paper>
           </Box>
         </Stack>

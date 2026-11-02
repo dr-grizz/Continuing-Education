@@ -21,6 +21,26 @@ async function main() {
     delete process.env.HOSTED_DEMO;
     delete process.env.HOSTED_BETA;
     assert.equal(proxy(new NextRequest("http://localhost/")).status, 200);
+    process.env.WEBSITE_SITE_NAME = "app-cuce-beta-cmvjnykp";
+    assert.equal(
+      proxy(new NextRequest("http://localhost/api/health")).status,
+      200,
+    );
+    assert.equal(
+      proxy(new NextRequest("http://localhost/api/health", { method: "HEAD" }))
+        .status,
+      200,
+    );
+    assert.equal(
+      proxy(new NextRequest("http://localhost/api/health/extra")).status,
+      503,
+    );
+    assert.equal(
+      proxy(new NextRequest("http://localhost/api/health", { method: "POST" }))
+        .status,
+      503,
+    );
+    delete process.env.WEBSITE_SITE_NAME;
     assert.throws(() =>
       assertPrototypeRuntime({
         NODE_ENV: "production",
@@ -80,6 +100,35 @@ async function main() {
       assertHostedDatabase("postgresql://localhost/db?sslmode=disable"),
     );
     assertHostedDatabase("postgresql://db.example.test/db?sslmode=verify-full");
+    const databaseTestingEnv = {
+      HOSTED_BETA: "true",
+      HOSTED_DEMO: "false",
+      PROTOTYPE_MODE: "true",
+      HOSTED_BETA_ALLOW_INSECURE_DATABASE: "true",
+    };
+    for (const value of [
+      "postgresql://db.example.test/db",
+      "postgresql://db.example.test/db?sslmode=disable",
+    ]) {
+      assertHostedDatabase(value, databaseTestingEnv);
+      for (const override of [
+        { HOSTED_BETA_ALLOW_INSECURE_DATABASE: "false" },
+        { HOSTED_BETA_ALLOW_INSECURE_DATABASE: undefined },
+        { HOSTED_BETA_ALLOW_INSECURE_DATABASE: "TRUE" },
+        { HOSTED_BETA: "false" },
+        { HOSTED_DEMO: "true" },
+        { PROTOTYPE_MODE: "false" },
+      ])
+        assert.throws(() =>
+          assertHostedDatabase(value, { ...databaseTestingEnv, ...override }),
+        );
+    }
+    for (const value of [
+      undefined,
+      "https://db.example.test/db",
+      "mysql://db.example.test/db",
+    ])
+      assert.throws(() => assertHostedDatabase(value, databaseTestingEnv));
     for (const path of [
       "/",
       "/staff",
@@ -88,11 +137,48 @@ async function main() {
       "/api/offerings",
       "/api/docs",
       "/media/private",
-      "/_next/static/test.js",
+      "/api/badges/public/skills/onet/arbitrary",
+      "/credential-tools/issuer.html",
+      "/api/badges/admin/skills/catalog",
       "/healthz/extra",
       "/api/webhooks/stripe/extra",
     ])
       assert.equal(proxy(request(path)).status, 401, path);
+    for (const path of [
+      "/skills",
+      "/credential-tools/skills.html",
+      "/credential-tools/skills-ui.js",
+      "/credential-tools/skills-explorer.js",
+      "/credential-tools/skills.css",
+      "/credential-tools/awards.css",
+      "/credential-tools/issuer.css",
+      "/credential-tools/portal-theme.css",
+      "/credential-tools/portal-frame.js",
+      "/credential-tools/onet-in-it.svg",
+      "/api/badges/public/skills/catalog",
+      "/api/badges/public/skills/onet/status",
+      "/_next/static/test.js",
+    ])
+      assert.equal(proxy(request(path)).status, 200, path);
+    for (const path of [
+      "/api/badges/public/skills/search",
+      "/api/badges/public/skills/occupations",
+      "/api/badges/public/skills/onet/search",
+      "/api/badges/public/skills/onet/outlook",
+    ]) {
+      assert.equal(proxy(request(path, "POST")).status, 403, path);
+      assert.equal(
+        proxy(request(path, "POST", { origin: "https://attacker.test" }))
+          .status,
+        403,
+        path,
+      );
+      assert.equal(
+        proxy(request(path, "POST", { origin: process.env.WEB_URL! })).status,
+        200,
+        path,
+      );
+    }
     assert.equal(
       proxy(request("/", "GET", { authorization: "Basic wrong" })).status,
       401,

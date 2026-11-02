@@ -21,27 +21,52 @@ const config = defineConfig({
   projects: [
     {
       name: "light",
-      testMatch: ["pages.spec.ts", "staff-canvas-link.spec.ts"],
+      testMatch: [
+        "pages.spec.ts",
+        "staff-canvas-link.spec.ts",
+        "bootstrap-setup.spec.ts",
+        "system-info.spec.ts",
+      ],
       use: { ...devices["Desktop Chrome"], colorScheme: "light" },
     },
     {
       name: "dark",
-      testMatch: ["pages.spec.ts", "staff-canvas-link.spec.ts"],
+      testMatch: [
+        "pages.spec.ts",
+        "staff-canvas-link.spec.ts",
+        "bootstrap-setup.spec.ts",
+        "system-info.spec.ts",
+      ],
       use: { ...devices["Desktop Chrome"], colorScheme: "dark" },
     },
     {
       name: "phone",
-      testMatch: ["pages.spec.ts", "staff-canvas-link.spec.ts"],
+      testMatch: [
+        "pages.spec.ts",
+        "staff-canvas-link.spec.ts",
+        "bootstrap-setup.spec.ts",
+        "system-info.spec.ts",
+      ],
       use: { ...devices["Pixel 7"], colorScheme: "light" },
     },
     {
       name: "firefox",
-      testMatch: ["pages.spec.ts", "staff-canvas-link.spec.ts"],
+      testMatch: [
+        "pages.spec.ts",
+        "staff-canvas-link.spec.ts",
+        "bootstrap-setup.spec.ts",
+        "system-info.spec.ts",
+      ],
       use: { ...devices["Desktop Firefox"], colorScheme: "light" },
     },
     {
       name: "webkit",
-      testMatch: ["pages.spec.ts", "staff-canvas-link.spec.ts"],
+      testMatch: [
+        "pages.spec.ts",
+        "staff-canvas-link.spec.ts",
+        "bootstrap-setup.spec.ts",
+        "system-info.spec.ts",
+      ],
       use: { ...devices["Desktop Safari"], colorScheme: "light" },
     },
     {
@@ -67,7 +92,14 @@ if (process.env.CI_QUICK === "true") {
     )
     .map((project) =>
       project.name === "phone"
-        ? { ...project, testMatch: "staff-canvas-link.spec.ts" }
+        ? {
+            ...project,
+            testMatch: [
+              "staff-canvas-link.spec.ts",
+              "bootstrap-setup.spec.ts",
+              "system-info.spec.ts",
+            ],
+          }
         : project,
     );
 }

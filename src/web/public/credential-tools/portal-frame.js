@@ -1,6 +1,12 @@
 (() => {
   const dark = new URLSearchParams(location.search).get("theme") === "dark";
   document.documentElement.dataset.theme = dark ? "dark" : "light";
+  window.addEventListener("message", event => {
+    if (event.origin !== location.origin || event.source !== parent ||
+        event.data?.type !== "cu-badge-theme" ||
+        !["light", "dark"].includes(event.data.theme)) return;
+    document.documentElement.dataset.theme = event.data.theme;
+  });
   function send(message) { if (parent !== window) parent.postMessage(message, location.origin); }
   let last = 0;
   function resize() {

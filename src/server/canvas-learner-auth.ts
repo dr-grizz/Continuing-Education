@@ -17,6 +17,7 @@ export const learnerState = /^learner\.[A-Za-z0-9_-]{43}$/;
 export function learnerReturnTo(value: unknown) {
   return typeof value === "string" &&
     (value === "/learning" ||
+      value === "/credential-tools/claim.html" ||
       /^\/courses\/[0-9a-f-]{36}$/.test(value) ||
       /^\/collections\/[a-z0-9]+(-[a-z0-9]+)*$/.test(value))
     ? value

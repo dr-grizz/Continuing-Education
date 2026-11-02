@@ -448,6 +448,7 @@ export class ManualAwards {
             criteria: v.design.criteria,
             image: v.artwork,
             design: v.design,
+            ...(v.design.skills?.length ? { skills: v.design.skills } : {}),
           },
           issuance: {
             method: b.method === "csv" ? "staff-csv" : "staff-manual",

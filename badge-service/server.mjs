@@ -9,6 +9,13 @@ import { initializeDrafts, listDrafts, saveDraft } from "./designs.mjs";
 import { LearnerAwards } from "./learners.mjs";
 import { PublishingCatalog, normalizeRule } from "./publishing.mjs";
 import { readRegister, registerEnvelope } from "./register.mjs";
+import { CredentialDistribution } from "./distribution.mjs";
+import { LaborMarket } from "./skills.mjs";
+import { OnetService, OnetError } from "./onet.mjs";
+import {
+  CertificateEmail,
+  CertificateRecipients,
+} from "./certificate-email.mjs";
 import {
   Certificates,
   defaultCertificate,
@@ -43,6 +50,9 @@ export async function createApp({
   mappedLearners = {},
   registerSources = [],
   pool,
+  emailOptions = {},
+  distributionOptions = {},
+  onetOptions = {},
 } = {}) {
   const origin = new URL(baseUrl).origin;
   if (!["127.0.0.1", "localhost"].includes(new URL(origin).hostname))
@@ -92,7 +102,27 @@ export async function createApp({
   const catalog = new PublishingCatalog(store);
   const learners = { ...config.learners, ...mappedLearners };
   const certificates = new Certificates(store, awards, learners);
+  const onet = new OnetService(onetOptions);
+  const laborMarket = new LaborMarket(store.db, onet);
+  const certificateEmail = new CertificateEmail({
+    store,
+    certificates,
+    directory: new CertificateRecipients(store.db),
+    secret: tokenFile("certificate-email-link-key"),
+    ...emailOptions,
+  });
+  certificates.email = certificateEmail;
+  certificateEmail.start();
   const manualAwards = new ManualAwards(store, catalog, learners, certificates);
+  const distribution = new CredentialDistribution({
+    store,
+    certificates,
+    learners,
+    sources,
+    secret: tokenFile("claim-code-key"),
+    recipients: new CertificateRecipients(store.db),
+    ...distributionOptions,
+  });
   async function learnerCollection(id) {
     const result = await awards.list(id);
     return {
@@ -193,6 +223,60 @@ export async function createApp({
         : url.pathname;
       const certificateRoute =
         /^\/api\/(admin|portal-staff)\/certificates(?:\/|$)/.test(path);
+      const publicSkills =
+        /^\/api\/public\/skills\/(catalog|search|occupations|onet\/(status|search|outlook))$/.test(path);
+      if (request.method === "GET" && path === "/api/public/skills/onet/status")
+        return send(200, onet.status());
+      if (
+        request.method === "GET" &&
+        (path === "/api/admin/skills/catalog" ||
+          path === "/api/public/skills/catalog")
+      ) {
+        if (!publicSkills && !registerAuthenticated(request))
+          return send(401, { error: "Issuer access required" });
+        return send(200, { ...await laborMarket.catalog(), onet: onet.status() });
+      }
+      const careerMatch = path.match(
+        /^\/api\/learners\/([^/]+)\/badges\/([a-z0-9-]+)\/([0-9a-f-]{36})\/careers\/([A-Z]{2})$/,
+      );
+      if (
+        request.method === "GET" &&
+        careerMatch &&
+        uuid.test(careerMatch[3])
+      ) {
+        if (!authenticated(request, "reader"))
+          return send(401, { error: "Portal authentication required" });
+        const learner = decodeURIComponent(careerMatch[1]);
+        if (!Object.hasOwn(learners, learner))
+          return send(403, { error: "Linked learner account required" });
+        return send(
+          200,
+          await laborMarket.forAward(
+            certificates,
+            careerMatch[2],
+            careerMatch[3],
+            learner,
+            careerMatch[4],
+          ),
+        );
+      }
+      if (
+        request.method === "GET" &&
+        path.startsWith("/api/admin/distribution/")
+      ) {
+        if (!registerAuthenticated(request))
+          return send(401, { error: "Issuer access required" });
+        if (path === "/api/admin/distribution/catalog")
+          return send(200, await distribution.catalog());
+        if (path === "/api/admin/distribution/history")
+          return send(200, await distribution.history());
+        const detail = path.match(
+          /^\/api\/admin\/distribution\/([0-9a-f-]{36})$/,
+        );
+        if (detail && uuid.test(detail[1]))
+          return send(200, await distribution.detail(detail[1]));
+        return send(404, { error: "Route not found" });
+      }
       const awardMatch = path.match(
         /^\/api\/(admin|portal-staff)\/(?:awards|certificates)(?:\/(.*))?$/,
       );
@@ -228,6 +312,10 @@ export async function createApp({
         if (request.method === "GET") {
           const route = awardMatch[2] || "";
           if (certificateRoute) {
+            if (route === "email/catalog")
+              return send(200, await certificateEmail.catalog());
+            if (route === "email/history")
+              return send(200, await certificateEmail.history());
             if (route === "catalog") {
               const register = await readRegister(sources);
               return send(200, {
@@ -297,6 +385,13 @@ export async function createApp({
           "/awards.css",
           "/certificates",
           "/certificates.js",
+          "/certificate-email.js",
+          "/distribution.js",
+          "/distribution.css",
+          "/skills-ui.js",
+          "/skills-explorer.js",
+          "/skills.css",
+          "/onet-in-it.svg",
           "/certificates.css",
         ].includes(path)
       ) {
@@ -311,7 +406,12 @@ export async function createApp({
           readFileSync(
             join(
               root,
-              file.endsWith(".html") ? "public" : "portal-bridge/assets",
+              file.endsWith(".html") ||
+                ["skills-ui.js", "skills-explorer.js", "skills.css", "onet-in-it.svg"].includes(
+                  file,
+                )
+                ? "public"
+                : "portal-bridge/assets",
               file,
             ),
             "utf8",
@@ -320,7 +420,9 @@ export async function createApp({
             ? "text/html"
             : file.endsWith(".js")
               ? "text/javascript"
-              : "text/css",
+              : file.endsWith(".svg")
+                ? "image/svg+xml"
+                : "text/css",
         );
       }
       if (
@@ -621,7 +723,9 @@ export async function createApp({
       if (demoRoute && request.headers.origin !== origin)
         return send(403, { error: "Demo actions require this page origin" });
       const adminRoute = path.startsWith("/api/admin/") && !loginRoute;
+      const emailDownloadRoute = path === "/api/certificate-download";
       const meRoute = path.startsWith("/api/me/"),
+        portalClaim = path.match(/^\/api\/learners\/([^/]+)\/claims\/redeem$/),
         portalShare = path.match(
           /^\/api\/learners\/([^/]+)\/badges\/([a-z0-9-]+)\/([0-9a-f-]+)\/sharing$/,
         );
@@ -629,7 +733,7 @@ export async function createApp({
         return send(403, { error: "Learner actions require this page origin" });
       if (meRoute && !me(request))
         return send(401, { error: "Learner sign-in required" });
-      if (portalShare && !authenticated(request, "reader"))
+      if ((portalShare || portalClaim) && !authenticated(request, "reader"))
         return send(401, { error: "Portal authentication required" });
       if (
         adminRoute &&
@@ -649,6 +753,9 @@ export async function createApp({
         !adminRoute &&
         !meRoute &&
         !portalShare &&
+        !publicSkills &&
+        !portalClaim &&
+        !emailDownloadRoute &&
         !awardActor &&
         !authenticated(request, "writer")
       )
@@ -678,8 +785,56 @@ export async function createApp({
       }
       if (!body || typeof body !== "object" || Array.isArray(body))
         return send(400, { error: "JSON object required" });
+      if (path === "/api/public/skills/onet/search")
+        return send(200, await onet.search(body));
+      if (path === "/api/public/skills/onet/outlook")
+        return send(200, await onet.outlook(body.code));
+      if (
+        path === "/api/admin/skills/search" ||
+        path === "/api/public/skills/search"
+      )
+        return send(200, await laborMarket.search(body));
+      if (
+        path === "/api/admin/skills/occupations" ||
+        path === "/api/public/skills/occupations"
+      )
+        return send(200, await laborMarket.related(body.skills, body.region));
+      if (portalClaim) {
+        const learner = decodeURIComponent(portalClaim[1]);
+        if (!Object.hasOwn(learners, learner))
+          return send(403, { error: "Linked learner account required" });
+        return send(200, await distribution.redeem(body, learner));
+      }
+      if (path === "/api/admin/distribution/create")
+        return send(
+          200,
+          await distribution.create(body, portalActor || "local-issuer"),
+        );
+      const revokeClaim = path.match(
+        /^\/api\/admin\/distribution\/([0-9a-f-]{36})\/revoke$/,
+      );
+      if (revokeClaim && uuid.test(revokeClaim[1]))
+        return send(
+          200,
+          await distribution.revoke(
+            revokeClaim[1],
+            body,
+            portalActor || "local-issuer",
+          ),
+        );
+      if (emailDownloadRoute)
+        return send(200, await certificateEmail.download(body.token));
       if (awardActor) {
         if (certificateRoute) {
+          if (awardMatch[2] === "email/preview")
+            return send(200, await certificateEmail.preview(body, awardActor));
+          if (awardMatch[2] === "email/send")
+            return send(200, await certificateEmail.confirm(body, awardActor));
+          if (awardMatch[2] === "email/settings")
+            return send(
+              200,
+              await certificateEmail.saveSettings(body, awardActor),
+            );
           if (awardMatch[2] === "templates")
             return send(200, await certificates.save(body, awardActor));
           if (awardMatch[2] === "preview") {
@@ -951,6 +1106,8 @@ export async function createApp({
       }
       return send(404, { error: "Route not found" });
     } catch (error) {
+      if (error instanceof OnetError)
+        return send(error.status, { error: error.message });
       // Never return upstream URLs, tokens, or stack traces.
       const safe = [
         "Badge not found",
@@ -994,5 +1151,15 @@ export async function createApp({
   });
   server.requestTimeout = 30000;
   server.headersTimeout = 10000;
-  return { server, store, catalog, manualAwards, certificates };
+  server.on("close", () => certificateEmail.stop());
+  return {
+    server,
+    store,
+    catalog,
+    manualAwards,
+    certificates,
+    certificateEmail,
+    distribution,
+    laborMarket,
+  };
 }

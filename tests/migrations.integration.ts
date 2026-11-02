@@ -205,6 +205,38 @@ async function main() {
     assert.equal((await migrationNames(fresh.pool)).length, committed.length);
     console.log("PASS: a second migration run changes nothing");
 
+    const baselineChecksum = (
+      await fresh.pool.query(
+        "SELECT checksum FROM _prisma_migrations WHERE migration_name='000_baseline'",
+      )
+    ).rows[0].checksum;
+    await fresh.pool.query(
+      "UPDATE _prisma_migrations SET checksum='modified' WHERE migration_name='000_baseline'",
+    );
+    await assert.rejects(
+      migrate(fresh.url, { quiet: true, verifyHistory: true }),
+      /checksum mismatch/,
+    );
+    await fresh.pool.query(
+      "UPDATE _prisma_migrations SET checksum=$1 WHERE migration_name='000_baseline'",
+      [baselineChecksum],
+    );
+    await fresh.pool.query(
+      "UPDATE _prisma_migrations SET finished_at=NULL WHERE migration_name='000_baseline'",
+    );
+    await assert.rejects(
+      migrate(fresh.url, { quiet: true, verifyHistory: true }),
+      /Unresolved failed migration/,
+    );
+    await fresh.pool.query(
+      "UPDATE _prisma_migrations SET finished_at=now() WHERE migration_name='000_baseline'",
+    );
+    await migrate(fresh.url, { quiet: true, verifyHistory: true });
+    assert.deepEqual(await snapshot(fresh.pool), before.data);
+    console.log(
+      "PASS: startup history validation refuses checksum drift and unresolved failures without changing application data",
+    );
+
     // 2b. History recorded under the old one- and two-digit names is renamed to
     // the three-digit names without re-applying anything.
     await fresh.pool.query(
@@ -308,6 +340,62 @@ async function main() {
     console.log(
       "PASS: concurrent migration runs are serialized; baseline applied once",
     );
+
+    // Both deployed repositories have independent additive 025/026 migrations.
+    // Neither history may be renamed or reapplied when shared code is synced.
+    for (const profile of ["beta", "source"] as const) {
+      const existing = await createDb();
+      const fixture = path.join(workspace, profile);
+      mkdirSync(fixture, { recursive: true });
+      cpSync(migrationsDir, path.join(fixture, "migrations"), {
+        recursive: true,
+      });
+      for (const name of committed) {
+        const bootstrap = ["025_bootstrap_setup", "026_bootstrap_key"].includes(
+          name,
+        );
+        const sourceFeature =
+          /^(025_individual|026_certificate|027_|028_)/.test(name);
+        if (
+          (profile === "beta" && sourceFeature) ||
+          (profile === "source" && bootstrap)
+        )
+          rmSync(path.join(fixture, "migrations", name), { recursive: true });
+      }
+      const config = path.join(fixture, "prisma.config.ts");
+      writeFileSync(
+        config,
+        `import { defineConfig, env } from "prisma/config";\nexport default defineConfig({ schema: ${JSON.stringify(path.resolve(__dirname, "../prisma/schema.prisma"))}, migrations: { path: "migrations" }, datasource: { url: env("DATABASE_URL") } });\n`,
+      );
+      try {
+        process.env.PRISMA_CONFIG_PATH = config;
+        await migrate(existing.url, { quiet: true });
+      } finally {
+        delete process.env.PRISMA_CONFIG_PATH;
+      }
+      const priorData = await snapshot(existing.pool);
+      const history = await existing.pool.query(
+        "SELECT id, migration_name, checksum, finished_at FROM _prisma_migrations ORDER BY migration_name",
+      );
+      await migrate(existing.url, { quiet: true, verifyHistory: true });
+      assert.deepEqual(await snapshot(existing.pool), priorData);
+      assert.deepEqual(
+        await structure(existing.pool),
+        await structure(fresh.pool),
+      );
+      const retained = await existing.pool.query(
+        "SELECT id, migration_name, checksum, finished_at FROM _prisma_migrations WHERE id=ANY($1::varchar[]) ORDER BY migration_name",
+        [history.rows.map((row) => row.id)],
+      );
+      assert.deepEqual(retained.rows, history.rows);
+      assert.equal(
+        (await migrationNames(existing.pool)).length,
+        committed.length,
+      );
+      console.log(
+        `PASS: existing ${profile} migration history upgrades to the shared schema without replay or data loss`,
+      );
+    }
 
     // 8. No drift: replaying the migrations matches prisma/schema.prisma.
     const shadow = await createDb();

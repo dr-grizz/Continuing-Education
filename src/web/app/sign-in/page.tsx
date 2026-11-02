@@ -54,6 +54,7 @@ export default function SignIn() {
       // sign-in (a course or a collection/pathway); other values are ignored.
       const destination =
         requested === "/learning" ||
+        requested === "/credential-tools/claim.html" ||
         /^\/courses\/[0-9a-f-]{36}$/.test(requested || "") ||
         /^\/collections\/[a-z0-9]+(-[a-z0-9]+)*$/.test(requested || "")
           ? requested!
