@@ -9,7 +9,7 @@ export const baselineSecurityHeaders = {
 export const credentialSecurityHeaders = {
   ...baselineSecurityHeaders,
   "Content-Security-Policy":
-    "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'self'; base-uri 'none'; form-action 'self'",
+    "default-src 'self'; script-src 'self'; style-src 'self' https://use.typekit.net https://p.typekit.net; font-src 'self' https://use.typekit.net; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'self'; base-uri 'none'; form-action 'self'",
   "Referrer-Policy": "no-referrer",
   "Cache-Control": "no-store",
 };

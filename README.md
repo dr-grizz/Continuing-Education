@@ -123,7 +123,7 @@ Stop application processes with Ctrl+C. `docker compose stop db` stops PostgreSQ
 
    Default staff sign-in is mock: no password, and anyone can pick anyone. See [ADR 0004](docs/adr/0004-staff-roles-mock-sign-in.md). Configure [Canvas staff OAuth](docs/canvas-staff-auth.md) to require verified, explicitly linked identities.
 
-Design uses standard MUI navigation, forms, tables, alerts and dialogs. The [UI specification](docs/prototype/ui-specification.md) records the theme tokens, layouts, patterns and page behavior. Colors, the font and text branding are provisional; institutional brand assets and course content need review.
+Design uses standard MUI navigation, forms, tables, alerts and dialogs. The [UI specification](docs/prototype/ui-specification.md) records the theme tokens, layouts, patterns and page behavior. The shared styling follows Cedarville’s website with Adobe-hosted Myriad Pro and Minion Pro, official blue/gold, bold headings and squared buttons. CU font use is authorized; logo verification and app artwork review remain open. The font loader uses the owner-supplied Adobe web project (`gei7qvn`).
 
 ## Request-driven demo (no worker)
 
