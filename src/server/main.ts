@@ -1,4 +1,17 @@
 import "reflect-metadata";
+import {
+  ManualPaymentsController,
+  ManualPaymentsService,
+} from "./manual-payments";
+import { EarningsController, EarningsService } from "./earnings";
+import {
+  EngagementImpactController,
+  EngagementImpactService,
+} from "./engagement-impact";
+import {
+  LearnerAlertsController,
+  LearnerAlertsService,
+} from "./learner-alerts";
 import { ProgressController, ProgressService } from "./progress";
 import { CanvasCoursesService } from "./canvas-courses";
 import { CanvasCoursesController } from "./canvas-courses-controller";
@@ -845,6 +858,10 @@ class DemoRequestInterceptor implements NestInterceptor {
 }
 @Module({
   controllers: [
+    ManualPaymentsController,
+    EarningsController,
+    EngagementImpactController,
+    LearnerAlertsController,
     ProgressController,
     CanvasCoursesController,
     CatalogController,
@@ -854,6 +871,10 @@ class DemoRequestInterceptor implements NestInterceptor {
     LearnerAuthController,
   ],
   providers: [
+    ManualPaymentsService,
+    EarningsService,
+    EngagementImpactService,
+    LearnerAlertsService,
     ProgressService,
     { provide: APP_INTERCEPTOR, useClass: DemoRequestInterceptor },
     CanvasCoursesService,
@@ -903,6 +924,78 @@ async function main() {
         }
       : {}),
   });
+  const { readRegister } = require(
+    require("node:path").resolve("badge-service/register.mjs"),
+  );
+  app.get(LearnerAlertsService).credentialReader = async () => {
+    const register = await readRegister(credentials.distribution.sources);
+    if (register.errors.length)
+      return {
+        records: [],
+        warning:
+          "Some credential sources are unavailable; existing expiration alerts were retained.",
+      };
+    try {
+      const links = JSON.parse(
+        require("node:fs").readFileSync(
+          credentials.certificateEmail.directory.file,
+          "utf8",
+        ),
+      );
+      if (!links || typeof links !== "object" || Array.isArray(links))
+        throw new Error("unavailable");
+    } catch {
+      return {
+        records: [],
+        warning:
+          "Approved credential account links are unavailable. Existing expiration alerts were retained.",
+      };
+    }
+    const directory = await credentials.certificateEmail.directory.directory();
+    const records: any[] = [];
+    for (const badge of register.records) {
+      const contact = directory.contacts.get(badge.learnerId);
+      if (!contact?.active) continue; // Only explicit, unambiguous approved portal links.
+      records.push({
+        key: `badge:${badge.sourceId}:${badge.id}`,
+        learnerId: contact.portalId,
+        title: badge.title,
+        validUntil: badge.validUntil,
+        kind: "badge",
+        sourceId: badge.sourceId,
+        badgeId: badge.id,
+        signatureValid: badge.signatureValid,
+        revoked: badge.status === "revoked",
+        issuedAt: badge.issuedAt,
+        shared: badge.shared,
+      });
+      const row = await credentials.certificates.find(badge.sourceId, badge.id);
+      if (row) {
+        let valid = true;
+        try {
+          credentials.certificates.verify(row);
+        } catch {
+          valid = false;
+        }
+        const certificate = credentials.certificates.summary(row);
+        records.push({
+          key: `certificate:${certificate.id}`,
+          learnerId: contact.portalId,
+          title: certificate.achievement,
+          validUntil: certificate.validUntil,
+          kind: "certificate",
+          sourceId: badge.sourceId,
+          badgeId: badge.id,
+          signatureValid: valid && badge.signatureValid,
+          revoked: badge.status === "revoked",
+          issuedAt: certificate.createdAt,
+        });
+      }
+    }
+    return { records, warning: null };
+  };
+  app.get(EngagementImpactService).credentialReader =
+    app.get(LearnerAlertsService).credentialReader;
   // Mount before body parsing so certificate/image uploads retain stream limits.
   app.use("/api/credentials", (request: any, response: any) => {
     credentials.server.emit("request", request, response);

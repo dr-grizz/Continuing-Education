@@ -1,8 +1,8 @@
 generator client {
-  provider     = "prisma-client"
-  output       = "../src/generated/prisma"
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
   // The server and worker compile to CommonJS (tsconfig.server.json).
-  moduleFormat = "cjs"
+  moduleFormat        = "cjs"
   // Extensionless imports work in both ts-node and compiled CommonJS.
   importFileExtension = ""
 }
@@ -62,24 +62,27 @@ model entitlements {
 /// Portal learner. Existing-account Canvas login uses installation/user ID;
 /// mock profiles and the email-less legacy sample learner remain separate.
 model learners {
+  manual_payments       manual_payments[]
+  alert_rules           learner_alert_rules[]
+  alerts                learner_alerts[]
   progress_participants progress_participants[]
-  id               String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  id                    String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   /// CHECK learners_email_check: lowercase, trimmed, 3-254 characters when set.
   /// Canvas identity-only login supplies no verified email, so it remains null.
-  email            String?            @unique
-  created_at       DateTime           @default(now()) @db.Timestamptz(6)
+  email                 String?                 @unique
+  created_at            DateTime                @default(now()) @db.Timestamptz(6)
   /// Deactivated learners cannot sign in or act; existing enrollments continue.
-  active           Boolean            @default(true)
+  active                Boolean                 @default(true)
   /// Set while deactivated. CHECK learners_access_check: set exactly when active is false.
-  deactivated_at   DateTime?          @db.Timestamptz(6)
-  version          Int                @default(1)
-  display_name     String?
-  auth_provider    String             @default("mock")
-  external_subject String?
-  learner_sessions learner_sessions[]
-  entitlements     entitlements[]
-  saved_courses    saved_courses[]
-  pathway_follows  pathway_follows[]
+  deactivated_at        DateTime?               @db.Timestamptz(6)
+  version               Int                     @default(1)
+  display_name          String?
+  auth_provider         String                  @default("mock")
+  external_subject      String?
+  learner_sessions      learner_sessions[]
+  entitlements          entitlements[]
+  saved_courses         saved_courses[]
+  pathway_follows       pathway_follows[]
 
   @@unique([auth_provider, external_subject])
 }
@@ -127,6 +130,8 @@ model offering_prices {
 /// Saleable offering. CHECK offerings_schedule_check: cohort requires start_date and end_date;
 /// self_paced requires both to be null. CHECK offerings_check: end_date >= start_date.
 model offerings {
+  manual_payments       manual_payments[]
+  alert_rules           learner_alert_rules[]
   progress_plans        progress_plans[]
   id                    String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   title                 String
@@ -304,19 +309,20 @@ enum StaffRole {
 /// later sets auth_provider/external_subject and resolves verified identities to a row.
 /// CHECK staff_members_email_check: lowercase, trimmed, 3-254 characters.
 model staff_members {
-  id               String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  email            String           @unique
+  alert_rules      learner_alert_rules[]
+  id               String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email            String                @unique
   display_name     String
   /// One or more roles; their scopes are combined. CHECK staff_members_roles_check: at least one.
   roles            StaffRole[]
   /// Inactive members cannot sign in or act.
-  active           Boolean          @default(true)
+  active           Boolean               @default(true)
   /// "mock" for local selection or "canvas:<origin>" for configured Canvas OAuth.
-  auth_provider    String           @default("mock")
+  auth_provider    String                @default("mock")
   /// Verified numeric Canvas user ID as text; null for mock members.
   external_subject String?
-  version          Int              @default(1)
-  created_at       DateTime         @default(now()) @db.Timestamptz(6)
+  version          Int                   @default(1)
+  created_at       DateTime              @default(now()) @db.Timestamptz(6)
   staff_sessions   staff_sessions[]
 
   @@unique([auth_provider, external_subject])
@@ -798,6 +804,7 @@ model progress_cohort_members {
 }
 
 model progress_cohorts {
+  alert_rules             learner_alert_rules[]
   id                      String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name                    String
   plan_id                 String                    @db.Uuid
@@ -868,7 +875,6 @@ model progress_steps {
   @@unique([plan_id, position])
 }
 
-
 model credential_email_settings {
   workspace             String                @id
   automatic             Int                   @default(0)
@@ -880,7 +886,6 @@ model credential_email_settings {
   updated_by            String
   credential_workspaces credential_workspaces @relation(fields: [workspace], references: [id], onDelete: NoAction, onUpdate: NoAction)
 }
-
 
 model credential_email_deliveries {
   workspace                         String
@@ -908,7 +913,6 @@ model credential_email_deliveries {
   @@index([workspace, state, created_at], map: "credential_email_queue")
 }
 
-
 model credential_email_events {
   workspace                   String
   id                          String
@@ -922,7 +926,6 @@ model credential_email_events {
 
   @@id([workspace, id])
 }
-
 
 model credential_claims {
   workspace               String
@@ -951,7 +954,6 @@ model credential_claims {
   @@index([workspace, source_id, badge_id, kind, created_at], map: "credential_claim_lookup")
 }
 
-
 model credential_claim_events {
   workspace             String
   id                    String
@@ -965,7 +967,6 @@ model credential_claim_events {
   @@id([workspace, id])
   @@index([workspace, actor, at], map: "credential_claim_attempts")
 }
-
 
 model labor_releases {
   id                String              @id @db.Uuid
@@ -984,13 +985,11 @@ model labor_releases {
   @@unique([kind, checksum])
 }
 
-
 model labor_active {
   kind           String         @id
   release_id     String         @db.Uuid
   labor_releases labor_releases @relation(fields: [release_id, kind], references: [id, kind], onDelete: NoAction, onUpdate: NoAction)
 }
-
 
 model labor_skills {
   release_id              String                    @db.Uuid
@@ -1005,7 +1004,6 @@ model labor_skills {
   @@id([release_id, id])
 }
 
-
 model labor_occupations {
   release_id              String                    @db.Uuid
   code                    String
@@ -1017,7 +1015,6 @@ model labor_occupations {
 
   @@id([release_id, code])
 }
-
 
 model labor_skill_occupations {
   release_id        String            @db.Uuid
@@ -1031,7 +1028,6 @@ model labor_skill_occupations {
 
   @@id([release_id, skill_id, occupation_code])
 }
-
 
 model labor_wages {
   release_id     String         @db.Uuid
@@ -1048,7 +1044,6 @@ model labor_wages {
   @@id([release_id, soc_code, region])
 }
 
-
 model labor_projections {
   release_id      String         @db.Uuid
   soc_code        String
@@ -1060,4 +1055,106 @@ model labor_projections {
   labor_releases  labor_releases @relation(fields: [release_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@id([release_id, soc_code])
+}
+
+// Learner alert configuration and append-only history; constraints in migration 030.
+model learner_alert_rules {
+  id                String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name              String
+  kind              String
+  offering_id       String?           @db.Uuid
+  cohort_id         String?           @db.Uuid
+  learner_id        String?           @db.Uuid
+  days              Int               @default(14)
+  threshold         Int               @default(70)
+  enabled           Boolean           @default(true)
+  version           Int               @default(1)
+  owner_id          String            @db.Uuid
+  created_at        DateTime          @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime          @default(now()) @db.Timestamptz(6)
+  evaluated_at      DateTime?         @db.Timestamptz(6)
+  evaluation_error  String?
+  source_warning    String?
+  sync_started_at   DateTime?         @db.Timestamptz(6)
+  sync_checked_at   DateTime?         @db.Timestamptz(6)
+  sync_succeeded_at DateTime?         @db.Timestamptz(6)
+  next_sync_at      DateTime          @default(now()) @db.Timestamptz(6)
+  canvas_snapshot   Json?
+  sync_error        String?
+  offering          offerings?        @relation(fields: [offering_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  cohort            progress_cohorts? @relation(fields: [cohort_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  learner           learners?         @relation(fields: [learner_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  owner             staff_members     @relation(fields: [owner_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  alerts            learner_alerts[]
+}
+
+model learner_alerts {
+  id              String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  rule_id         String                  @db.Uuid
+  rule_version    Int
+  episode_key     String
+  subject_key     String
+  learner_id      String                  @db.Uuid
+  title           String
+  message         String
+  evidence        Json
+  state           String                  @default("open")
+  detected_at     DateTime                @default(now()) @db.Timestamptz(6)
+  observed_at     DateTime                @db.Timestamptz(6)
+  updated_at      DateTime                @default(now()) @db.Timestamptz(6)
+  snoozed_until   DateTime?               @db.Timestamptz(6)
+  resolution_kind String?
+  version         Int                     @default(1)
+  rule            learner_alert_rules     @relation(fields: [rule_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  learner         learners                @relation(fields: [learner_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  history         learner_alert_history[]
+
+  @@unique([rule_id, rule_version, episode_key])
+  @@index([state, detected_at(sort: Desc)], map: "learner_alerts_queue")
+}
+
+model learner_alert_history {
+  id       String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  alert_id String         @db.Uuid
+  action   String
+  actor    String
+  note     String         @default("")
+  at       DateTime       @default(now()) @db.Timestamptz(6)
+  alert    learner_alerts @relation(fields: [alert_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([alert_id, at], map: "learner_alert_history_alert")
+}
+
+/// Append-only external payment evidence. Does not create entitlements or orders.
+model manual_payments {
+  id           String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  learner_id   String           @db.Uuid
+  offering_id  String           @db.Uuid
+  amount_cents Int
+  paid_on      DateTime         @db.Date
+  method       String
+  reference    String
+  note         String
+  recorded_by  String
+  recorded_at  DateTime         @default(now()) @db.Timestamptz(6)
+  learners     learners         @relation(fields: [learner_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  offerings    offerings        @relation(fields: [offering_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  refunds      manual_refunds[]
+
+  @@index([paid_on, offering_id], map: "manual_payment_date")
+}
+
+/// Append-only refunds with database-enforced cumulative amount/date limits.
+model manual_refunds {
+  id           String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  payment_id   String          @db.Uuid
+  amount_cents Int
+  refunded_on  DateTime        @db.Date
+  reference    String
+  note         String
+  recorded_by  String
+  recorded_at  DateTime        @default(now()) @db.Timestamptz(6)
+  payment      manual_payments @relation(fields: [payment_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([payment_id], map: "manual_refund_payment")
 }

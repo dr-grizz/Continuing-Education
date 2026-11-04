@@ -254,6 +254,8 @@ export default function Shell({ children }: { children: React.ReactNode }) {
         </Container>
       </AppBar>
       <Box
+        component="aside"
+        aria-label="Prototype notice"
         sx={(theme) => ({
           bgcolor: "#fff8e6",
           borderBottom: "1px solid #ead8a8",
