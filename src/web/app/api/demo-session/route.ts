@@ -1,3 +1,4 @@
+import { isHostedRuntime } from "../../../../domain/hosted-demo";
 import { NextRequest, NextResponse } from "next/server";
 import {
   readRequestBody,
@@ -100,7 +101,7 @@ async function session(request: NextRequest) {
     if (upstream.ok && body)
       response.cookies.set(cookie, data.id, {
         httpOnly: true,
-        secure: process.env.HOSTED_DEMO === "true",
+        secure: isHostedRuntime(),
         sameSite: "lax",
         path: "/",
         maxAge: 60 * 60 * 24 * 30,

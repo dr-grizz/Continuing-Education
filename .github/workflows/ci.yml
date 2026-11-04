@@ -75,7 +75,7 @@ jobs:
           ENV
           cp .env src/web/.env.local
       - run: npm ci
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - run: python3 -m pip install -r badge-service/certificate-renderer/requirements.txt pypdf==6.10.0
@@ -115,17 +115,19 @@ jobs:
         run: npm run test:engagement-impact
       - name: Earnings analytics
         run: npm run test:earnings
+      - name: Initial setup and private System Info (disposable database)
+        run: npm run test:bootstrap
+      - name: Portable release dependency links
+        run: node --test tests/release-links.test.mjs
       - name: Request-driven demo tests (disposable database, no worker)
         run: npm run test:demo
       - name: Build
         run: npm run build
       - name: Install verified portable Python builder
-        if: github.event_name == 'push' && github.ref == 'refs/heads/azure-demo'
         uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: latest-known
       - name: Prepare portable certificate runtime
-        if: github.event_name == 'push' && github.ref == 'refs/heads/azure-demo'
         run: |
           uv python install 3.12 --no-bin --install-dir "$RUNNER_TEMP/badge-python"
           python_dir=$(find "$RUNNER_TEMP/badge-python" -maxdepth 1 -type d -name 'cpython-3.12*' -print -quit)
@@ -133,7 +135,6 @@ jobs:
           uv pip install --python "$python_dir/bin/python3" --break-system-packages -r badge-service/certificate-renderer/requirements.txt
           echo "DEMO_PYTHON_DIRECTORY=$python_dir" >> "$GITHUB_ENV"
       - name: Prepare and verify the minimal deployment package
-        if: github.event_name == 'push' && github.ref == 'refs/heads/azure-demo'
         env:
           BADGES_ENABLED: "false"
           DEMO_ACCESS_GATE: basic
@@ -180,14 +181,14 @@ jobs:
         run: tail -n 100 logs/*.log || true
       - name: Upload the accessibility report
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-report
           path: playwright-report/
           retention-days: 7
       - name: Retain the verified release for deployment and rollback
         if: success() && github.event_name == 'push' && github.ref == 'refs/heads/azure-demo'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: azure-demo-${{ github.sha }}
           path: |
@@ -214,7 +215,7 @@ jobs:
       RELEASE_SHA: ${{ github.sha }}
       APPROVED_SCHEMA: ${{ vars.AZURE_DEMO_SCHEMA_HASH }}
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: azure-demo-${{ github.sha }}
           path: release
@@ -225,7 +226,7 @@ jobs:
             echo "Database migrations changed. Back up and migrate explicitly, then update AZURE_DEMO_SCHEMA_HASH."
             exit 1
           }
-      - uses: azure/login@v2
+      - uses: azure/login@v3
         with:
           client-id: ${{ vars.AZURE_DEMO_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_DEMO_TENANT_ID }}
@@ -235,6 +236,11 @@ jobs:
           plan=$(az webapp show -g "$AZURE_RESOURCE_GROUP" -n "$AZURE_WEBAPP_NAME" --query serverFarmId -o tsv)
           test "$(az appservice plan show --ids "$plan" --query sku.name -o tsv)" = F1
           test "$(az webapp config appsettings list -g "$AZURE_RESOURCE_GROUP" -n "$AZURE_WEBAPP_NAME" --query "[?name=='SCM_DO_BUILD_DURING_DEPLOYMENT'].value | [0]" -o tsv)" = false
+          badges=$(az webapp config appsettings list -g "$AZURE_RESOURCE_GROUP" -n "$AZURE_WEBAPP_NAME" --query "[?name=='BADGES_ENABLED'].value | [0]" -o tsv)
+          if [ "$badges" = true ]; then
+            data=$(az webapp config appsettings list -g "$AZURE_RESOURCE_GROUP" -n "$AZURE_WEBAPP_NAME" --query "[?name=='BADGE_DATA_DIR'].value | [0]" -o tsv)
+            test -n "$data" || { echo "Set a private persistent BADGE_DATA_DIR before enabling integrated credentials."; exit 1; }
+          fi
           az webapp config set -g "$AZURE_RESOURCE_GROUP" -n "$AZURE_WEBAPP_NAME" --linux-fx-version 'NODE|24-lts' --startup-file 'node scripts/start-demo.mjs' --output none
       - name: Deploy the verified ZIP using Microsoft Entra authentication
         run: |

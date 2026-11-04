@@ -1,66 +1,110 @@
-# Prototype UI specification
+# CU CE app style guidelines and UI specification
 
-Status: baseline for the local prototype, updated October 6, 2026. This records how the current interface is built, so that future changes stay consistent. Colors, the font and copy are provisional until Cedarville brand and content review. Implementation lives in `src/web`. Accessibility review requirements are in the [README checklist](../../README.md#reviewtest-checklist).
+Updated November 2, 2026. This document defines the target style for Cedarville University Continuing Education (CU CE), including the learner catalog, registration, My learning, staff workspace, credential tools, and public verification. The shared theme, application shell, catalog introduction, and credential interface chrome now implement the website-matching direction below. Validation coverage is recorded in the [November 2 review](style-validation-2026-11-02.md); page-specific refinements may remain. This document does not claim Marketing and Communications approval or completed accessibility validation.
 
-## Principles
+The brand requirements below come from Cedarville's published guidance. Other design choices are CU CE application standards. Existing page behavior is recorded in the later sections and must be preserved during styling updates. Implementation lives in `src/web`; accessibility review requirements are in the [README checklist](../../README.md#reviewtest-checklist).
 
-- Use standard Material UI components and the shared theme. Do not add a second component or styling system without an ADR.
-- Show learners the next action and the reason for each status. Never show internal codes or IDs.
-- Every layout works from 320px width without horizontal page scrolling. Phones get the same capabilities as desktop.
-- Keyboard and screen-reader use are required, not optional polish.
-- Label simulated behavior plainly ("simulated", "sample", "demo"). Never imply real payment, identity or Canvas access.
+## Brand authority and identity
+
+- Use official University or Continuing Education sub-brand artwork. Preserve proportions, component arrangement, colors, typography, and the registered trademark symbol. Keep clear space around each side based on the height of the capital C in the wordmark. Use approved color or reversed artwork with strong contrast against an uncluttered background. Do not construct a separate CE logo. Sources: [University logo](https://www.cedarville.edu/offices/creative-services/brand/logo), [sub-brand logos](https://www.cedarville.edu/offices/creative-services/brand/sub-brand-logos).
+- Official web colors are blue **#003A63** and gold **#FDB813**. Use the published web HEX for CSS; the logo page's blue RGB listing differs slightly. Logo colors remain those in the official files. Source: [primary color palette](https://www.cedarville.edu/offices/creative-services/brand/logo).
+- The published typography system uses Minion for body copy and Myriad for larger type and callouts. The guide does not specify an application font substitution policy. Source: [University fonts](https://www.cedarville.edu/offices/creative-services/brand/fonts).
+- The University seal is limited to approved formal uses. Obtain Marketing and Communications approval before using it in certificates or other app outputs. Source: [University seal](https://www.cedarville.edu/offices/creative-services/brand/seal).
+- Follow Cedarville's writing style, then AP, then Merriam-Webster. Source: [writing style authority](https://www.cedarville.edu/marketing-and-communications/style-guide/introduction).
+- The brand site requests final artwork as a PDF for Creative Services review and approval. Confirm the appropriate review deliverable for this interactive application. Source: [brand guidance](https://www.cedarville.edu/offices/creative-services/brand).
+
+## Design direction
+
+The app should feel academic, clear, and welcoming. Use restrained blue brand surfaces, white or quiet neutral content areas, purposeful gold accents, readable type, and direct action labels. Let course content and learner progress carry the page rather than decorative effects.
+
+- Use standard Material UI components and one shared theme. A different component or styling system requires an ADR.
+- Use one clear page title and a visible primary next action within each task area. Reserve filled buttons for the main action; use outlined or text buttons for secondary actions.
+- Keep discovery pages spacious and staff tools efficient. Both use the same colors, typography, focus behavior, and component states.
+- Show learners the next action and the reason for each status. Keep internal codes and IDs out of ordinary learner flows.
+- Preserve all capabilities at 320px width. Keyboard and screen-reader access are required.
+- Describe simulation accurately where it occurs. Notices must reflect the configured environment; never imply real payment or enrollment when simulated.
 
 ## Design tokens
 
-Defined in `src/web/app/theme.tsx`. Components use theme tokens (`primary.main`, `text.secondary`, `divider`, `background.paper`, `action.hover`). Literal colors are allowed only for the fixed brand surfaces below.
+The tables below define shared theme values. Verify page-specific overrides when extending the interface. Maintain semantic tokens centrally in `src/web/app/theme.tsx`. Map credential-tool styles in `src/web/public/credential-tools/portal-theme.css` to the same roles. Components must not introduce local substitute brand colors.
 
-### Color schemes
+### Color roles
 
-Light or dark is set by a class on `<html>` (`cssVariables.colorSchemeSelector: "class"`). People choose **Match device** (the default, following the operating system), **Light** or **Dark** on the Settings page. MUI keeps the choice in the browser's local storage, and `InitColorSchemeScript` in `app/layout.tsx` applies it before the page paints, so there is no flash of the other theme.
+| Role | Light | Dark | Usage |
+| --- | --- | --- | --- |
+| Brand blue (`brand.navy`, existing key retained) | #003A63 | #003A63 | Fixed header and branded feature surfaces |
+| Brand gold (`brand.gold`) | #FDB813 | #FDB813 | Navigation underline and restrained accents |
+| On brand blue | #FFFFFF | #FFFFFF | Text and controls on fixed blue surfaces |
+| On brand gold | #003A63 | #003A63 | Text on gold fills |
+| Primary action/link | #003A63 | #9CC3DF | `primary.main`; dark action fill uses #0D1B25 text |
+| Secondary action/label | #003A63 | #FDB813 | `secondary.main`; blue on light surfaces, high-contrast gold on dark surfaces |
+| Page background | #F7F8FA | #0F171F | `background.default` |
+| Content surface | #FFFFFF | #17222C | `background.paper` |
+| Main text | #1C2B36 | #E6EDF2 | `text.primary` |
+| Supporting text | #52616D | #A9B6C1 | `text.secondary`, including explanatory disabled-field help |
+| Decorative divider | #DDE2E7 | #2C3A46 | Grouping only; not the sole control boundary |
+| Input outline | #7C8791 | #71808C | Visible field boundaries |
+| Error | #D32F2F | #F28B82 | Errors/destructive actions; retain readable on-fill text |
 
-| Token | Light | Dark |
-| --- | --- | --- |
-| `primary.main` | `#17364b` | `#9cc3df` (text `#0d1b25`) |
-| `secondary.main` (category overlines) | `#80601e` | `#d8b75d` |
-| `background.default` | `#f7f8fa` | `#0f171f` |
-| `background.paper` | `#ffffff` | `#17222c` |
-| `text.primary` | `#1c2b36` | `#e6edf2` |
-| `text.secondary` | `#52616d` | `#a9b6c1` |
-| `divider` | `#dde2e7` | `#2c3a46` |
-| `error.main` | MUI default `#d32f2f` | `#f28b82` (text `#0d1b25`) |
-| Input outline | `#7c8791` | `#71808c` |
-| Prototype banner | `#fff8e6` / border `#ead8a8` | `#2b2412` / border `#5c4a1c` |
+The dark-mode action color and neutral colors are application choices, not additional official logo colors. Keep existing semantic success, warning, and information roles until their actual component pairings are verified. Gold must not replace warning or success semantics.
 
-Measured contrast (WCAG 2.x): light secondary text 6.38:1 and gold overline 5.82:1 on white. Dark body text 13.64:1, secondary text 7.80:1, link 8.67:1, input outline 3.97:1 on paper. Dark error text 6.75:1 on paper (MUI's default dark red was 4.4:1, found by the axe scans). Helper text on disabled fields keeps `text.secondary`, because it explains why a field is locked. New colors must meet 4.5:1 for text and 3:1 for control boundaries and focus indicators; `npm run test:a11y` checks them on the scanned pages.
+Calculated solid-color contrast: white/brand blue **11.76:1**; brand blue/brand gold **6.74:1**; gold/white **1.74:1**. Gold on white is unsuitable for text and essential control indicators. A gold-filled control on white needs a contrasting boundary if its shape identifies the control. These calculations do not validate transparency, images, hover states, or complete components.
 
-### Brand surfaces
+### State and theme rules
 
-`brand` in `theme.tsx` is fixed in both schemes: the header uses navy `#17364b` with white text, muted text `#e2e8ed`, gold `#e7d99b` overline, and the gold `#d8b75d` active-navigation underline.
+- Support Match device (default), Light, and Dark through the existing Settings control and class-based MUI schemes. Apply the saved scheme before paint.
+- Keep the brand header blue in both schemes. Use approved reversed logo artwork there; do not recolor the logo for a theme.
+- Hover and pressed states must remain visibly different and readable. Derive them centrally from the semantic palette and validate their rendered contrast; do not scatter guessed HEX values through components.
+- Selected navigation uses an underline or border plus its accessible current/selected state. Status, selection, and errors must never depend on color alone.
+- Ordinary text must reach 4.5:1; large text may use 3:1 (at least 24 CSS px regular or approximately 18.7 CSS px bold). Essential control boundaries and state indicators must reach 3:1 against adjacent colors. Focus indicators must be visible and unobscured.
+- Keep errors specific and persistent until resolved. Disabled controls need a reason when the restriction is not obvious. Preserve loading and focus behavior during requests.
 
 ### Typography
 
-- Font: Figtree (SIL Open Font License), self-hosted by `next/font/google` through the `--font-sans` variable (`src/web/app/layout.tsx`), falling back to `system-ui`. It is a free stand-in for Proxima Nova, the font cedarville.edu uses through a paid Adobe Fonts license; this project does not use Adobe Fonts. The first production build needs network access to fetch the font.
-- Headings: h3/h4 weight 700 with slight negative tracking; h5/h6 weight 600. Page titles render as `h1` (`variant="h3"` on catalog/course, `h4` elsewhere), and the heading order must not skip levels.
-- Buttons: sentence case, weight 600, no uppercase transform.
-- Category labels: `overline`, weight 700, `secondary` color.
+- **Font implementation:** use Myriad Pro (`myriad-pro`) for interface text and Minion Pro (`minion-pro`) for the catalog introduction. Load the [owner-supplied Adobe web project](https://use.typekit.net/gei7qvn.css) through `src/web/public/brand/typography.css`, shared by the app and credential documents. Font binaries remain on Adobe’s servers. Myriad Pro falls back to Helvetica Neue, Tahoma, Arial, and sans-serif; Minion Pro falls back to Georgia and Times New Roman.
+- **Authority and operation:** the owner confirmed CU font-use approval and supplied this Adobe embed on November 2, 2026. It replaces the initial website-font pairing of Proxima Nova and FF More. Continued font delivery depends on the supplied Adobe project; replacement embeds can be changed centrally in `typography.css`. Use the supplied regular and bold weights (400 and 700); page headings use 700 to avoid requesting an unavailable extra-bold face.
+- Target sizes use `rem` and respond to user settings. Default body text is 1rem with 1.5 line height; supporting text is 0.875rem with at least 1.4 line height. Never shrink essential content to fit a layout.
+- Page titles: 2rem on phones, up to 2.5rem on desktop, weight 700, uppercase, line height 1.2. Major section headings use the same bold uppercase treatment; card headings remain mixed case at weight 700. Staff subheadings stay compact. Use a single semantic h1 and sequential heading levels independent of visual size.
+- Buttons use sentence case and weight 700 for readable task labels; primary desktop navigation uses uppercase and weight 700 to match the CU website. Short category overlines may use uppercase; keep them sparse and readable. Use tabular numerals for aligned prices and reporting values.
+- Keep long reading text around 60–75 characters per line. Credential tools inherit the same interface type scale; certificate and badge artwork may use approved document-specific typography.
 
-### Shape, spacing and elevation
+### Layout, shape, and density
 
-- Corner radius 10px (`shape.borderRadius`).
-- Flat surfaces: `Paper` elevation 0 with `variant="outlined"`; no button elevation.
-- Spacing uses the MUI 8px scale. Main content padding is 24px on phones and 40px on desktop.
-- Default sizes are compact: `TextField` and `Chip` default to `small`.
+- Retain the MUI 8px spacing scale; allow 4px for small internal relationships. Use 8–16px within related groups and 24–40px between sections.
+- Center learner pages in a 1200px maximum container. Default horizontal gutters: 24px on phones and 40px on desktop; reduce to 16px at the narrowest widths if needed for reflow. Staff tools may use the full-width workspace and existing sidebar.
+- MUI breakpoints remain sm 600px, md 900px, lg 1200px. Cards use one column on phones and two or three only when content fits. Labels and actions wrap rather than truncate essential information.
+- Use 4px surface corners, squared buttons, 2px outlined-button borders, zero default Paper/button elevation, and subtle hover/focus emphasis. Avoid decorative gradients, oversized pills, glass effects, and heavy shadows in the app chrome.
+- Learner form controls use comfortable default density. Staff fields and chips may remain compact where labels, errors, and touch targets remain usable. Aim for at least 44×44px action targets; retain 48px header icon controls. Dense exceptions need adequate separation and documented accessibility review.
+- Preserve phone cards for ordinary tables. Data-heavy credential registers may retain a named, focusable horizontal scroll region with visible focus, as specified below.
 
-### Breakpoints
+### Components, imagery, and content
 
-MUI defaults: `xs` <600, `sm` ≥600, `md` ≥900, `lg` ≥1200. Content is centered in a `Container maxWidth="lg"` (1200px).
+- Cards show title, short description, relevant schedule/format, price or status, and a clear next action. Do not make an entire card a competing click target around nested actions.
+- Forms use visible labels, adjacent help, explicit required indicators, field errors, and a focusable error summary. Preserve entered values on failure.
+- Dialogs have a clear title, consequences, explicit actions, focus containment, and focus return. Destructive actions use error styling and the existing confirmation rules.
+- Use the existing MUI icon family consistently. Name icon-only actions; decorative icons remain hidden from assistive technology.
+- Keep course image frames at 16:9 in grids with deliberate cropping. Preserve the existing Canvas/upload/CU CE fallback choices. Do not bake course titles, prices, or actions into images. Use empty alternatives only when nearby content fully conveys the image's purpose; describe meaningful images.
+- Credential artwork is content, not app chrome. Do not overwrite existing issued artwork or frozen certificate snapshots during a theme update. University marks used in that artwork still follow brand and seal rules.
+- Use “Cedarville University Continuing Education” for full identification; use “Continuing Education” in established context. Keep “CU CE” as internal shorthand unless approved for public copy. Preserve domain labels such as Scheduled, Self-paced, and Start anytime.
+- Use brief, concrete action labels: “Save changes,” “Request approval,” “Open course in Canvas.” Explain outcomes and recovery in plain language. Avoid internal implementation details in learner messages.
+- Keep transitions brief (about 150ms), avoid decorative motion, and respect reduced-motion preferences. Loading placeholders must not require animation to communicate status.
+
+## Implementation and acceptance
+
+The shared theme now uses official blue #003A63 and gold #FDB813, with the owner-supplied Adobe-hosted Myriad Pro and Minion Pro, bold uppercase page headings, and squared buttons. Credential interface chrome shares the same font loader and blue. Existing issued artwork and certificate snapshots are unchanged. The page specifications below describe existing workflows; this guide governs future visual changes. Existing asset widths are implementation details and do not override logo clear-space requirements.
+
+1. Retain the existing CE logo asset. Verify its provenance, trademark, clear space, and phone legibility; obtain replacement approved artwork if needed. The header has additional vertical breathing room.
+2. Keep the owner-supplied Adobe web project available. Confirm the separate Creative Services review process for app artwork.
+3. Keep shared theme tokens, fixed brand surfaces, credential-tool CSS, and interface previews aligned. Do not apply chrome typography to badge SVG or certificate artwork.
+4. Verify light/dark and phone/desktop versions of catalog, course detail, registration, My learning, staff forms/tables/dialogs, credential tools, and public verification, including loading, empty, success, error, selected, and disabled states.
+5. Follow the README checklist: appropriate code/build/workflow checks, `npm run test:a11y`, keyboard/focus/skip-link checks, screen-reader review, contrast, forced colors, reduced motion, 320px reflow, 200% text, and zoom. Record actual results and gaps; automated scans alone do not establish accessibility compliance.
 
 ## Application shell
 
 `src/web/components/shell.tsx`
 
 - **Skip link:** first focusable element. Hidden until focused, then targets `#main`.
-- **Header:** navy app bar.
+- **Header:** brand-blue #003A63 app bar in both schemes, with white CE logo and gold current-navigation underline.
   - Logo links home: 196px wide on phones, 260px on tablets, 300px on desktop. Its alt text is "Cedarville University Continuing Education".
   - `md` and up: inline navigation (Courses, My learning, Staff, Sign in/out). The current page has `aria-current="page"` and a gold underline. The demo session email appears below.
   - **Settings:** a 48px gear icon button (`aria-label="Settings"`) at the right of the bar at every width, before the phone menu button. On the Settings page it has `aria-current="page"` and the gold underline.
@@ -370,4 +414,4 @@ Each editor is a titled same-origin document in the staff workspace. Interfaces 
 - Focus and announcement behavior is verified by keyboard and DOM inspection; no screen-reader session, forced-colors, zoom or cross-browser review has been recorded for this baseline.
 - Staff paging and sorting are client-side, so they cover at most the 100 offerings and 200 audit events the API returns.
 - The provisioning simulation is one shared setting for all demo users. Exceptions have no assigned owner, age target or alert.
-- There is no manual light/dark toggle. The brand font, colors and copy await Cedarville review.
+- Logo provenance/clear-space verification and Creative Services artwork review remain open. The fonts rely on the owner-supplied Adobe web project (`gei7qvn`). CU font-use approval was confirmed by the owner on November 2, 2026. Settings already provides Match device, Light, and Dark choices.

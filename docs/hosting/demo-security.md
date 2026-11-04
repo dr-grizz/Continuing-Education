@@ -2,6 +2,18 @@
 
 Updated October 26, 2026. These controls apply to the single-instance Azure F1 demo. They do not constitute a production security certification or change the live deployment automatically.
 
+## ZAP header and caching follow-up — October 28
+
+The October 27 ZAP report scanned 38 GET endpoints on the demo and reported missing CSP, anti-clickjacking, HSTS and MIME-sniffing headers, plus informational comments/cache alerts. It does not establish authenticated write or payment coverage.
+
+The web configuration and proxy now share CSP, `X-Frame-Options: SAMEORIGIN`, `X-Content-Type-Options: nosniff` and referrer policy definitions. The proxy also applies them to its own authentication, CSRF, rate-limit and configuration errors. Credential editor documents retain their stricter policy. The general CSP is a baseline, not a complete nonce-based script policy; tightening it requires separate Next.js/MUI/Checkout compatibility checks.
+
+Hosted demo and beta responses add `Strict-Transport-Security: max-age=31536000`. It is host-only, without `includeSubDomains` or preload; local non-hosted development does not emit HSTS. Maintain working HTTPS before deploying this policy. API, staff, learner, settings and sign-in responses use `no-store` and `Referrer-Policy: no-referrer`; immutable public Next.js assets keep public caching. The current account pages render client-side shells, while authenticated data comes from non-cacheable APIs.
+
+The suspicious-comment sample identifies a third-party license/source URL, not a demonstrated secret. Preserve license notices and review any remaining instances individually. A cache alert whose evidence is already `no-store` does not justify disabling caching globally. Public catalog/static caching is intentional when no personal content is embedded.
+
+Tests cover the compiled release's normal pages, flagged route samples, private pages/API responses, errors, OAuth redirects and hashed public assets. Run a new scoped scan after deployment and test approved authenticated staff/learner workflows separately. Azure-generated network-denial/edge error pages may bypass the application and need separate inspection; app-level headers cannot change those responses. Do not claim a clean live ZAP result from local checks alone.
+
 ## Dependency remediation
 
 The security scan identified affected packages in the portal, separate badge service and Python certificate renderer. The branch updates Next.js to 16.4.3, Prisma/client/adapter to 7.10.1, concurrently to 10.0.6, Pillow to 13.0.0, and compatible transitive dependencies in both JavaScript lockfiles. Root and badge-service npm audits and the renderer's isolated pip-audit report no known vulnerabilities at this checkpoint.

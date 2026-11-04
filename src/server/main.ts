@@ -50,6 +50,8 @@ import {
   SwaggerModule,
 } from "@nestjs/swagger";
 import { prisma, sql } from "../domain/prisma";
+import { db } from "../domain/db";
+import { refreshApplicationSettings } from "../domain/application-settings";
 import { PrototypeGuard, requireAnyScope, requireScope } from "./auth";
 import {
   RefundReasonDto,
@@ -888,6 +890,7 @@ class DemoRequestInterceptor implements NestInterceptor {
 })
 class AppModule {}
 async function main() {
+  await refreshApplicationSettings(db, true);
   staffAuthMode();
   learnerAuthMode();
   // Refuse to start until npm run db:migrate has recorded the Prisma baseline.
@@ -906,100 +909,118 @@ async function main() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     rawBody: true,
   });
-  // Credentials share this API process and its PostgreSQL pool. No second listener.
-  const { createApp } = require(
-    require("node:path").resolve("badge-service/server.mjs"),
-  );
-  const { db } = require("../domain/db");
-  const credentials = await createApp({
-    directory: process.env.BADGE_DATA_DIR || "badge-service/data",
-    baseUrl: `http://127.0.0.1:${process.env.API_PORT || 3051}`,
-    pool: db,
-    demo: process.env.BADGE_DEMO !== "false",
-    ...(process.env.BADGE_CONFIG
-      ? {
-          config: JSON.parse(
-            require("node:fs").readFileSync(process.env.BADGE_CONFIG, "utf8"),
-          ),
-        }
-      : {}),
-  });
-  const { readRegister } = require(
-    require("node:path").resolve("badge-service/register.mjs"),
-  );
-  app.get(LearnerAlertsService).credentialReader = async () => {
-    const register = await readRegister(credentials.distribution.sources);
-    if (register.errors.length)
-      return {
-        records: [],
-        warning:
-          "Some credential sources are unavailable; existing expiration alerts were retained.",
-      };
+  // Private application configuration is refreshed in the API process; the
+  // independent Microsoft setup session never becomes a Canvas staff session.
+  app.use(async (_request: any, response: any, next: any) => {
     try {
-      const links = JSON.parse(
-        require("node:fs").readFileSync(
-          credentials.certificateEmail.directory.file,
-          "utf8",
-        ),
-      );
-      if (!links || typeof links !== "object" || Array.isArray(links))
-        throw new Error("unavailable");
+      await refreshApplicationSettings(db);
+      next();
     } catch {
-      return {
-        records: [],
-        warning:
-          "Approved credential account links are unavailable. Existing expiration alerts were retained.",
-      };
+      response
+        .status(503)
+        .json({ message: "Application configuration is unavailable." });
     }
-    const directory = await credentials.certificateEmail.directory.directory();
-    const records: any[] = [];
-    for (const badge of register.records) {
-      const contact = directory.contacts.get(badge.learnerId);
-      if (!contact?.active) continue; // Only explicit, unambiguous approved portal links.
-      records.push({
-        key: `badge:${badge.sourceId}:${badge.id}`,
-        learnerId: contact.portalId,
-        title: badge.title,
-        validUntil: badge.validUntil,
-        kind: "badge",
-        sourceId: badge.sourceId,
-        badgeId: badge.id,
-        signatureValid: badge.signatureValid,
-        revoked: badge.status === "revoked",
-        issuedAt: badge.issuedAt,
-        shared: badge.shared,
-      });
-      const row = await credentials.certificates.find(badge.sourceId, badge.id);
-      if (row) {
-        let valid = true;
-        try {
-          credentials.certificates.verify(row);
-        } catch {
-          valid = false;
-        }
-        const certificate = credentials.certificates.summary(row);
+  });
+  if (process.env.BADGES_ENABLED !== "false") {
+    // Credentials share this API process and its PostgreSQL pool. No second listener.
+    const { createApp } = require(
+      require("node:path").resolve("badge-service/server.mjs"),
+    );
+    const { db } = require("../domain/db");
+    const credentials = await createApp({
+      directory: process.env.BADGE_DATA_DIR || "badge-service/data",
+      baseUrl: `http://127.0.0.1:${process.env.API_PORT || 3051}`,
+      pool: db,
+      demo: process.env.BADGE_DEMO !== "false",
+      ...(process.env.BADGE_CONFIG
+        ? {
+            config: JSON.parse(
+              require("node:fs").readFileSync(process.env.BADGE_CONFIG, "utf8"),
+            ),
+          }
+        : {}),
+    });
+    const { readRegister } = require(
+      require("node:path").resolve("badge-service/register.mjs"),
+    );
+    app.get(LearnerAlertsService).credentialReader = async () => {
+      const register = await readRegister(credentials.distribution.sources);
+      if (register.errors.length)
+        return {
+          records: [],
+          warning:
+            "Some credential sources are unavailable; existing expiration alerts were retained.",
+        };
+      try {
+        const links = JSON.parse(
+          require("node:fs").readFileSync(
+            credentials.certificateEmail.directory.file,
+            "utf8",
+          ),
+        );
+        if (!links || typeof links !== "object" || Array.isArray(links))
+          throw new Error("unavailable");
+      } catch {
+        return {
+          records: [],
+          warning:
+            "Approved credential account links are unavailable. Existing expiration alerts were retained.",
+        };
+      }
+      const directory =
+        await credentials.certificateEmail.directory.directory();
+      const records: any[] = [];
+      for (const badge of register.records) {
+        const contact = directory.contacts.get(badge.learnerId);
+        if (!contact?.active) continue; // Only explicit, unambiguous approved portal links.
         records.push({
-          key: `certificate:${certificate.id}`,
+          key: `badge:${badge.sourceId}:${badge.id}`,
           learnerId: contact.portalId,
-          title: certificate.achievement,
-          validUntil: certificate.validUntil,
-          kind: "certificate",
+          title: badge.title,
+          validUntil: badge.validUntil,
+          kind: "badge",
           sourceId: badge.sourceId,
           badgeId: badge.id,
-          signatureValid: valid && badge.signatureValid,
+          signatureValid: badge.signatureValid,
           revoked: badge.status === "revoked",
-          issuedAt: certificate.createdAt,
+          issuedAt: badge.issuedAt,
+          shared: badge.shared,
         });
+        const row = await credentials.certificates.find(
+          badge.sourceId,
+          badge.id,
+        );
+        if (row) {
+          let valid = true;
+          try {
+            credentials.certificates.verify(row);
+          } catch {
+            valid = false;
+          }
+          const certificate = credentials.certificates.summary(row);
+          records.push({
+            key: `certificate:${certificate.id}`,
+            learnerId: contact.portalId,
+            title: certificate.achievement,
+            validUntil: certificate.validUntil,
+            kind: "certificate",
+            sourceId: badge.sourceId,
+            badgeId: badge.id,
+            signatureValid: valid && badge.signatureValid,
+            revoked: badge.status === "revoked",
+            issuedAt: certificate.createdAt,
+          });
+        }
       }
-    }
-    return { records, warning: null };
-  };
-  app.get(EngagementImpactService).credentialReader =
-    app.get(LearnerAlertsService).credentialReader;
-  // Mount before body parsing so certificate/image uploads retain stream limits.
-  app.use("/api/credentials", (request: any, response: any) => {
-    credentials.server.emit("request", request, response);
-  });
+      return { records, warning: null };
+    };
+    app.get(EngagementImpactService).credentialReader =
+      app.get(LearnerAlertsService).credentialReader;
+    // Mount before body parsing so certificate/image uploads retain stream limits.
+    app.use("/api/credentials", (request: any, response: any) => {
+      credentials.server.emit("request", request, response);
+    });
+  }
   app.enableShutdownHooks();
   // Sales page images arrive as base64 JSON (up to 5 MB decoded).
   app.useBodyParser("json", { limit: "8mb" });

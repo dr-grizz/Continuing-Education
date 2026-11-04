@@ -43,7 +43,7 @@ for (const name of names) {
   );
   html = html.replace(
     "</head>",
-    '<link rel="stylesheet" href="/credential-tools/portal-theme.css"><script defer src="/credential-tools/portal-frame.js"></script></head>',
+    '<link rel="stylesheet" href="/brand/typography.css"><link rel="stylesheet" href="/credential-tools/portal-theme.css"><script defer src="/credential-tools/portal-frame.js"></script></head>',
   );
   writeFileSync(path.join(out, `${name}.html`), html);
 }

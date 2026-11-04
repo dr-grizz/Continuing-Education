@@ -2,6 +2,10 @@
 
 Local Next.js + Material UI website, NestJS REST API, PostgreSQL and request-driven simulated enrollment. Seeded offerings and learner/payment test data are synthetic; the configured Canvas connection can import real course metadata into unpublished drafts. Stripe sandbox Checkout is supported when configured; learner login can use existing CU accounts through [Canvas OAuth](docs/canvas-learner-auth.md), while guest provisioning and Canvas enrollment remain simulated. Staff can use configurable Canvas OAuth and opt-in [Canvas course previews and synchronization](docs/canvas-courses.md), using that same OAuth connection. Explicit selected-course sync creates unpublished offering drafts with duplicate protection, preserved staff edits and required-information warnings; Canvas API access remains read-only. See [Canvas staff authentication](docs/canvas-staff-auth.md).
 
+## Contributing across demo and beta
+
+Follow the [two-repository sync, merge and deployment runbook](docs/repository-sync.md) before importing or backporting code, opening integration PRs, or releasing either site. Shared application code travels between repositories; deployment settings, credentials and database operations remain environment-specific. Committing/pushing, merging PRs and deploying are separate approval steps for agents.
+
 ## Badges and certificates
 
 [Badges and certificates](docs/badges-and-certificates.md) run inside the portal API and use the same PostgreSQL database. The staff tools and **My Badges** include design/image uploads, publication and course rules, manual/CSV awards, certificate PDFs and learner sharing through portal sessions. `npm run dev` starts the combined application; no separate badge process or SQLite runtime is required. Install the Python renderer once for certificate PDFs and provision explicit learner identity links. Historical SQLite stores have an explicit, backed-up import command; signing keys remain private files.
@@ -27,6 +31,8 @@ The [demo deployment plan](docs/hosting/deployment-plan.md) contains the Azure o
 ## Azure demo template
 
 For a small hosted demonstration, review the [security controls and limits](docs/hosting/demo-security.md), then use the [Azure F1 + Neon guide](docs/hosting/azure-f1-neon.md) and [deployment environment reference](deploy/README.md). The current demo uses Canvas OAuth without a shared audience password gate and a minimal prebuilt Linux runtime on Azure F1. Successful `azure-demo` pushes deploy through the [OIDC continuous-deployment workflow](docs/hosting/azure-demo-cd.md).
+
+For a separate paid App Service environment using Azure PostgreSQL, use the [agent deployment handoff plan](docs/hosting/azure-production-plan.md). It preserves the existing target `DATABASE_URL` and the F1/Neon demo, inventories the new environment's settings, and leaves CD deferred. Its separate [beta settings example](deploy/azure-beta.env.example) uses `HOSTED_BETA=true` with Canvas-only sign-in. Paid hosting alone does not enable live payments or real Canvas enrollment.
 
 ## Run locally
 
@@ -117,7 +123,7 @@ Stop application processes with Ctrl+C. `docker compose stop db` stops PostgreSQ
 
    Default staff sign-in is mock: no password, and anyone can pick anyone. See [ADR 0004](docs/adr/0004-staff-roles-mock-sign-in.md). Configure [Canvas staff OAuth](docs/canvas-staff-auth.md) to require verified, explicitly linked identities.
 
-Design uses standard MUI navigation, forms, tables, alerts and dialogs. The [UI specification](docs/prototype/ui-specification.md) records the theme tokens, layouts, patterns and page behavior. Colors, the font and text branding are provisional; institutional brand assets and course content need review.
+Design uses standard MUI navigation, forms, tables, alerts and dialogs. The [UI specification](docs/prototype/ui-specification.md) records the theme tokens, layouts, patterns and page behavior. The shared styling follows Cedarville’s website with Adobe-hosted Myriad Pro and Minion Pro, official blue/gold, bold headings and squared buttons. CU font use is authorized; logo verification and app artwork review remain open. The font loader uses the owner-supplied Adobe web project (`gei7qvn`).
 
 ## Request-driven demo (no worker)
 

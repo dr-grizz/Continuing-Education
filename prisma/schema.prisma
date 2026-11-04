@@ -789,6 +789,65 @@ model credential_workspaces {
   credential_publishing_activity   credential_publishing_activity[]
 }
 
+/// Single persisted setup gate. Completion is retained across deployments.
+model bootstrap_control {
+  id                     Int                      @id
+  generation             String                   @unique @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  owner_tenant           String?                  @db.Uuid
+  owner_object           String?                  @db.Uuid
+  expires_at             DateTime                 @db.Timestamptz(6)
+  completed_at           DateTime?                @db.Timestamptz(6)
+  handoff_staff_id       String?                  @db.Uuid
+  handoff_linked_at      DateTime?                @db.Timestamptz(6)
+  created_at             DateTime                 @default(now()) @db.Timestamptz(6)
+  bootstrap_sessions     bootstrap_sessions[]
+  bootstrap_oauth_states bootstrap_oauth_states[]
+}
+
+/// Only digests of temporary setup session cookies are persisted.
+model bootstrap_sessions {
+  token_hash         String            @id @db.Char(64)
+  generation         String            @db.Uuid
+  display_name       String
+  email              String
+  configuration_hash String            @db.Char(64)
+  authenticated_at   DateTime          @db.Timestamptz(6)
+  expires_at         DateTime          @db.Timestamptz(6)
+  created_at         DateTime          @default(now()) @db.Timestamptz(6)
+  bootstrap_control  bootstrap_control @relation(fields: [generation], references: [generation], onDelete: NoAction, onUpdate: NoAction, map: "bootstrap_sessions_generation_fkey")
+
+  @@index([expires_at], map: "bootstrap_sessions_expiry")
+}
+
+/// One-use provider state, bound to browser, setup generation and configuration.
+model bootstrap_oauth_states {
+  state_hash        String            @id @db.Char(64)
+  browser_hash      String            @db.Char(64)
+  generation        String            @db.Uuid
+  purpose           String
+  encrypted_payload String
+  expires_at        DateTime          @db.Timestamptz(6)
+  created_at        DateTime          @default(now()) @db.Timestamptz(6)
+  bootstrap_control bootstrap_control @relation(fields: [generation], references: [generation], onDelete: NoAction, onUpdate: NoAction, map: "bootstrap_oauth_states_generation_fkey")
+
+  @@index([expires_at], map: "bootstrap_oauth_states_expiry")
+}
+
+/// Write-only private application settings, encrypted using a server-held key.
+model application_settings {
+  name            String   @id
+  encrypted_value String
+  updated_by      String
+  updated_at      DateTime @default(now()) @db.Timestamptz(6)
+}
+
+/// Shared, bounded setup-key attempt window across application instances.
+model bootstrap_key_limits {
+  id                Int      @id
+  window_started_at DateTime @db.Timestamptz(6)
+  attempts          Int
+}
+
 // Versioned progress snapshots and append-only staff evidence; see migration 025.
 model progress_cohort_members {
   cohort_id             String                @db.Uuid

@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "setup": "node scripts/setup.mjs",
-    "postinstall": "prisma generate",
+    "postinstall": "prisma generate && node scripts/generate-system-info.mjs",
     "db:up": "docker compose up -d --wait db",
     "db:migrate": "ts-node -P tsconfig.server.json scripts/db-migrate.ts",
     "db:migrate:status": "prisma migrate status",
@@ -33,8 +33,7 @@
     "test:hosting": "ts-node -P tsconfig.server.json tests/hosting.test.ts",
     "verify:demo": "node scripts/verify-demo.mjs",
     "badges:build": "node scripts/build-badge-workspace.mjs",
-    "badges:setup": "npm ci --prefix badge-service && node scripts/build-badge-workspace.mjs",
-    "dev:badges": "node --env-file-if-exists=.env badge-service/server.mjs",
+    "badges:setup": "node scripts/build-badge-workspace.mjs",
     "test:badges": "ts-node -P tsconfig.server.json scripts/test-badges.ts",
     "badges:link-learner": "ts-node -P tsconfig.server.json scripts/link-badge-learner.ts",
     "badges:import-sqlite": "ts-node -P tsconfig.server.json scripts/import-badge-sqlite.ts",
@@ -48,7 +47,11 @@
     "test:alerts": "ts-node -P tsconfig.server.json tests/learner-alerts.integration.ts",
     "test:engagement-impact": "ts-node -P tsconfig.server.json tests/engagement-impact.integration.ts",
     "test:earnings": "ts-node -P tsconfig.server.json tests/earnings.integration.ts",
-    "test:alerts-sso": "ts-node -P tsconfig.server.json tests/alerts-sso.integration.ts"
+    "test:alerts-sso": "ts-node -P tsconfig.server.json tests/alerts-sso.integration.ts",
+    "prebuild": "node scripts/generate-system-info.mjs",
+    "predev": "node scripts/generate-system-info.mjs",
+    "predev:web": "node scripts/generate-system-info.mjs",
+    "test:bootstrap": "ts-node -P tsconfig.server.json tests/bootstrap.integration.ts"
   },
   "engines": {
     "node": ">=24"
