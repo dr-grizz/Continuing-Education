@@ -65,7 +65,7 @@
     $('selection').textContent = `${selected.size} certificate${selected.size === 1 ? '' : 's'} selected (maximum 100).`;
   }
   function invalidate() { preview = null; $('previews').replaceChildren(); $('confirm').checked = false; controls(); }
-  function eligible(cert) { return catalog.awards.some(award => award.id === cert.badgeId && award.sourceId === cert.sourceId && award.status === 'issued' && award.signatureValid); }
+  function eligible(cert) { return cert.status !== 'expired' && catalog.awards.some(award => award.id === cert.badgeId && award.sourceId === cert.sourceId && award.status === 'issued' && award.signatureValid); }
   function visibleCertificates() { const cohort = $('cohort').value; return catalog.certificates.filter(cert => !cohort || emailCatalog?.contacts[cert.id]?.cohortIds.includes(cohort)); }
   function choices() {
     $('choices').replaceChildren();

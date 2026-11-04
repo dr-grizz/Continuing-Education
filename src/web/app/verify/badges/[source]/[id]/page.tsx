@@ -7,6 +7,7 @@ type PublicBadge = {
   criteria: string;
   issuer: string;
   issuedAt: string;
+  expirationDate?: string | null;
   status: string;
   signatureValid: boolean;
   artwork?: string;
@@ -58,16 +59,20 @@ export default function Verify({
               severity={
                 badge.status === "revoked"
                   ? "error"
-                  : badge.signatureValid
-                    ? "success"
-                    : "error"
+                  : badge.status === "expired"
+                    ? "warning"
+                    : badge.signatureValid
+                      ? "success"
+                      : "error"
               }
             >
               {badge.status === "revoked"
                 ? "This award has been revoked."
-                : badge.signatureValid
-                  ? "Credential signature verified."
-                  : "Credential verification failed."}
+                : badge.status === "expired"
+                  ? "This badge has expired. It is a historical record of achievement."
+                  : badge.signatureValid
+                    ? "Credential signature verified."
+                    : "Credential verification failed."}
             </Alert>
             {badge.artwork && badge.signatureValid && (
               <Box
@@ -82,6 +87,11 @@ export default function Verify({
             <Typography>
               Issued by {badge.issuer} ·{" "}
               {new Date(badge.issuedAt).toLocaleDateString("en-US")}
+            </Typography>
+            <Typography variant="body2">
+              {badge.expirationDate
+                ? `Valid through ${badge.expirationDate} (UTC)`
+                : "No expiration"}
             </Typography>
             <Typography variant="body2">
               {badge.demo ? "Fictional demonstration award. " : ""}CU pilot

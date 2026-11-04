@@ -20,7 +20,7 @@ async function reload() {
   for (const badge of badges) {
     const card = element('article',null,'card');
     card.append(element('div','✦','badge-symbol'),element('small','FICTIONAL DEMONSTRATION'),element('h3',badge.title),
-      element('p',badge.status === 'revoked' ? 'Revoked' : badge.signatureValid ? 'Issued · signature verified' : 'Signature invalid',badge.status === 'revoked' ? 'state revoked' : 'state'),
+      element('p',badge.status === 'revoked' ? 'Revoked' : badge.status === 'expired' ? 'Expired' : badge.signatureValid ? 'Issued · signature verified' : 'Signature invalid',badge.status === 'revoked' ? 'state revoked' : 'state'),
       element('p',badge.criteria),element('p',`Issued ${new Date(badge.issuedAt).toLocaleString()}`));
     const actions = element('div',null,'actions');
     const download = element('a','Download credential','button secondary');

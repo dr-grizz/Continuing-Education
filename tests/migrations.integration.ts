@@ -355,7 +355,9 @@ async function main() {
           name,
         );
         const sourceFeature =
-          /^(025_individual|026_certificate|027_|028_)/.test(name);
+          /^(025_individual|026_certificate|027_|028_|029_|030_|031_)/.test(
+            name,
+          );
         if (
           (profile === "beta" && sourceFeature) ||
           (profile === "source" && bootstrap)

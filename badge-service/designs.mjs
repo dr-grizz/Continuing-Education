@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { resolveSkillSelections } from "./skills.mjs";
+import { expirationDate } from "./expiration.mjs";
 export const defaultDesign = {
   title: "Faithful Leadership",
   description:
@@ -24,6 +25,7 @@ export function validateDesign(input) {
   if (!input || typeof input !== "object" || Array.isArray(input))
     throw new Error("Invalid badge design");
   const design = {};
+  const expires = expirationDate(input.expirationDate);
   for (const [key, limit] of Object.entries({
     title: 100,
     description: 2000,
@@ -102,6 +104,7 @@ export function validateDesign(input) {
       throw new Error("Invalid assessed skill alignment");
     if (input.skills.length) design.skills = structuredClone(input.skills);
   }
+  if (expires) design.expirationDate = expires;
   return design;
 }
 // Schema changes belong to the portal's Prisma migrations.

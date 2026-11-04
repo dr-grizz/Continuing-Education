@@ -1,4 +1,5 @@
 import type { SalesPage } from "./sales-page-blocks";
+import type { OfferingSkill } from "../../domain/offering-skills";
 export type Offering = {
   id: string;
   title: string;
@@ -6,6 +7,7 @@ export type Offering = {
   summary: string;
   description: string;
   outcomes: string[];
+  skills?: OfferingSkill[];
   format: string;
   course_type: "cohort" | "self_paced";
   start_date: string | null;

@@ -1,5 +1,10 @@
 // Plain-language wording for audit actions and system actors shown to staff.
 export const auditLabels: Record<string, string> = {
+  "manual_payment.recorded": "Manual payment recorded",
+  "manual_refund.recorded": "Manual refund recorded",
+  "alerts.rule_saved": "Learner alert rule saved",
+  "alerts.action": "Learner alert follow-up recorded",
+  "alerts.canvas_sync_requested": "Canvas activity check requested",
   "progress.plan_created": "Completion requirements version created",
   "progress.cohort_created": "Learner cohort created",
   "progress.assigned": "Completion requirements assigned",

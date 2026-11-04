@@ -1,3 +1,4 @@
+import { credentialStatus } from "./expiration.mjs";
 import { PostgresBadgeDatabase } from "./postgres.mjs";
 import { createPrivateKey, createPublicKey, verify } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -48,7 +49,9 @@ export class LearnerAwards {
       issuer: credential.issuer.name,
       artwork: valid ? credential.achievement.image || null : null,
       issuedAt: row.issued_at,
-      status: row.revoked_at ? "revoked" : "issued",
+      status: credentialStatus(row),
+      expirationDate: credential.expirationDate || null,
+      validUntil: credential.validUntil || null,
       signatureValid: valid,
       demo: credential.demonstration === true,
       shared: Boolean(row.shared),
@@ -124,7 +127,10 @@ export class LearnerAwards {
           .prepare("SELECT * FROM badges WHERE id=? AND learner=?")
           .get(id, learner);
         if (!row) throw new Error("Badge not found");
-        if (shared && (row.revoked_at || !this.valid(source, row)))
+        if (
+          shared &&
+          (credentialStatus(row) !== "issued" || !this.valid(source, row))
+        )
           throw new Error("Only valid, active badges can be shared");
         if (Boolean(row.shared) !== shared) {
           await db

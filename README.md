@@ -14,7 +14,7 @@ Follow the [two-repository sync, merge and deployment runbook](docs/repository-s
 
 [QR and claim-code distribution](docs/credential-distribution.md) delivers an earned badge, its certificate, or both to the same authenticated learner. The certificate and award workspaces include recipient-bound codes, QR images, expiry, revocation and claim history; `npm run badges:seed-demo` prepares two fictional paired accomplishments locally.
 
-[Skills and careers](docs/skills-and-careers.md) adds assessed O*NET skills to badge drafts and frozen awards, related occupations, regional BLS wages and national projections. The free `/skills` explorer also supports O*NET v2 occupation search and national outlook when the private server `ONET_API_KEY` is configured. Apply migration `028_skills_labor_market`, run `npm run skills:import`, and verify API access with `npm run skills:verify-api`; the public reference area requires no account and includes source attribution.
+[Skills and careers](docs/skills-and-careers.md) adds assessed O*NET skills to badge drafts and frozen awards, related occupations, regional BLS wages and national projections. Offering creation and Details also support optional course skill coverage (migration `029_offering_skills`), and badge publishing links to the selected draft’s assessed-skills editor. The free `/skills` explorer also supports O*NET v2 occupation search and national outlook when the private server `ONET_API_KEY` is configured. Apply migration `028_skills_labor_market`, run `npm run skills:import`, and verify API access with `npm run skills:verify-api`; the public reference area requires no account and includes source attribution.
 
 ## Individual progress and cohorts
 
@@ -230,3 +230,19 @@ With `LEARNER_AUTH_MODE=canvas`, learners sign in through their existing CU Canv
 With `LEARNER_AUTH_MODE=mock` (the local default), mock sign-in accepts any email and any password at `/sign-in`. Emails are normalized and saved in the PostgreSQL `learners` table; the password is never saved or sent. An HTTP-only cookie selects the demo learner for 30 days. Sign-out clears that cookie, while registrations remain in the database. Each email has its own course registrations, and staff use either mock sign-in (ADR 0004) or explicitly configured [Canvas OAuth](docs/canvas-staff-auth.md). Anyone can sign in as any demo email; this is not production authentication. Existing shared sample registrations remain attached to the legacy email-less learner.
 
 In learner mock mode only, use the learner token with `POST /api/v1/prototype/users` and an email JSON body to obtain a learner ID. Pass `X-Prototype-Learner-Id` with that token on learner workflow requests. `GET /api/v1/me` returns the selected learner. Omitting the header selects the legacy sample learner for direct API demos; signed-out web workflow requests are rejected.
+
+### Learner alerts
+
+Admin → Learners → **Alerts** configures stalled verification, completion milestones, upcoming badge/certificate expiration, and optional authorized Canvas inactivity/current-score rules. The existing API runs checks while online; notifications are dashboard-only. Apply migration `030_learner_alerts`, then use the [staff and Canvas setup instructions](docs/learner-alerts.md) and [verification record](docs/testing/learner-alerts-verification.md).
+
+### Engagement and Impact
+
+Admin → Overview → **Engagement and Impact** reports registration trends, returning learners, documented completion, offering/cohort comparisons, linked badge/certificate issuance and acknowledgment, and offering skill coverage. Date/offering/cohort filters and aggregate CSV use the same scope. It uses existing portal data without enabling Canvas or changing SSO; see [definitions and limitations](docs/engagement-impact.md). Run `npm run test:engagement-impact` for the isolated PostgreSQL/API checks.
+
+### Earnings
+
+Admin → Finance → **Earnings** adds receipts trends, current refund allocation, offering performance, payer mix, Checkout outcomes, filters, and aggregate CSV for staff with `reports:sales`. Stripe sandbox and simulated records remain separate and explicitly labeled. Fees/costs have not been deducted from receipts after refunds; these are not profit or production earnings. See [financial definitions](docs/earnings.md). Run `npm run test:earnings` for isolated PostgreSQL/API verification.
+
+Manual external payments and refunds can be recorded in **Finance → Earnings** or **Transactions** by staff administrators with `payments:record`. Select **Manual records** in Earnings to report them separately from Stripe sandbox and simulation. Records preserve dates, methods, references, notes, staff actors and linked refunds without moving money or changing enrollment; see [the manual-record guide](docs/manual-payments.md).
+
+Canvas alerts follow the existing university SSO login: **Alerts for your login** shows the staff identity and authorization state, and Canvas rules/data/history stay within the account that authorized them. Missing grants require the existing Canvas sign-in flow; local preview never reads live Canvas alert data. See [SSO and alerts](docs/learner-alerts.md#university-sso-and-alerts-for-your-login) and run `npm run test:alerts-sso` for session/grant isolation checks.

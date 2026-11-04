@@ -134,21 +134,24 @@
     section.insertBefore(credit, results);
   }
   function webServicesCredit(container) {
-    const credit = node("div", undefined, "skills-onet-credit"),
-      logoLine = node("p", undefined, "skills-onet-logo"),
-      logoLink = node("a"),
-      image = node("img");
-    logoLink.href = "https://services.onetcenter.org/";
-    logoLink.title =
-      "This site incorporates information from O*NET Web Services. Click to learn more.";
-    logoLink.target = "_blank";
-    logoLink.rel = "noopener noreferrer";
-    image.src = "/credential-tools/onet-in-it.svg";
-    image.alt = "O*NET in-it";
-    image.width = 130;
-    image.height = 60;
-    logoLink.append(image);
-    logoLine.append(logoLink);
+    const credit = node("div", undefined, "skills-onet-credit");
+    if (!document.querySelector(".skills-onet-logo")) {
+      const logoLine = node("p", undefined, "skills-onet-logo"),
+        logoLink = node("a"),
+        image = node("img");
+      logoLink.href = "https://services.onetcenter.org/";
+      logoLink.title =
+        "This site incorporates information from O*NET Web Services. Click to learn more.";
+      logoLink.target = "_blank";
+      logoLink.rel = "noopener noreferrer";
+      image.src = "/credential-tools/onet-in-it.svg";
+      image.alt = "O*NET in-it";
+      image.width = 130;
+      image.height = 60;
+      logoLink.append(image);
+      logoLine.append(logoLink);
+      credit.append(logoLine);
+    }
     const text = node("p", undefined, "skills-note"),
       source = node("a", "O*NET Web Services");
     source.href = "https://services.onetcenter.org/";
@@ -159,7 +162,7 @@
       source,
       " by the U.S. Department of Labor, Employment and Training Administration (USDOL/ETA). O*NET® is a trademark of USDOL/ETA.",
     );
-    credit.append(logoLine, text);
+    credit.append(text);
     container.append(credit);
     return credit;
   }
@@ -326,7 +329,8 @@
         if (!data.ready)
           status.textContent =
             "Skills reference data is not available yet. Please contact portal support.";
-        attribution(section, data);
+        if (!document.querySelector("[data-public-skills]"))
+          attribution(section, data);
       })
       .catch((error) => {
         status.textContent = error.message;

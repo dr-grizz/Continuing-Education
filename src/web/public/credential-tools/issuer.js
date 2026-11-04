@@ -7,10 +7,10 @@ const initial=Object.fromEntries(keys.map(key=>[key,value(key)]));
 let currentId=null, revision=null, logo=null, artworkImage=null, baseline=null, svg='', busy=false;
 const xml=value=>String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'}[c]));
 const skillPicker=window.CUSkills.createPicker($('details-panel'),()=>{render();message('');});
-function design(){const skills=skillPicker.get();return {...Object.fromEntries([...keys.map(key=>[key,value(key)]),['logo',logo],['artworkImage',artworkImage]]),...(skills.length?{skills}:{})};}
+function design(){const skills=skillPicker.get();return {...Object.fromEntries([...keys.map(key=>[key,value(key)]),['logo',logo],['artworkImage',artworkImage]]),...(skills.length?{skills}:{}),...($('expirationDate').value?{expirationDate:$('expirationDate').value}:{})};}
 function message(text){$('status').textContent=text;}
 function render(){
-  const d=design();svg=artwork(d);$('badge-preview').innerHTML=svg;
+  const d=design();$('preview-expiration').textContent=d.expirationDate?'Valid through '+d.expirationDate+' (UTC)':'No expiration';svg=artwork(d);$('badge-preview').innerHTML=svg;
   $('badge-preview').setAttribute('aria-label',`${d.title||'Untitled'} badge design`);
   $('preview-title').textContent=d.title||'Your badge title';$('preview-description').textContent=d.description||'Add a description of the achievement.';$('preview-issuer').textContent=d.issuer||'Your organization';
   $('border-output').value=d.border;$('iconSize-output').value=d.iconSize;
@@ -20,7 +20,7 @@ function render(){
   $('use-templates').hidden=!artworkImage;$('artwork-state').hidden=!artworkImage;
   $('save-state').textContent=baseline===JSON.stringify(d)?`Saved · revision ${revision}`:currentId?'Unsaved changes':'Unsaved draft';
 }
-function populate(d){skillPicker.set(d.skills||[]);for(const key of keys)$(key).value=d[key];logo=d.logo||null;artworkImage=d.artworkImage||null;$('logo').value='';$('artwork-image').value='';render();}
+function populate(d){$('expirationDate').value=d.expirationDate||'';skillPicker.set(d.skills||[]);for(const key of keys)$(key).value=d[key];logo=d.logo||null;artworkImage=d.artworkImage||null;$('logo').value='';$('artwork-image').value='';render();}
 function selectTab(name){
   for(const tab of ['visual','details']){const selected=tab===name;$(tab+'-panel').hidden=!selected;$(tab+'-tab').setAttribute('aria-selected',String(selected));$(tab+'-tab').tabIndex=selected?0:-1;}
 }
@@ -28,6 +28,7 @@ for(const tab of ['visual','details']){
   $(tab+'-tab').addEventListener('click',()=>selectTab(tab));
   $(tab+'-tab').addEventListener('keydown',e=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){e.preventDefault();const next=e.key==='Home'?'visual':e.key==='End'?'details':tab==='visual'?'details':'visual';selectTab(next);$(next+'-tab').focus();}});
 }
+$('expirationDate').addEventListener('input',()=>{render();message('');});
 for(const key of keys)$(key).addEventListener('input',()=>{render();message('');});
 const templates={classic:{shape:'shield',icon:'book',font:'serif',primary:'#003A63',accent:'#FDB813',text:'#FFFFFF',border:12,iconSize:92},modern:{shape:'hexagon',icon:'star',font:'sans',primary:'#003A63',accent:'#FDB813',text:'#FFFFFF',border:6,iconSize:85},heritage:{shape:'seal',icon:'laurel',font:'serif',primary:'#FDB813',accent:'#003A63',text:'#003A63',border:8,iconSize:92}};
 document.querySelectorAll('[data-template]').forEach(button=>button.addEventListener('click',()=>{
@@ -90,4 +91,4 @@ $('export-png').addEventListener('click',async()=>{
     const png=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));if(!png)throw new Error();download(png,filename()+'.png');message('Transparent PNG exported at 1200 × 1200 pixels.');
   }catch{message('PNG export failed; try SVG artwork instead.');}finally{URL.revokeObjectURL(url);$('export-png').disabled=false;}
 });
-render();library().catch(()=>message('Saved drafts are unavailable; you can still design and export artwork.'));
+render();library().then(drafts=>{const params=new URLSearchParams(location.search),draft=drafts.find(d=>d.id===params.get('draft'));if(draft){currentId=draft.id;revision=draft.revision;const normalized={...draft.design,artworkImage:draft.design.artworkImage||null};baseline=JSON.stringify(normalized);populate(normalized);}if(params.get('section')==='details')selectTab('details');}).catch(()=>message('Saved drafts are unavailable; you can still design and export artwork.'));

@@ -1,3 +1,10 @@
+import {
+  expirationDate,
+  expirationFields,
+  isExpired,
+  requireUnexpired,
+  credentialStatus,
+} from "./expiration.mjs";
 import { randomUUID, sign, verify } from "node:crypto";
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -30,6 +37,8 @@ export function validateCertificateDesign(input) {
   if (!input || typeof input !== "object" || Array.isArray(input))
     fail("Invalid certificate design.");
   const d = {};
+  const expires = expirationDate(input.expirationDate);
+  if (expires) d.expirationDate = expires;
   for (const [key, max] of Object.entries({
     header: 140,
     title: 55,
@@ -242,10 +251,11 @@ export class Certificates {
       }),
       demo: true,
       preview: true,
+      ...expirationFields(design.expirationDate),
       design: validateCertificateDesign(design),
     };
   }
-  async row(source, id, learner) {
+  async row(source, id, learner, active = false) {
     const db = await this.awards.open(source);
     try {
       const row = await db
@@ -256,7 +266,11 @@ export class Certificates {
         )
         .get(...(learner === undefined ? [id] : [id, learner]));
       if (!row) throw new Error("Badge not found");
-      if (row.revoked_at || !this.awards.valid(source, row))
+      if (
+        (active && credentialStatus(row) !== "issued") ||
+        row.revoked_at ||
+        !this.awards.valid(source, row)
+      )
         fail("Certificates require a valid, active award.");
       return row;
     } finally {
@@ -279,6 +293,9 @@ export class Certificates {
       title: s.design.title,
       achievement: s.achievement,
       createdAt: row.created_at,
+      expirationDate: s.expirationDate || null,
+      validUntil: s.validUntil || null,
+      status: isExpired(s) ? "expired" : "issued",
       templateId: s.templateId,
       templateRevision: s.templateRevision,
     };
@@ -294,8 +311,10 @@ export class Certificates {
   async insert(source, row, template, name, actor) {
     const existing = await this.find(source, row.id);
     if (existing) return this.summary(existing);
-    if (row.revoked_at || !this.awards.valid(source, row))
+    if (credentialStatus(row) !== "issued" || !this.awards.valid(source, row))
       fail("Certificates require a valid, active award.");
+    const expiry = expirationFields(template.design.expirationDate);
+    requireUnexpired(expiry);
     const credential = JSON.parse(row.credential),
       id = randomUUID(),
       at = new Date().toISOString(),
@@ -313,6 +332,7 @@ export class Certificates {
           timeZone: "UTC",
         }),
         awardIssuedAt: row.issued_at,
+        ...expiry,
         demo: credential.demonstration === true,
         design: template.design,
         templateId: template.id,
@@ -333,6 +353,7 @@ export class Certificates {
     return this.summary(created);
   }
   async validateBatch(template, names, achievement, issuer) {
+    requireUnexpired(expirationFields(template.design.expirationDate));
     await renderCertificate({
       ...this.sample(template.design, {
         recipientName: names[0] || "Alex Morgan",
@@ -347,11 +368,12 @@ export class Certificates {
       fail(
         "Confirm the printed name and award before creating the certificate.",
       );
-    const row = await this.row(body.sourceId, body.badgeId),
+    const row = await this.row(body.sourceId, body.badgeId, undefined, true),
       t = await this.template(body.templateId),
       name = recipientName(body.recipientName);
     const existing = await this.find(body.sourceId, body.badgeId);
     if (existing) return this.summary(existing);
+    requireUnexpired(expirationFields(t.design.expirationDate));
     await renderCertificate({
       ...this.sample(t.design, {
         recipientName: name,
@@ -360,13 +382,20 @@ export class Certificates {
       issuer: JSON.parse(row.credential).issuer.name,
     });
     return await this.store.transaction(async () => {
-      const fresh = await this.row(body.sourceId, body.badgeId);
+      const fresh = await this.row(
+        body.sourceId,
+        body.badgeId,
+        undefined,
+        true,
+      );
       if ((await this.template(t.id)).revision !== t.revision)
         fail("Certificate template changed. Reload before saving.");
       return await this.insert(body.sourceId, fresh, t, name, actor);
     });
   }
-  verify(row) {
+  verify(row, active = false) {
+    if (active && isExpired(JSON.parse(row.snapshot_json)))
+      fail("This certificate has expired.");
     if (
       !verify(
         null,

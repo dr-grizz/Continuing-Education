@@ -4180,7 +4180,12 @@ test.describe("skills and careers", () => {
     await mockSkills(page);
     await page.goto("/skills");
     const frame = page.frameLocator("iframe");
-    const credit = frame.locator(".skills-onet-credit").first();
+    await expect(
+      frame.getByRole("img", { name: "O*NET in-it", exact: true }),
+    ).toHaveCount(1);
+    const credit = frame.locator(".skills-onet-credit").filter({
+      has: frame.locator(".skills-onet-logo"),
+    });
     await expect(credit).toContainText(
       "This site incorporates information from O*NET Web Services by the U.S. Department of Labor, Employment and Training Administration (USDOL/ETA). O*NET® is a trademark of USDOL/ETA.",
     );
@@ -4254,6 +4259,9 @@ test.describe("skills and careers", () => {
       .getByRole("button", { name: "View O*NET outlook for 25-9031.00" })
       .click();
     await expect(api.getByText("Original provider wording.")).toBeVisible();
+    await expect(
+      frame.getByRole("img", { name: "O*NET in-it", exact: true }),
+    ).toHaveCount(1);
     await expect(
       api.getByRole("link", { name: "O*NET Web Services" }),
     ).toHaveAttribute("href", "https://services.onetcenter.org/");
@@ -4453,5 +4461,2091 @@ test.describe("skills and careers", () => {
       }),
     ).toBeVisible();
     await scan(page, "Learner owned skill assessment and career context");
+  });
+});
+
+test.describe("offering and badge skill attachment", () => {
+  const releaseId = "92000000-0000-4000-8000-000000000001",
+    offeringId = "92000000-0000-4000-8000-000000000002",
+    draftId = "92000000-0000-4000-8000-000000000003";
+  const skill = {
+    id: "2.A.2.a",
+    releaseId,
+    name: "Critical Thinking",
+    description: "Use reasoning to compare alternative approaches.",
+    category: "essential",
+    url: "https://www.onetcenter.org/database.html",
+    source: "O*NET",
+    version: "31.0",
+    license: "https://creativecommons.org/licenses/by/4.0/",
+  };
+  async function skills(page: Page) {
+    await page.route("**/api/badges/**/skills/**", (route) =>
+      route.fulfill({
+        json: route.request().url().endsWith("/catalog")
+          ? {
+              ready: true,
+              skillsRelease: { version: "31.0" },
+              attribution: "O*NET 31.0 Database by USDOL/ETA, CC BY 4.0.",
+            }
+          : { skills: [skill], limit: 25 },
+      }),
+    );
+  }
+  test("new offering selects skills, saves references, reopens and removes skills, and shows course coverage", async ({
+    page,
+  }) => {
+    await page.request.post("/api/staff-session", {
+      data: { email: "admin@cuce.test" },
+    });
+    await skills(page);
+    const offering: any = {
+      id: offeringId,
+      title: "Skills course fixture",
+      category: "Technology",
+      summary: "A synthetic summary for the new skills offering.",
+      description:
+        "A synthetic description for the offering skill picker workflow.",
+      format: "Online",
+      course_type: "self_paced",
+      start_date: null,
+      end_date: null,
+      price_cents: 14900,
+      capacity: 20,
+      seats_available: 20,
+      unlimited_seats: false,
+      approval_required: false,
+      approval_valid_days: 7,
+      enrollment_close_days: 7,
+      canvas_course_url: null,
+      published: false,
+      listed: true,
+      unpublished_at: null,
+      version: 1,
+      outcomes: [],
+      skills: [],
+      active_registrations: 0,
+      seats_in_use: 0,
+      sales_page_status: "none",
+    };
+    let creates = 0,
+      edits = 0;
+    await page.route("**/api/staff/offerings", (route) =>
+      route.fulfill({ json: [] }),
+    );
+    await page.route(`**/api/staff/offerings/${offeringId}`, (route) =>
+      route.fulfill({ json: { offering, registrations: {}, activity: [] } }),
+    );
+    await page.route(`**/api/offerings/${offeringId}/prices`, (route) =>
+      route.fulfill({ json: [] }),
+    );
+    await page.route("**/api/offerings", (route) => {
+      if (route.request().method() !== "POST") return route.fallback();
+      const body = route.request().postDataJSON();
+      expect(body.skills).toEqual([{ id: skill.id, releaseId }]);
+      Object.assign(offering, {
+        title: body.title,
+        summary: body.summary,
+        description: body.description,
+        skills: [skill],
+      });
+      creates++;
+      return route.fulfill({ status: 201, json: offering });
+    });
+    await page.route(`**/api/offerings/${offeringId}/edit`, (route) => {
+      const body = route.request().postDataJSON();
+      expect(body.skills).toEqual([]);
+      offering.skills = [];
+      offering.version++;
+      edits++;
+      return route.fulfill({ json: offering });
+    });
+    await page.goto("/staff/offerings");
+    await page
+      .getByRole("button", { name: "New offering", exact: true })
+      .click();
+    const dialog = page.getByRole("dialog", { name: "Create sample offering" });
+    await dialog.getByLabel("Course title").fill(offering.title);
+    await dialog.getByLabel("Short summary").fill(offering.summary);
+    await dialog.locator("#offering-description").fill(offering.description);
+    await expect(
+      dialog.getByRole("button", { name: "Search skills", exact: true }),
+    ).toBeEnabled();
+    await dialog.getByLabel("Search offering skills").fill("critical");
+    await dialog.getByLabel("Search offering skills").press("Enter");
+    await dialog
+      .getByRole("button", { name: "Add Critical Thinking", exact: true })
+      .click();
+    await expect(
+      dialog.getByRole("button", {
+        name: "Remove Critical Thinking",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await scan(page, "New offering with selected O*NET skill");
+    await dialog
+      .getByRole("button", { name: "Save draft", exact: true })
+      .click();
+    await expect(page).toHaveURL(
+      new RegExp("/staff/offerings/" + offeringId + "$"),
+    );
+    expect(creates).toBe(1);
+    await page.getByRole("link", { name: "Details", exact: true }).click();
+    await expect(
+      page.getByRole("button", {
+        name: "Remove Critical Thinking",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await page
+      .getByRole("button", { name: "Remove Critical Thinking", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Save changes", exact: true })
+      .click();
+    await expect.poll(() => edits).toBe(1);
+    await expect(
+      page.getByRole("button", {
+        name: "Remove Critical Thinking",
+        exact: true,
+      }),
+    ).toHaveCount(0);
+    await scan(page, "Edited offering skills");
+    await page.route(`**/api/offerings/${offeringId}`, (route) =>
+      route.fulfill({
+        json: { ...offering, published: true, skills: [skill] },
+      }),
+    );
+    await page.goto("/courses/" + offeringId);
+    await expect(
+      page.getByRole("heading", { name: "Skills covered", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByText(skill.description, { exact: true }),
+    ).toBeVisible();
+    await scan(page, "Public offering skills coverage");
+  });
+  test("badge publishing exposes attached skills and opens the selected draft in Details", async ({
+    page,
+  }) => {
+    await page.request.post("/api/staff-session", {
+      data: { email: "admin@cuce.test" },
+    });
+    await skills(page);
+    const design = {
+      ...require("../../badge-service/designs.mjs").defaultDesign,
+      title: "Skills badge fixture",
+      skills: [
+        {
+          ...skill,
+          assessment:
+            "Evaluate two approaches using the documented performance rubric.",
+        },
+      ],
+    };
+    const draft = { id: draftId, revision: 1, design };
+    await page.route("**/api/badges/admin/session", (route) =>
+      route.fulfill({ json: { authenticated: true } }),
+    );
+    await page.route("**/api/badges/admin/catalog", (route) =>
+      route.fulfill({
+        json: {
+          drafts: [draft],
+          versions: [],
+          mappings: [],
+          learners: [],
+          activity: [],
+          defaults: {
+            canvasCourseId: 101,
+            canvasAssignmentId: 102,
+            requiredModuleIds: [1],
+            minimumPercent: 80,
+          },
+        },
+      }),
+    );
+    await page.route("**/api/badges/designer/drafts", (route) =>
+      route.fulfill({ json: { drafts: [draft] } }),
+    );
+    await page.goto("/staff/badge-publishing");
+    let frame = page.frameLocator("iframe");
+    await expect(
+      frame
+        .locator("#draft-skills")
+        .getByText("Critical Thinking", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      frame
+        .locator("#draft-skills")
+        .getByText(design.skills[0].assessment, { exact: true }),
+    ).toBeVisible();
+    await scan(page, "Badge publishing skills summary");
+    await frame
+      .getByRole("link", { name: "Add or edit skills", exact: false })
+      .click();
+    await expect(page).toHaveURL(new RegExp("/staff/badges\\?"));
+    frame = page.frameLocator("iframe");
+    await expect(frame.getByRole("tab", { name: /Details/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    await expect(
+      frame.getByLabel("How is Critical Thinking assessed?"),
+    ).toHaveValue(design.skills[0].assessment);
+    // The selected draft controls above establish readiness after SPA navigation.
+    const assessmentScan = await new AxeBuilder({ page })
+      .withTags(tags)
+      .analyze();
+    expect(
+      assessmentScan.violations.map((item) => item.id),
+      "Selected badge draft accessibility",
+    ).toEqual([]);
+  });
+});
+
+test.describe("credential expiration", () => {
+  const id = "91000000-0000-4000-8000-000000000001";
+  const date = "2099-06-30";
+  async function staff(page: Page) {
+    await page.request.post("/api/staff-session", {
+      data: { email: "admin@cuce.test" },
+    });
+  }
+  test("badge expiration is optional, saves, reopens and can be cleared with keyboard access", async ({
+    page,
+  }) => {
+    await staff(page);
+    let saved: any = null;
+    await page.route("**/api/badges/designer/drafts**", (route) => {
+      if (route.request().method() === "GET")
+        return route.fulfill({ json: { drafts: saved ? [saved] : [] } });
+      saved = {
+        id,
+        revision: (saved?.revision || 0) + 1,
+        design: route.request().postDataJSON().design,
+      };
+      return route.fulfill({ json: saved });
+    });
+    await page.goto("/staff/badges");
+    const frame = page.frameLocator("iframe");
+    await frame.getByRole("tab", { name: /Details/ }).click();
+    const field = frame.getByLabel("Expiration date", { exact: false });
+    await expect(field).toHaveValue("");
+    await field.fill(date);
+    await field.focus();
+    for (
+      let step = 0;
+      step < 6 &&
+      (await field.evaluate((el) => el === el.ownerDocument.activeElement));
+      step++
+    )
+      await page.keyboard.press("Tab");
+    await expect(field).not.toBeFocused();
+    await frame
+      .getByRole("button", { name: "Save badge draft", exact: true })
+      .click();
+    await expect(
+      frame.getByText("Badge draft saved and verified."),
+    ).toBeVisible();
+    expect(saved.design.expirationDate).toBe(date);
+    await expect(frame.locator("#preview-expiration")).toHaveText(
+      "Valid through " + date + " (UTC)",
+    );
+    await page.reload();
+    await frame
+      .getByRole("button", { name: "Edit draft", exact: true })
+      .click();
+    await frame.getByRole("tab", { name: /Details/ }).click();
+    await expect(field).toHaveValue(date);
+    await scan(page, "Badge optional expiration");
+    await field.fill("");
+    await frame
+      .getByRole("button", { name: "Save badge draft", exact: true })
+      .click();
+    await expect(
+      frame.getByText("Badge draft saved and verified."),
+    ).toBeVisible();
+    expect(saved.design.expirationDate).toBeUndefined();
+    await expect(frame.locator("#preview-expiration")).toHaveText(
+      "No expiration",
+    );
+  });
+  test("certificate editor saves expiration and records retain historical PDF access", async ({
+    page,
+  }) => {
+    await staff(page);
+    const defaults = {
+      title: "Certificate of Completion",
+      department: "CONTINUING EDUCATION",
+      introduction: "This certificate is presented to",
+      completionText: "for successful completion of",
+      closing: "In recognition of achievement.",
+      signerName: "Continuing Education",
+      signerTitle: "Cedarville University",
+      footer: "FAITH · LEARNING · SERVICE",
+      style: "classic",
+      paper: "letter",
+      primary: "#003A63",
+      accent: "#FDB813",
+      header: "",
+      logo: null,
+      signatureImage: null,
+    };
+    let saved: any = null;
+    const certificate = {
+      id,
+      badgeId: id,
+      sourceId: "workspace",
+      learnerId: "synthetic-expiration",
+      recipientName: "Alex Morgan",
+      achievement: "Learning accomplishment",
+      createdAt: "2026-11-04T12:00:00Z",
+      expirationDate: "2026-01-01",
+      status: "expired",
+    };
+    await page.route("**/api/badges/admin/certificates/catalog", (route) =>
+      route.fulfill({
+        json: {
+          defaults,
+          templates: saved ? [saved] : [],
+          certificates: [certificate],
+          errors: [],
+          awards: [
+            {
+              id,
+              sourceId: "workspace",
+              learnerId: "synthetic-expiration",
+              title: "Learning accomplishment",
+              issuer: "Cedarville University",
+              issuedAt: "2025-01-01T12:00:00Z",
+              status: "issued",
+              signatureValid: true,
+              certificate,
+            },
+          ],
+        },
+      }),
+    );
+    await page.route("**/api/badges/admin/certificates/templates", (route) => {
+      const body = route.request().postDataJSON();
+      saved = {
+        id,
+        revision: (saved?.revision || 0) + 1,
+        name: body.name,
+        design: body.design,
+      };
+      return route.fulfill({ json: saved });
+    });
+    await page.goto("/staff/certificates");
+    const frame = page.frameLocator("iframe");
+    const field = frame.getByLabel("Expiration date", { exact: false });
+    await expect(field).toHaveValue("");
+    await field.fill(date);
+    await field.focus();
+    for (
+      let step = 0;
+      step < 6 &&
+      (await field.evaluate((el) => el === el.ownerDocument.activeElement));
+      step++
+    )
+      await page.keyboard.press("Tab");
+    await expect(field).not.toBeFocused();
+    await frame
+      .getByRole("button", { name: "Save template", exact: true })
+      .click();
+    await expect(frame.getByText("Certificate template saved.")).toBeVisible();
+    expect(saved.design.expirationDate).toBe(date);
+    await expect(frame.locator("#cc-preview")).toContainText(
+      "Valid through " + date + " (UTC)",
+    );
+    await expect(frame.locator("#cc-records")).toContainText(
+      "Expired · Valid through 2026-01-01 (UTC)",
+    );
+    await expect(
+      frame
+        .locator("#cc-records")
+        .getByRole("button", { name: "Download PDF", exact: true }),
+    ).toBeEnabled();
+    await expect(
+      frame
+        .locator("#cc-records")
+        .getByRole("button", { name: "Email certificate", exact: true }),
+    ).toBeDisabled();
+    await scan(page, "Certificate optional expiration");
+    await page.reload();
+    await frame.getByLabel("Saved template", { exact: true }).selectOption(id);
+    await expect(field).toHaveValue(date);
+    await field.fill("");
+    await frame
+      .getByRole("button", { name: "Save template", exact: true })
+      .click();
+    await expect(frame.getByText("Certificate template saved.")).toBeVisible();
+    expect(saved.design.expirationDate).toBe("");
+  });
+  test("learner sees separate badge and certificate expiration and can filter historical badges", async ({
+    page,
+  }) => {
+    await page.route("**/api/demo-session", (route) =>
+      route.fulfill({
+        json: {
+          id,
+          email: null,
+          display_name: "Test Learner",
+          auth: { mode: "canvas", configured: true },
+        },
+      }),
+    );
+    await page.route("**/api/badges/me/badges", (route) =>
+      route.fulfill({
+        json: {
+          errors: [],
+          badges: [
+            {
+              id,
+              sourceId: "workspace",
+              title: "Historical learning",
+              issuer: "Cedarville University",
+              description: "Completed learning.",
+              criteria: "Complete the required project.",
+              issuedAt: "2025-01-01T12:00:00Z",
+              expirationDate: "2026-01-01",
+              status: "expired",
+              signatureValid: true,
+              demo: true,
+              shared: false,
+              certificateAvailable: true,
+              certificate: { status: "expired", expirationDate: "2026-02-01" },
+            },
+          ],
+        },
+      }),
+    );
+    await page.goto("/badges");
+    const frame = page.frameLocator("iframe");
+    await expect(frame.getByText("EXPIRED", { exact: true })).toBeVisible();
+    await expect(
+      frame.getByText("Badge valid through 2026-01-01 (UTC)"),
+    ).toBeVisible();
+    await expect(
+      frame.getByText("Expired certificate · Valid through 2026-02-01 (UTC)"),
+    ).toBeVisible();
+    await expect(
+      frame.getByRole("button", {
+        name: "Download certificate PDF",
+        exact: true,
+      }),
+    ).toBeEnabled();
+    await expect(
+      frame.getByRole("checkbox", {
+        name: "Enable a verification link",
+        exact: true,
+      }),
+    ).toBeDisabled();
+    await frame.locator("#cu-filter").selectOption("expired");
+    await expect(
+      frame.getByRole("heading", { name: "Historical learning", exact: true }),
+    ).toBeVisible();
+    await scan(page, "Expired learner credentials");
+    await frame.locator("#cu-filter").selectOption("active");
+    await expect(
+      frame.getByRole("heading", { name: "Historical learning", exact: true }),
+    ).not.toBeVisible();
+  });
+  test("public verification identifies expiration independently of signature integrity", async ({
+    page,
+  }) => {
+    await page.route("**/api/badges/public/workspace/" + id, (route) =>
+      route.fulfill({
+        json: {
+          title: "Historical learning",
+          issuer: "Cedarville University",
+          description: "Completed learning.",
+          criteria: "Complete the project.",
+          issuedAt: "2025-01-01T12:00:00Z",
+          expirationDate: "2026-01-01",
+          status: "expired",
+          signatureValid: true,
+          demo: true,
+        },
+      }),
+    );
+    await page.goto("/verify/badges/workspace/" + id);
+    await expect(
+      page.getByText(
+        "This badge has expired. It is a historical record of achievement.",
+      ),
+    ).toBeVisible();
+    await expect(
+      page.getByText("Valid through 2026-01-01 (UTC)"),
+    ).toBeVisible();
+    await expect(
+      page.getByText("Credential signature verified.", { exact: true }),
+    ).not.toBeVisible();
+    await scan(page, "Expired public verification");
+  });
+});
+
+test.describe("learner alerts dashboard", () => {
+  const ids = {
+    rule: "92000000-0000-4000-8000-000000000001",
+    alert: "92000000-0000-4000-8000-000000000002",
+    offering: "92000000-0000-4000-8000-000000000003",
+    learner: "92000000-0000-4000-8000-000000000004",
+  };
+  async function choose(page: Page, label: string, option: string) {
+    await page.getByRole("combobox", { name: label, exact: true }).click();
+    await page.getByRole("option", { name: option, exact: true }).click();
+  }
+  async function setup(
+    page: Page,
+    options: {
+      populated?: boolean;
+      reader?: boolean;
+      error?: boolean;
+      staleAction?: boolean;
+      canvas?: "mock" | "connected" | "reconnect";
+    } = {},
+  ) {
+    await page.request.post("/api/staff-session", {
+      data: {
+        email: options.reader ? "approver@cuce.test" : "admin@cuce.test",
+      },
+    });
+    const stamp = new Date().toISOString();
+    let serial = 10,
+      failed = false,
+      failAction = !!options.staleAction;
+    const actions: any[] = [];
+    let rules: any[] = options.populated
+      ? [
+          {
+            id: ids.rule,
+            name: "Verification review",
+            kind: "stalled_verification",
+            offering_id: ids.offering,
+            cohort_id: null,
+            learner_id: null,
+            days: 14,
+            threshold: 70,
+            enabled: true,
+            version: 1,
+            owner_id: ids.learner,
+            evaluated_at: stamp,
+            evaluation_error: null,
+            source_warning: null,
+            sync_succeeded_at: null,
+            sync_checked_at: null,
+            sync_error: null,
+            created_at: stamp,
+          },
+        ]
+      : [];
+    let alerts: any[] = options.populated
+      ? [
+          {
+            id: ids.alert,
+            rule_id: ids.rule,
+            rule_name: "Verification review",
+            kind: "stalled_verification",
+            learner_id: ids.learner,
+            learner_name: "Alex Morgan",
+            title: "Verification needs review",
+            message:
+              "No required-step verification update for Demonstration course in 21 days. This is not evidence of student inactivity.",
+            evidence: { source: "staff_verification" },
+            state: "open",
+            detected_at: stamp,
+            observed_at: stamp,
+            snoozed_until: null,
+            version: 1,
+            source_unavailable: false,
+          },
+        ]
+      : [];
+    if (options.populated && !options.reader) {
+      rules.push({
+        ...rules[0],
+        id: ids.rule.replace(/1$/, "5"),
+        name: "Canvas score review",
+        kind: "canvas_performance",
+        sync_error: "Canvas data unavailable. Existing alerts were retained.",
+      });
+      alerts.push({
+        ...alerts[0],
+        id: ids.alert.replace(/2$/, "6"),
+        rule_id: ids.rule.replace(/1$/, "5"),
+        rule_name: "Canvas score review",
+        kind: "canvas_performance",
+        title: "Canvas score needs review",
+        message:
+          "Previously recorded course score 52% is below the 70% rule threshold.",
+        evidence: { source: "canvas" },
+        source_unavailable: true,
+      });
+    }
+    await page.route("**/api/staff/alerts**", async (route) => {
+      const req = route.request(),
+        path = new URL(req.url()).pathname.replace("/api/staff/alerts", "");
+      if (req.method() === "GET" && path === "") {
+        if (options.error) {
+          failed = true;
+          return route.fulfill({
+            status: 503,
+            json: { message: "Alert service unavailable. Retry refresh." },
+          });
+        }
+        return route.fulfill({
+          json: {
+            rules,
+            alerts,
+            counts: alerts.reduce(
+              (all, a) => ({ ...all, [a.state]: (all[a.state] || 0) + 1 }),
+              {},
+            ),
+            limited: false,
+            checkedAt: stamp,
+            canvasEnabled: options.canvas !== "mock" && Boolean(options.canvas),
+            canvasSession: {
+              mode:
+                options.canvas && options.canvas !== "mock" ? "canvas" : "mock",
+              staffId: "test-staff",
+              staffName: "Test SSO Administrator",
+              status: options.canvas ?? "mock",
+              connected: options.canvas === "connected",
+              canSync: options.canvas === "connected" && !options.reader,
+              message:
+                options.canvas === "connected"
+                  ? "Canvas alerts use your university sign-in and saved Canvas authorization."
+                  : options.canvas === "reconnect"
+                    ? "Sign in again through Canvas to authorize activity and grade reads for this account."
+                    : "Local preview login is active. Live Canvas alerts require university SSO through Canvas.",
+            },
+            lastWorkerError: null,
+            options: {
+              offerings: [{ id: ids.offering, title: "Demonstration course" }],
+              cohorts: [],
+              learners: [{ id: ids.learner, name: "Alex Morgan" }],
+            },
+          },
+        });
+      }
+      if (req.method() === "GET" && path.endsWith("/history"))
+        return route.fulfill({
+          json: [
+            {
+              action: "detected",
+              actor: "alerts-worker",
+              note: "Rule condition detected.",
+              at: stamp,
+            },
+            ...actions,
+          ],
+        });
+      const body = req.postDataJSON();
+      expect(req.headers()["x-prototype-role"]).toBe("staff");
+      expect(req.headers()["idempotency-key"]).toMatch(/^[0-9a-f-]{36}$/);
+      if (path === "/rules" || /^\/rules\/[0-9a-f-]+$/.test(path)) {
+        const prior = rules.find((r) => r.id === path.split("/")[2]);
+        const rule = {
+          ...(prior || {}),
+          id:
+            prior?.id ||
+            "92000000-0000-4000-8000-" + String(serial++).padStart(12, "0"),
+          name: body.name,
+          kind: body.kind,
+          offering_id: body.offeringId,
+          cohort_id: body.cohortId,
+          learner_id: body.learnerId,
+          days: body.days,
+          threshold: body.threshold,
+          enabled: body.enabled,
+          version: body.version + 1,
+          evaluated_at: stamp,
+          created_at: stamp,
+          sync_succeeded_at: null,
+        };
+        rules = prior
+          ? rules.map((r) => (r.id === prior.id ? rule : r))
+          : [...rules, rule];
+        return route.fulfill({ json: rule });
+      }
+      if (path.endsWith("/action")) {
+        if (failAction) {
+          failAction = false;
+          alerts.find((a) => a.id === path.split("/")[1]).version++;
+          return route.fulfill({
+            status: 409,
+            json: { message: "Alert changed. Refresh before taking action." },
+          });
+        }
+        const a = alerts.find((a) => a.id === path.split("/")[1]);
+        if (body.version !== a.version)
+          return route.fulfill({
+            status: 409,
+            json: { message: "Alert changed. Refresh before taking action." },
+          });
+        a.state = {
+          acknowledge: "acknowledged",
+          snooze: "snoozed",
+          resolve: "resolved",
+          reopen: "open",
+        }[body.action as string];
+        a.version++;
+        a.snoozed_until =
+          body.action === "snooze"
+            ? new Date(Date.now() + body.days * 86400000).toISOString()
+            : null;
+        actions.push({
+          action: body.action,
+          actor: "Staff manager",
+          note: body.note,
+          at: stamp,
+        });
+        return route.fulfill({ json: a });
+      }
+      return route.fulfill({
+        status: 404,
+        json: { message: "Unknown alert fixture route" },
+      });
+    });
+    await page.goto("/staff/alerts");
+    return {
+      getRules: () => rules,
+      getAlerts: () => alerts,
+      recover: () => {
+        options.error = false;
+      },
+    };
+  }
+  test("creates and revises portal and Canvas rules with clear source requirements", async ({
+    page,
+  }) => {
+    const fixture = await setup(page);
+    await expect(
+      page.getByText(
+        "No rules yet. Create a rule to select its learners, condition, and threshold.",
+      ),
+    ).toBeVisible();
+    await page
+      .getByRole("button", { name: "Create alert rule", exact: true })
+      .click();
+    const dialog = page.getByRole("dialog");
+    await expect(
+      dialog.getByLabel("Rule name", { exact: false }),
+    ).toBeFocused();
+    await dialog
+      .getByLabel("Rule name", { exact: false })
+      .fill("Recent completions");
+    await choose(page, "Condition", "Completion milestone");
+    await choose(page, "Offering", "Demonstration course");
+    await expect(
+      dialog.getByLabel("Completed within past (days)", { exact: false }),
+    ).toHaveValue("30");
+    await scan(page, "Create learner alert rule");
+    await dialog
+      .getByRole("button", { name: "Save alert rule", exact: true })
+      .click();
+    await expect(
+      page.getByText(
+        "Alert rule saved. Matching conditions have been checked.",
+      ),
+    ).toBeVisible();
+    expect(fixture.getRules()[0].kind).toBe("completion");
+    await expect(
+      page.getByRole("button", { name: "Create alert rule", exact: true }),
+    ).toBeFocused();
+    await page
+      .getByRole("button", {
+        name: "Edit rule Recent completions",
+        exact: true,
+      })
+      .click();
+    await dialog
+      .getByRole("switch", { name: "Rule enabled", exact: true })
+      .uncheck();
+    await dialog
+      .getByRole("button", { name: "Save alert rule", exact: true })
+      .click();
+    await expect(page.getByText("Paused", { exact: true })).toBeVisible();
+    expect(fixture.getRules()[0].version).toBe(2);
+    await page
+      .getByRole("button", { name: "Create alert rule", exact: true })
+      .click();
+    await dialog
+      .getByLabel("Rule name", { exact: false })
+      .fill("Canvas performance review");
+    await choose(page, "Condition", "Canvas performance");
+    await choose(page, "Offering", "Demonstration course");
+    await dialog.getByLabel("Score below (%)", { exact: false }).fill("65");
+    await dialog
+      .getByRole("button", { name: "Save alert rule", exact: true })
+      .click();
+    await expect(
+      page.getByText(
+        "Canvas activity access is not enabled. This rule will show data unavailable until an administrator configures the required read permission.",
+      ),
+    ).toBeVisible();
+    expect(fixture.getRules()[1].threshold).toBe(65);
+    await scan(page, "Configured learner alert rules");
+  });
+  test("preserves stale-action notes, snoozes alerts, and exposes searchable history", async ({
+    page,
+  }, info) => {
+    const fixture = await setup(page, { populated: true, staleAction: true });
+    await expect(
+      page.getByText("Data unavailable", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByText(/This is not evidence of student inactivity\./),
+    ).toBeVisible();
+    if (info.project.name === "light" || info.project.name === "phone")
+      await page.screenshot({
+        path: `/tmp/ce-alerts-dashboard-${info.project.name}.png`,
+        fullPage: true,
+      });
+    await page
+      .getByRole("button", {
+        name: "Manage alert for Alex Morgan: Verification needs review",
+        exact: true,
+      })
+      .click();
+    const dialog = page.getByRole("dialog");
+    await choose(page, "Action", "Snooze");
+    await dialog.getByLabel("Snooze for (days)").fill("2");
+    await dialog
+      .getByLabel("Action note", { exact: false })
+      .fill("Follow up with the course reviewer on Friday.");
+    await dialog
+      .getByRole("button", { name: "Record action", exact: true })
+      .click();
+    await expect(
+      dialog.getByText("Alert changed. Refresh before taking action.", {
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(
+      dialog.getByLabel("Action note", { exact: false }),
+    ).toHaveValue("Follow up with the course reviewer on Friday.");
+    await scan(page, "Stale alert action note retained");
+    await dialog
+      .getByRole("button", { name: "Refresh alert", exact: true })
+      .click();
+    await expect(
+      dialog.getByLabel("Action note", { exact: false }),
+    ).toHaveValue("Follow up with the course reviewer on Friday.");
+    await dialog
+      .getByRole("button", { name: "Record action", exact: true })
+      .click();
+    await expect(
+      page.getByText("Alert action recorded.", { exact: true }),
+    ).toBeVisible();
+    expect(fixture.getAlerts()[0].state).toBe("snoozed");
+    await choose(page, "Alert status", "Snoozed");
+    await expect(
+      page.getByRole("heading", {
+        name: "Canvas score needs review",
+        exact: true,
+      }),
+    ).not.toBeVisible();
+    await page
+      .getByRole("button", {
+        name: "History for Alex Morgan: Verification needs review",
+        exact: true,
+      })
+      .click();
+    await expect(
+      page
+        .getByRole("dialog")
+        .getByText("Follow up with the course reviewer on Friday.", {
+          exact: true,
+        }),
+    ).toBeVisible();
+    await scan(page, "Learner alert action history");
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Close", exact: true })
+      .click();
+    await page.getByLabel("Search alerts", { exact: true }).fill("no-match");
+    await expect(
+      page.getByText("No alerts match these filters.", { exact: true }),
+    ).toBeVisible();
+  });
+  test("reports a load failure and recovers without inventing activity", async ({
+    page,
+  }) => {
+    const fixture = await setup(page, { error: true });
+    await expect(
+      page.getByText("Alert service unavailable. Retry refresh.", {
+        exact: true,
+      }),
+    ).toBeVisible();
+    fixture.recover();
+    await page
+      .getByRole("button", { name: "Refresh alerts", exact: true })
+      .click();
+    await expect(
+      page.getByText("No alerts match these filters.", { exact: true }),
+    ).toBeVisible();
+    await scan(page, "Empty recovered learner alerts");
+  });
+  test("read-only staff can inspect history without rule or follow-up controls", async ({
+    page,
+  }) => {
+    await setup(page, { populated: true, reader: true });
+    await expect(
+      page.getByRole("heading", {
+        name: "Verification needs review",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Create alert rule", exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: /Manage alert for/ }),
+    ).toHaveCount(0);
+    await page
+      .getByRole("button", {
+        name: "History for Alex Morgan: Verification needs review",
+        exact: true,
+      })
+      .click();
+    await expect(
+      page
+        .getByRole("dialog")
+        .getByText("Rule condition detected.", { exact: true }),
+    ).toBeVisible();
+    await scan(page, "Read-only learner alerts");
+  });
+  test("Canvas SSO context names the login and enables only its authorized sync", async ({
+    page,
+  }) => {
+    await setup(page, { populated: true, canvas: "connected" });
+    const context = page.getByRole("region", {
+      name: "Canvas login and alert access",
+      exact: true,
+    });
+    await expect(
+      context.getByRole("heading", {
+        name: "Alerts for your login",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(
+      context.getByText(
+        "Test SSO Administrator · University SSO through Canvas",
+        { exact: true },
+      ),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", {
+        name: "Sync Canvas for Canvas score review",
+        exact: true,
+      }),
+    ).toBeEnabled();
+    await expect(
+      context.getByRole("link", {
+        name: "Review my Canvas connection",
+        exact: true,
+      }),
+    ).toHaveAttribute("href", "/staff/canvas");
+    await scan(page, "Canvas SSO alert context");
+    await page.screenshot({
+      path: test.info().outputPath("alerts-sso-context.png"),
+      fullPage: true,
+    });
+  });
+  test("missing Canvas grant offers university reconnection and blocks sync", async ({
+    page,
+  }) => {
+    await setup(page, { populated: true, canvas: "reconnect" });
+    await expect(
+      page.getByRole("link", {
+        name: "Sign in again through Canvas",
+        exact: true,
+      }),
+    ).toHaveAttribute("href", "/api/auth/canvas/start");
+    await expect(
+      page.getByRole("button", {
+        name: "Sync Canvas for Canvas score review",
+        exact: true,
+      }),
+    ).toBeDisabled();
+    await scan(page, "Canvas authorization reconnection");
+  });
+  test("mock login stays explicit and a failed session refresh clears previous alert data", async ({
+    page,
+  }) => {
+    await setup(page, { populated: true, canvas: "mock" });
+    await expect(
+      page.getByText("Test SSO Administrator · Local preview login", {
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("link", {
+        name: "Sign in again through Canvas",
+        exact: true,
+      }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("button", {
+        name: "Sync Canvas for Canvas score review",
+        exact: true,
+      }),
+    ).toBeDisabled();
+    await page.route("**/api/staff/alerts", (route) =>
+      route.fulfill({
+        status: 401,
+        json: { message: "Staff session expired or no longer authorized." },
+      }),
+    );
+    await page
+      .getByRole("button", { name: "Refresh alerts", exact: true })
+      .click();
+    await expect(
+      page.getByText("Staff session expired or no longer authorized.", {
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", {
+        name: "Canvas score needs review",
+        exact: true,
+      }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("heading", {
+        name: "Verification needs review",
+        exact: true,
+      }),
+    ).toHaveCount(0);
+    await scan(page, "Expired staff session alert refresh");
+  });
+});
+
+test.describe("Engagement and Impact analytics", () => {
+  const offering = "93000000-0000-4000-8000-000000000001";
+  const cohort = "93000000-0000-4000-8000-000000000002";
+  async function setup(
+    page: Page,
+    mode: "populated" | "empty" | "error" = "populated",
+  ) {
+    await page.request.post("/api/staff-session", {
+      data: { email: "admin@cuce.test" },
+    });
+    const requests: string[] = [];
+    const row = {
+      id: offering,
+      title: "Evidence-based leadership",
+      registrations: 4,
+      learners: 3,
+      assignments: 3,
+      completed: 1,
+      inProgress: 1,
+      awaitingVerification: 1,
+      notStarted: 0,
+      completionRate: 100 / 3,
+    };
+    const fixture = {
+      generatedAt: new Date().toISOString(),
+      range: {
+        from: "2026-10-28",
+        to: "2026-11-03",
+        previousFrom: "2026-10-21",
+        previousTo: "2026-10-27",
+        days: 7,
+      },
+      filters: { offeringId: null, cohortId: null },
+      options: {
+        offerings: [{ id: offering, title: row.title }],
+        cohorts: [{ id: cohort, name: "Autumn cohort", offeringId: offering }],
+      },
+      reach: {
+        learners: mode === "empty" ? 0 : 3,
+        registrations: mode === "empty" ? 0 : 4,
+        previousLearners: 1,
+        previousRegistrations: 1,
+        returningLearners: mode === "empty" ? 0 : 1,
+        enrolled: mode === "empty" ? 0 : 2,
+      },
+      progress: {
+        assignments: mode === "empty" ? 0 : 3,
+        completed: mode === "empty" ? 0 : 1,
+        inProgress: mode === "empty" ? 0 : 1,
+        awaitingVerification: mode === "empty" ? 0 : 1,
+        notStarted: 0,
+        completionRate: mode === "empty" ? null : 100 / 3,
+        learners: mode === "empty" ? 0 : 3,
+        requiredSteps: mode === "empty" ? 0 : 5,
+        verifiedSteps: mode === "empty" ? 0 : 3,
+      },
+      trend: [
+        { date: "2026-10-28", registrations: mode === "empty" ? 0 : 2 },
+        { date: "2026-10-29", registrations: mode === "empty" ? 0 : 1 },
+        { date: "2026-10-30", registrations: mode === "empty" ? 0 : 1 },
+        { date: "2026-10-31", registrations: 0 },
+        { date: "2026-11-01", registrations: 0 },
+        { date: "2026-11-02", registrations: 0 },
+        { date: "2026-11-03", registrations: 0 },
+      ],
+      offerings: mode === "empty" ? [] : [row],
+      cohorts:
+        mode === "empty"
+          ? []
+          : [{ ...row, id: cohort, title: "Autumn cohort" }],
+      skills:
+        mode === "empty"
+          ? []
+          : [
+              {
+                id: "skill",
+                name: "Critical thinking",
+                offerings: 1,
+                learners: 3,
+              },
+            ],
+      credentials: {
+        available: mode !== "empty",
+        warning: mode === "empty" ? "Credential source unavailable" : null,
+        badges: 2,
+        certificates: 1,
+        recipients: 2,
+        pairedAccomplishments: 1,
+        sharedBadges: 1,
+        acknowledgedAwards: 1,
+        excluded: 0,
+      },
+      canvas: {
+        authorized: false,
+        message:
+          "Canvas activity is unavailable until an approved staff Canvas authorization is connected. No activity or grades are inferred.",
+      },
+    };
+    await page.route("**/api/staff/engagement-impact**", (route) => {
+      requests.push(route.request().url());
+      return mode === "error"
+        ? route.fulfill({
+            status: 503,
+            json: { message: "Analytics temporarily unavailable" },
+          })
+        : route.fulfill({ json: fixture });
+    });
+    await page.goto("/staff/engagement-impact");
+    return requests;
+  }
+  test("scoped analytics, keyboard charts, definitions, cohort detail and CSV", async ({
+    page,
+  }) => {
+    const requests = await setup(page);
+    await expect(
+      page.getByRole("heading", { name: "Engagement and Impact", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Documented completion", exact: true }),
+    ).toBeVisible();
+    await page.getByLabel("From (UTC)", { exact: true }).fill("2026-10-28");
+    await page.getByLabel("Through (UTC)", { exact: true }).fill("2026-11-03");
+    await page
+      .getByRole("button", { name: "Apply filters", exact: true })
+      .click();
+    await expect(
+      page.getByRole("button", { name: "Export analytics CSV" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("img", { name: "O*NET in-it", exact: true }),
+    ).toHaveCount(1);
+    const bar = page.getByRole("button", {
+      name: "Oct 28, 2026: 2 registrations",
+      exact: true,
+    });
+    const height = async (name: string) =>
+      page
+        .getByRole("button", { name, exact: true })
+        .evaluate((el) => el.firstElementChild!.getBoundingClientRect().height);
+    const fullHeight = await height("Oct 28, 2026: 2 registrations"),
+      halfHeight = await height("Oct 29, 2026: 1 registrations"),
+      zeroHeight = await height("Oct 31, 2026: 0 registrations");
+    expect(fullHeight).toBeGreaterThan(50);
+    expect(Math.abs(halfHeight / fullHeight - 0.5)).toBeLessThan(0.03);
+    expect(zeroHeight).toBe(0);
+    const credentialChart = page.getByRole("group", {
+      name: "Credentials issued chart",
+      exact: true,
+    });
+    await expect(credentialChart).toBeVisible();
+    const badgeWidth = await credentialChart
+      .locator('[data-impact-bar="badges"]')
+      .evaluate((el) => el.getBoundingClientRect().width);
+    const certificateWidth = await credentialChart
+      .locator('[data-impact-bar="certificates"]')
+      .evaluate((el) => el.getBoundingClientRect().width);
+    expect(badgeWidth).toBeGreaterThan(100);
+    expect(Math.abs(certificateWidth / badgeWidth - 0.5)).toBeLessThan(0.03);
+    const badgeBar = credentialChart.getByRole("button", {
+      name: "Badges issued: 2 awards",
+      exact: true,
+    });
+    await badgeBar.focus();
+    await page.keyboard.press("Enter");
+    await expect(badgeBar).toHaveAttribute("aria-pressed", "true");
+    await expect(
+      page.getByRole("img", {
+        name: /Completion breakdown: 1 completed, 1 in progress, 1 awaiting verification/,
+      }),
+    ).toBeVisible();
+    const completed = page.getByRole("button", {
+      name: "Inspect completed: 1 assignments",
+      exact: true,
+    });
+    await completed.focus();
+    await page.keyboard.press("Enter");
+    await expect(completed).toHaveAttribute("aria-pressed", "true");
+    await expect(
+      page.getByText("Completed: 1 of 3 assignments (33.3%)", { exact: true }),
+    ).toBeVisible();
+    await page
+      .getByRole("combobox", { name: "Offering chart measure", exact: true })
+      .click();
+    await page
+      .getByRole("option", { name: "Completion rate", exact: true })
+      .click();
+    const offeringChart = page.getByRole("group", {
+      name: "Offering comparison chart",
+      exact: true,
+    });
+    await expect(
+      offeringChart.getByRole("button", {
+        name: /Evidence-based leadership: 33.3% completion/,
+      }),
+    ).toBeVisible();
+    const rateWidth = await offeringChart
+      .locator("[data-impact-bar]")
+      .evaluate(
+        (el) =>
+          el.getBoundingClientRect().width /
+          el.parentElement!.getBoundingClientRect().width,
+      );
+    expect(Math.abs(rateWidth - 1 / 3)).toBeLessThan(0.02);
+    await page
+      .getByText("View offering counts and rates", { exact: true })
+      .click();
+    await expect(
+      page.getByRole("table", { name: "Offering outcomes" }),
+    ).toBeVisible();
+    const skillChart = page.getByRole("group", {
+      name: "Skills coverage chart",
+      exact: true,
+    });
+    await expect(
+      skillChart.getByRole("button", {
+        name: /Critical thinking: 3 registered learners/,
+      }),
+    ).toBeVisible();
+    await page.getByText("View skill counts", { exact: true }).click();
+    await expect(
+      page.getByRole("table", { name: "Skills coverage" }),
+    ).toBeVisible();
+    await page.screenshot({
+      path: test.info().outputPath("analytics-populated.png"),
+      fullPage: true,
+    });
+    await bar.focus();
+    await page.keyboard.press("Enter");
+    await expect(bar).toHaveAttribute("aria-pressed", "true");
+    await page
+      .getByRole("button", { name: "Show counts table", exact: true })
+      .click();
+    await expect(
+      page.getByRole("table", { name: "Registration trend counts" }),
+    ).toBeVisible();
+    await page
+      .getByText("View cohort counts and rates", { exact: true })
+      .click();
+    await expect(
+      page.getByRole("table", { name: "Cohort outcomes" }),
+    ).toBeVisible();
+    await page
+      .getByText("Definitions and data sources", { exact: true })
+      .click();
+    await expect(
+      page.getByText(/Completion = completed progress assignments/),
+    ).toBeVisible();
+    const downloadPromise = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Export analytics CSV" }).click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toBe(
+      "engagement-impact-2026-10-28-2026-11-03.csv",
+    );
+    const file = await download.path();
+    const csv = require("node:fs").readFileSync(file!, "utf8");
+    expect(csv).toContain('"Paired accomplishments","1"');
+    expect(csv).toContain("No employment");
+    expect(csv).not.toContain("@cedarville.edu");
+    await page.getByRole("combobox", { name: "Offering", exact: true }).click();
+    await page
+      .getByRole("option", { name: "Evidence-based leadership", exact: true })
+      .click();
+    await page.getByRole("combobox", { name: "Cohort", exact: true }).click();
+    await page
+      .getByRole("option", { name: "Autumn cohort", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Apply filters", exact: true })
+      .click();
+    await expect
+      .poll(() =>
+        requests.some(
+          (url) =>
+            url.includes("offeringId=" + offering) &&
+            url.includes("cohortId=" + cohort),
+        ),
+      )
+      .toBe(true);
+    await expect(
+      page.getByRole("button", { name: "Export analytics CSV" }),
+    ).toBeVisible();
+    expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth + 1,
+      ),
+    ).toBe(true);
+  });
+  test("empty progress and missing credentials remain distinct", async ({
+    page,
+  }) => {
+    await setup(page, "empty");
+    await expect(
+      page.getByText("No registrations were recorded during this period."),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("img", {
+        name: "Completion breakdown unavailable: no progress assignments",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("group", {
+        name: "Credentials issued chart",
+        exact: true,
+      }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByText(
+        "Credential source unavailable Credential totals are unavailable.",
+      ),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Badges issued", exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByText("No activity or grades are inferred.", { exact: false }),
+    ).toBeVisible();
+    expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  });
+  test("load failure offers retry without stale totals or export", async ({
+    page,
+  }) => {
+    const requests = await setup(page, "error");
+    await expect(
+      page
+        .getByRole("alert")
+        .filter({ hasText: "Analytics temporarily unavailable" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Export analytics CSV" }),
+    ).toHaveCount(0);
+    await page.getByRole("button", { name: "Retry", exact: true }).click();
+    await expect.poll(() => requests.length).toBeGreaterThan(1);
+    expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  });
+});
+
+test.describe("Earnings dashboard", () => {
+  const a = "94000000-0000-4000-8000-000000000001",
+    b = "94000000-0000-4000-8000-000000000002",
+    c = "94000000-0000-4000-8000-000000000003";
+  async function setup(
+    page: Page,
+    mode: "populated" | "empty" | "error" | "reader" = "populated",
+  ) {
+    await page.request.post("/api/staff-session", {
+      data: {
+        email: mode === "reader" ? "approver@cuce.test" : "admin@cuce.test",
+      },
+    });
+    const requests: string[] = [];
+    await page.route("**/api/staff/earnings**", (route) => {
+      const url = new URL(route.request().url());
+      requests.push(url.href);
+      if (mode === "error")
+        return route.fulfill({
+          status: 503,
+          json: { message: "Earnings temporarily unavailable" },
+        });
+      const provider = url.searchParams.get("provider") ?? "stripe",
+        offeringId = url.searchParams.get("offeringId"),
+        empty = mode === "empty";
+      const totals = (
+        grossCents: number,
+        refundedCents: number,
+        payments: number,
+        payers: number,
+      ) => ({
+        grossCents,
+        refundedCents,
+        retainedCents: grossCents - refundedCents,
+        payments,
+        payers,
+        averagePaymentCents: payments ? grossCents / payments : null,
+        refundedPayments: refundedCents ? 1 : 0,
+        fullyRefundedPayments: refundedCents === 5000 ? 1 : 0,
+        partiallyRefundedPayments: refundedCents === 2000 ? 1 : 0,
+        refundShare: grossCents ? (100 * refundedCents) / grossCents : null,
+      });
+      let rows = empty
+        ? []
+        : provider === "simulated"
+          ? [{ id: a, title: "Leadership", ...totals(13000, 0, 2, 2) }]
+          : [
+              { id: a, title: "Leadership", ...totals(30000, 2000, 2, 2) },
+              { id: b, title: "Data literacy", ...totals(7500, 5000, 2, 2) },
+              { id: c, title: "Free orientation", ...totals(0, 0, 1, 1) },
+            ];
+      if (offeringId) rows = rows.filter((r) => r.id === offeringId);
+      const gross = rows.reduce((n, r) => n + r.grossCents, 0),
+        refunded = rows.reduce((n, r) => n + r.refundedCents, 0),
+        payments = rows.reduce((n, r) => n + r.payments, 0),
+        payers = offeringId
+          ? (rows[0]?.payers ?? 0)
+          : empty
+            ? 0
+            : provider === "simulated"
+              ? 2
+              : 4;
+      const summary = {
+        ...totals(gross, refunded, payments, payers),
+        refundedPayments:
+          empty || provider === "simulated" ? 0 : offeringId ? 1 : 2,
+        fullyRefundedPayments:
+          empty || provider === "simulated" || offeringId === a ? 0 : 1,
+        partiallyRefundedPayments:
+          empty || provider === "simulated" || offeringId === b ? 0 : 1,
+      };
+      const trend = [
+        "2026-10-28",
+        "2026-10-29",
+        "2026-10-30",
+        "2026-10-31",
+        "2026-11-01",
+        "2026-11-02",
+        "2026-11-03",
+      ].map((date, i) => ({
+        date,
+        grossCents: empty
+          ? 0
+          : provider === "simulated" || offeringId
+            ? i === 0
+              ? gross
+              : 0
+            : [10000, 20000, 5000, 2500, 0, 0, 0][i],
+        payments: empty
+          ? 0
+          : provider === "simulated" || offeringId
+            ? i === 0
+              ? payments
+              : 0
+            : [1, 1, 1, 1, 1, 0, 0][i],
+      }));
+      const data = {
+        generatedAt: new Date().toISOString(),
+        range: {
+          from: "2026-10-28",
+          to: "2026-11-03",
+          previousFrom: "2026-10-21",
+          previousTo: "2026-10-27",
+          days: 7,
+        },
+        provider,
+        offeringId,
+        offerings: [
+          { id: a, title: "Leadership" },
+          { id: b, title: "Data literacy" },
+          { id: c, title: "Free orientation" },
+        ],
+        totals: summary,
+        previous: {
+          grossCents: empty ? 0 : provider === "simulated" ? 7000 : 8000,
+          payments: empty ? 0 : 1,
+          payers: empty ? 0 : 1,
+        },
+        buyers: {
+          firstTime: Math.max(0, payers - 1),
+          returning: payers ? 1 : 0,
+        },
+        trend,
+        byOffering: rows,
+        refunds: {
+          outstandingRequests: empty || provider === "simulated" ? 0 : 2,
+          requestedCents: empty || provider === "simulated" ? 0 : 13000,
+        },
+        checkouts:
+          provider !== "stripe"
+            ? null
+            : {
+                attempts: empty ? 0 : 7,
+                confirmed: empty ? 0 : 4,
+                completeWithoutPayment: empty ? 0 : 1,
+                open: empty ? 0 : 1,
+                expired: empty ? 0 : 1,
+                confirmationRate: empty ? null : (100 * 4) / 7,
+              },
+        excludedOrders: 0,
+      };
+      return route.fulfill({ json: data });
+    });
+    await page.goto("/staff/earnings");
+    return requests;
+  }
+  test("money charts, refund boundaries, offering totals, keyboard inspection and CSV", async ({
+    page,
+  }) => {
+    const requests = await setup(page);
+    await expect(
+      page.getByRole("heading", { name: "Earnings", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByText(
+        "Stripe sandbox records only. These are test payments, not production earnings.",
+        { exact: true },
+      ),
+    ).toBeVisible();
+    await page.getByLabel("From (UTC)", { exact: true }).fill("2026-10-28");
+    await page.getByLabel("Through (UTC)", { exact: true }).fill("2026-11-03");
+    await page
+      .getByRole("button", { name: "Apply filters", exact: true })
+      .click();
+    const small = page.getByRole("button", {
+        name: "Oct 28, 2026: $100.00 USD, 1 payments",
+        exact: true,
+      }),
+      large = page.getByRole("button", {
+        name: "Oct 29, 2026: $200.00 USD, 1 payments",
+        exact: true,
+      }),
+      zero = page.getByRole("button", {
+        name: "Oct 31, 2026: $25.00 USD, 1 payments",
+        exact: true,
+      });
+    await expect(large).toBeVisible();
+    const height = async (locator: any) =>
+      locator
+        .locator("[data-earnings-date]")
+        .evaluate((el: Element) => el.getBoundingClientRect().height);
+    expect(
+      Math.abs((await height(small)) / (await height(large)) - 0.5),
+    ).toBeLessThan(0.03);
+    expect(
+      await page
+        .locator('[data-earnings-date="2026-11-02"]')
+        .evaluate((el) => el.getBoundingClientRect().height),
+    ).toBe(0);
+    await small.focus();
+    await page.keyboard.press("Enter");
+    await expect(small).toHaveAttribute("aria-pressed", "true");
+    await expect(
+      page.getByRole("img", {
+        name: "Receipt allocation: $305.00 after refunds; $70.00 refunded; $375.00 gross USD",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await page
+      .getByRole("button", { name: "Show receipts table", exact: true })
+      .click();
+    await expect(
+      page.getByRole("table", { name: "Gross receipts trend counts" }),
+    ).toBeVisible();
+    await page
+      .getByRole("combobox", { name: "Offering earnings measure", exact: true })
+      .click();
+    await page
+      .getByRole("option", { name: "Receipts after refunds", exact: true })
+      .click();
+    await expect(
+      page
+        .getByRole("group", { name: "Offering earnings chart", exact: true })
+        .getByRole("button", { name: /Leadership: \$280.00 USD/ }),
+    ).toBeVisible();
+    await page
+      .getByRole("button", { name: "Show offering totals", exact: true })
+      .click();
+    await expect(
+      page.getByRole("table", { name: "Offering earnings totals" }),
+    ).toBeVisible();
+    await page
+      .getByText("Definitions and financial data sources", { exact: true })
+      .click();
+    await expect(
+      page.getByText(/Receipts after refunds are not profit or payouts/),
+    ).toBeVisible();
+    const pending = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Export earnings CSV" }).click();
+    const download = await pending;
+    expect(download.suggestedFilename()).toBe(
+      "earnings-stripe-2026-10-28-2026-11-03.csv",
+    );
+    const csv = require("node:fs").readFileSync(
+      (await download.path())!,
+      "utf8",
+    );
+    expect(csv).toContain('"Gross receipts","375.00"');
+    expect(csv).toContain(
+      '"Confirmed refunds against these payments to date","70.00"',
+    );
+    expect(csv).toContain("not period cash flow or profit");
+    expect(csv).not.toContain("@example.test");
+    await page.screenshot({
+      path: test.info().outputPath("earnings-populated.png"),
+      fullPage: true,
+    });
+    await page.getByRole("combobox", { name: "Offering", exact: true }).click();
+    await page
+      .getByRole("option", { name: "Data literacy", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Apply filters", exact: true })
+      .click();
+    await expect
+      .poll(() => requests.some((url) => url.includes("offeringId=" + b)))
+      .toBe(true);
+    await expect(
+      page
+        .getByRole("group", { name: "Offering earnings chart", exact: true })
+        .getByRole("button", { name: /Data literacy:/ }),
+    ).toBeVisible();
+    expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth + 1,
+      ),
+    ).toBe(true);
+  });
+  test("simulated source stays explicit and has no Checkout metrics", async ({
+    page,
+  }) => {
+    const requests = await setup(page);
+    await expect(
+      page.getByRole("heading", { name: "Gross receipts", exact: true }),
+    ).toBeVisible();
+    await page
+      .getByRole("combobox", { name: "Payment source", exact: true })
+      .click();
+    await page
+      .getByRole("option", { name: "Simulated demo", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Apply filters", exact: true })
+      .click();
+    await expect
+      .poll(() => requests.some((url) => url.includes("provider=simulated")))
+      .toBe(true);
+    await expect(
+      page.getByText(
+        "Simulated demo payments. No money was collected for these records.",
+        { exact: true },
+      ),
+    ).toBeVisible();
+    await expect(
+      page.getByText(
+        "Checkout outcomes are unavailable for manual or simulated records.",
+        { exact: true },
+      ),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("group", { name: "Checkout outcomes chart", exact: true }),
+    ).toHaveCount(0);
+    expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  });
+  test("manual earnings stays separate with explicit labels and CSV", async ({
+    page,
+  }) => {
+    const requests = await setup(page);
+    await expect(
+      page.getByRole("heading", { name: "Gross receipts", exact: true }),
+    ).toBeVisible();
+    await page
+      .getByRole("combobox", { name: "Payment source", exact: true })
+      .click();
+    await page
+      .getByRole("option", { name: "Manual records", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Apply filters", exact: true })
+      .click();
+    await expect
+      .poll(() => requests.some((url) => url.includes("provider=manual")))
+      .toBe(true);
+    await expect(
+      page.getByRole("heading", { name: "Manual payments", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByText(/Manually recorded external payments and refunds/),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("group", { name: "Checkout outcomes chart", exact: true }),
+    ).toHaveCount(0);
+    const downloadPromise = page.waitForEvent("download");
+    await page
+      .getByRole("button", { name: "Export earnings CSV", exact: true })
+      .click();
+    const download = await downloadPromise;
+    const csv = await require("node:fs/promises").readFile(
+      await download.path(),
+      "utf8",
+    );
+    expect(csv).toContain('"Earnings","Manual records"');
+    expect(csv).toContain('"Manual payments"');
+    expect(csv).not.toContain("@example.test");
+    await scan(page, "Manual source earnings");
+  });
+  test("empty financial data has no invented rate or average", async ({
+    page,
+  }) => {
+    await setup(page, "empty");
+    await expect(
+      page.getByText("No confirmed payments in this period and source.", {
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(
+      page.getByText("No gross receipts to allocate in this selection.", {
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(page.getByText(/Rate unavailable/)).toBeVisible();
+    await expect(
+      page.getByRole("group", {
+        name: "Gross receipts trend chart",
+        exact: true,
+      }),
+    ).toHaveCount(0);
+    expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  });
+  test("failed load offers retry without stale financial totals or export", async ({
+    page,
+  }) => {
+    const requests = await setup(page, "error");
+    await expect(
+      page
+        .getByRole("alert")
+        .filter({ hasText: "Earnings temporarily unavailable" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Export earnings CSV" }),
+    ).toHaveCount(0);
+    await page.getByRole("button", { name: "Retry", exact: true }).click();
+    await expect.poll(() => requests.length).toBeGreaterThan(1);
+    await expect(
+      page.getByRole("button", { name: "Apply filters", exact: true }),
+    ).toBeEnabled();
+    await page.waitForFunction(() =>
+      document
+        .getAnimations()
+        .every(
+          (animation) =>
+            animation.playState !== "running" ||
+            animation.effect?.getComputedTiming().iterations === Infinity,
+        ),
+    );
+    expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  });
+  test("ordinary reporting role cannot navigate to financial analytics", async ({
+    page,
+  }) => {
+    await setup(page, "reader");
+    await expect(
+      page.getByRole("heading", { name: "Dashboard", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: "Earnings", exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("heading", { name: "Gross receipts", exact: true }),
+    ).toHaveCount(0);
+  });
+});
+
+test.describe("Manual financial records", () => {
+  const learnerId = "95000000-0000-4000-8000-000000000001",
+    offeringId = "95000000-0000-4000-8000-000000000002",
+    paymentId = "95000000-0000-4000-8000-000000000003";
+  async function setup(page: Page, fail = false, reader = false) {
+    await page.request.post("/api/staff-session", {
+      data: { email: reader ? "support@cuce.test" : "admin@cuce.test" },
+    });
+    const payments: any[] = [],
+      requests: { key: string | null; body: any; path: string }[] = [];
+    await page.route("**/api/staff/manual-payments**", async (route) => {
+      const url = new URL(route.request().url());
+      if (url.pathname.endsWith("/options"))
+        return route.fulfill({
+          json: {
+            learners: url.searchParams.get("search")
+              ? [{ id: learnerId, label: "Alex Demo · alex@example.test" }]
+              : [],
+            offerings: [{ id: offeringId, title: "Manual finance demo" }],
+          },
+        });
+      if (route.request().method() === "POST") {
+        const body = route.request().postDataJSON();
+        requests.push({
+          key: route.request().headers()["idempotency-key"],
+          body,
+          path: url.pathname,
+        });
+        if (fail && requests.length === 1)
+          return route.fulfill({
+            status: 503,
+            json: {
+              message: "Uncertain recording outcome; retry this submission",
+            },
+          });
+        if (url.pathname.endsWith("/refunds")) {
+          payments[0].refunded_cents += body.amountCents;
+          payments[0].refunds.push({
+            id: `refund-${payments[0].refunds.length + 1}`,
+            amount_cents: body.amountCents,
+            refunded_on: body.date,
+            reference: body.reference,
+            note: body.note,
+            recorded_by: "demo-staff:test",
+            recorded_at: "2026-11-04T12:00:00Z",
+          });
+        } else
+          payments.push({
+            id: paymentId,
+            learner_id: learnerId,
+            offering_id: offeringId,
+            learner: "Alex Demo",
+            offering: "Manual finance demo",
+            amount_cents: body.amountCents,
+            refunded_cents: 0,
+            paid_on: body.date,
+            method: body.method,
+            reference: body.reference,
+            note: body.note,
+            recorded_by: "demo-staff:test",
+            recorded_at: "2026-11-04T12:00:00Z",
+            refunds: [],
+          });
+        return route.fulfill({ json: { id: paymentId } });
+      }
+      return route.fulfill({ json: { payments, limit: 250 } });
+    });
+    await page.goto("/staff/transactions");
+    await expect(
+      page.getByRole("heading", {
+        name: "Manual payments and refunds",
+        exact: true,
+      }),
+    ).toBeVisible();
+    return { requests, payments };
+  }
+  async function form(page: Page) {
+    await page
+      .getByRole("button", { name: "Record manual payment", exact: true })
+      .click();
+    const dialog = page.getByRole("dialog");
+    await dialog
+      .getByRole("combobox", { name: "Learner", exact: true })
+      .fill("Alex");
+    await page
+      .getByRole("option", {
+        name: "Alex Demo · alex@example.test",
+        exact: true,
+      })
+      .click();
+    await dialog
+      .getByRole("combobox", { name: "Offering", exact: true })
+      .click();
+    await page
+      .getByRole("option", { name: "Manual finance demo", exact: true })
+      .click();
+    await dialog
+      .getByRole("textbox", { name: "Amount (USD)", exact: true })
+      .fill("125.50");
+    await dialog.getByLabel(/^Payment date \(UTC\)/).fill("2026-11-01");
+    await dialog
+      .getByRole("textbox", { name: "External reference", exact: true })
+      .fill("DEMO-RECEIPT-1");
+    await dialog
+      .getByRole("textbox", { name: "Payment note", exact: true })
+      .fill("External receipt verified for demonstration");
+    await expect(
+      dialog.getByRole("button", { name: "Save manual record", exact: true }),
+    ).toBeDisabled();
+    await dialog.getByRole("checkbox").check();
+    return dialog;
+  }
+  test("records payment and linked partial refund with review and accessible history", async ({
+    page,
+  }) => {
+    const { requests } = await setup(page);
+    const dialog = await form(page);
+    await scan(page, "Manual payment form");
+    await page.screenshot({
+      path: test.info().outputPath("manual-payment-form.png"),
+      fullPage: true,
+    });
+    await dialog
+      .getByRole("button", { name: "Save manual record", exact: true })
+      .click();
+    await expect(dialog).toHaveCount(0);
+    expect(requests[0].body).toEqual({
+      learnerId,
+      offeringId,
+      amountCents: 12550,
+      date: "2026-11-01",
+      method: "check",
+      reference: "DEMO-RECEIPT-1",
+      note: "External receipt verified for demonstration",
+    });
+    await page.getByText("Manual payment ledger (1)", { exact: true }).click();
+    await expect(
+      page.getByText("$125.50 received 2026-11-01", { exact: false }),
+    ).toBeVisible();
+    await page
+      .getByRole("button", {
+        name: "Record refund for DEMO-RECEIPT-1",
+        exact: true,
+      })
+      .click();
+    const refund = page.getByRole("dialog");
+    await expect(
+      refund.getByText("Available to refund: $125.50", { exact: true }),
+    ).toBeVisible();
+    await refund
+      .getByRole("textbox", { name: "Amount (USD)", exact: true })
+      .fill("25.50");
+    await refund.getByLabel(/^Refund date \(UTC\)/).fill("2026-11-02");
+    await refund
+      .getByRole("textbox", { name: "External reference", exact: true })
+      .fill("DEMO-REFUND-1");
+    await refund
+      .getByRole("textbox", { name: "Refund reason", exact: true })
+      .fill("External partial refund verified");
+    await refund.getByRole("checkbox").check();
+    await scan(page, "Manual refund review");
+    await refund
+      .getByRole("button", { name: "Save manual record", exact: true })
+      .press("Enter");
+    await expect(refund).toHaveCount(0);
+    expect(requests[1].path).toBe(
+      `/api/staff/manual-payments/${paymentId}/refunds`,
+    );
+    expect(requests[1].body.amountCents).toBe(2550);
+    await expect(
+      page.getByText("Refunded: $25.50 · Remaining: $100.00", { exact: true }),
+    ).toBeVisible();
+    await page
+      .getByText("Payment and refund history: DEMO-RECEIPT-1", { exact: true })
+      .click();
+    await expect(
+      page.getByText("$25.50 refunded 2026-11-02", { exact: false }),
+    ).toBeVisible();
+    await expect(
+      page.getByText("Recorded by demo-staff:test", { exact: false }),
+    ).toHaveCount(2);
+    await scan(page, "Manual ledger and refund history");
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+    await page.screenshot({
+      path: test.info().outputPath("manual-payment-ledger.png"),
+      fullPage: true,
+    });
+    await page
+      .getByRole("button", {
+        name: "Record refund for DEMO-RECEIPT-1",
+        exact: true,
+      })
+      .click();
+    const full = page.getByRole("dialog");
+    await full
+      .getByRole("textbox", { name: "Amount (USD)", exact: true })
+      .fill("100.00");
+    await full
+      .getByRole("textbox", { name: "External reference", exact: true })
+      .fill("DEMO-REFUND-2");
+    await full
+      .getByRole("textbox", { name: "Refund reason", exact: true })
+      .fill("Remaining balance returned externally");
+    await full.getByRole("checkbox").check();
+    await full
+      .getByRole("button", { name: "Save manual record", exact: true })
+      .click();
+    await expect(full).toHaveCount(0);
+    await expect(
+      page.getByText("Refunded: $125.50 · Remaining: $0.00", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", {
+        name: "Record refund for DEMO-RECEIPT-1",
+        exact: true,
+      }),
+    ).toHaveCount(0);
+    await expect(
+      page.locator(`[data-manual-payment="${paymentId}"]`),
+    ).toBeFocused();
+  });
+  test("retains the same submission key after uncertain failure and permits keyboard cancellation", async ({
+    page,
+  }) => {
+    const { requests } = await setup(page, true);
+    const dialog = await form(page);
+    await dialog
+      .getByRole("button", { name: "Save manual record", exact: true })
+      .click();
+    await expect(
+      dialog
+        .getByRole("alert")
+        .filter({ hasText: "Uncertain recording outcome" }),
+    ).toBeVisible();
+    await expect(
+      dialog.getByRole("button", { name: "Save manual record", exact: true }),
+    ).toBeEnabled();
+    await scan(page, "Manual recording error");
+    await dialog
+      .getByRole("button", { name: "Save manual record", exact: true })
+      .click();
+    await expect(dialog).toHaveCount(0);
+    expect(requests).toHaveLength(2);
+    expect(requests[0].key).toBeTruthy();
+    expect(requests[0].key).toBe(requests[1].key);
+    expect(requests[0].body).toEqual(requests[1].body);
+    const opener = page.getByRole("button", {
+      name: "Record manual payment",
+      exact: true,
+    });
+    await opener.click();
+    await page.getByRole("dialog").press("Escape");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(opener).toBeFocused();
+  });
+  test("support sees history without manual recording permission", async ({
+    page,
+  }) => {
+    await setup(page, false, true);
+    await expect(
+      page.getByRole("button", { name: "Record manual payment", exact: true }),
+    ).toHaveCount(0);
+    await page.getByText("Manual payment ledger (0)", { exact: true }).click();
+    await expect(
+      page.getByText("No matching manual payments recorded.", { exact: true }),
+    ).toBeVisible();
+    await scan(page, "Manual ledger read-only support");
   });
 });

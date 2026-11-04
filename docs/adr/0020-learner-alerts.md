@@ -1,0 +1,15 @@
+# ADR 0020: Learner alert dashboard and scheduled source checks
+
+Accepted November 4, 2026 at the project owner's request.
+
+The Admin workspace adds configurable dashboard rules for stalled required-step staff verification, recent verified completion, upcoming signed badge/certificate expiration, Canvas inactivity, and current Canvas course scores below a threshold. This extends ADR 0014's reporting without replacing staff evidence or inferring completion from Canvas activity/grades. ADR 0019's independent frozen credential dates remain authoritative; no signed award is rewritten.
+
+PostgreSQL migration 030 stores rule revisions, deduplicated rule-revision/source episodes, staff actions, snooze deadlines, and append-only alert history. Source recovery resolves matching conditions; a manually resolved unchanged episode stays suppressed. Changes to rule thresholds/scope create a new revision while preserving prior alerts/history. Condition type is immutable to preserve historical source permissions. Writes use current portal scopes, actor-derived identity, idempotency keys, optimistic versions, bound SQL, and audit events.
+
+The existing API hosts a one-minute local evaluator and hourly bounded Canvas reads, with no separate service. Evaluation is serialized across instances with an advisory transaction lock. Canvas calls run outside that transaction and claim a per-rule three-minute lease, recoverable after interruption. Schedules pause when the API is stopped and resume due work on restart. No actual email or messaging is introduced.
+
+Live Canvas reads are separately opted in with `CANVAS_ALERTS_ENABLED=true`, the existing course connector, the documented enrollment read scope, and a freshly authorized encrypted staff grant. A rule's current active authorized owner supplies the refreshable grant; manual sync uses the current signed-in owner with audit evidence; login-bound visibility is tightened in ADR 0024. Saved snapshots bind to the configured OAuth fingerprint, explicit course/installation mapping, and enrolled portal learners' verified Canvas identities. Only minimum normalized activity/current-score observations for those identities persist. Course-specific pagination and response validation reuse the existing secure Canvas client.
+
+Unknown, stale (over 24 hours), inaccessible, inconsistent, or failed source data never creates a zero-score/inactivity assumption or clears prior alerts as recovered. Credential source/link errors similarly retain expiration alerts. Credential visibility requires existing badge-management authority; Canvas visibility requires Canvas-read authority; ordinary staff reports retain the existing documented progress access. Acknowledgment, snooze, manual resolution, automatic clearing, and history remain distinguishable.
+
+Live provider validation, screen-reader review, email digests, assignment-specific failures/missing submissions, deadline rules, and notifications while the API is offline are outside the verified behavior of this addition. Details: [staff and operator instructions](../learner-alerts.md).
