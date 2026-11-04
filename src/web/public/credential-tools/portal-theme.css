@@ -26,7 +26,7 @@ dialog { background:var(--portal-bg)!important; color:var(--portal-text)!importa
 span,output { color:inherit!important; }
 output { color:var(--portal-text)!important; }
 .status-pill,.cu-pill,.pill { background:var(--portal-bg)!important; color:var(--portal-text)!important; border:1px solid var(--portal-muted)!important; }
-.error,.cu-error,#cu-load-error,#source-errors { background:var(--portal-bg)!important; color:var(--portal-text)!important; }
+.error,.cu-error,#cu-load-error,#source-errors,#cc-message { background:var(--portal-bg)!important; color:var(--portal-text)!important; }
 .save-bar,.filters,.dialog-header,.evidence-module,.tabs { background:var(--portal-bg)!important; color:var(--portal-text)!important; }
 #save-state,#preview-issuer,#result-count,#updated,#page-label,.results-line,.table-footer { color:var(--portal-text)!important; }
 tbody tr:hover { background:var(--portal-bg)!important; }

@@ -19,6 +19,8 @@ import {
 } from "@mui/material";
 import { missingOfferingInfo } from "../../domain/offering-readiness";
 import { api, date, money, Offering } from "./api";
+import type { OfferingSkill } from "../../domain/offering-skills";
+import { OfferingSkillsPicker } from "./offering-skills-picker";
 
 export type StaffOffering = Omit<
   Offering,
@@ -52,10 +54,11 @@ type Values = {
   enrollmentCloseDays: string;
   canvasCourseUrl: string;
   reason: string;
+  skills: OfferingSkill[];
 };
 type Field = Exclude<
   keyof Values,
-  "approvalRequired" | "unlimitedSeats" | "listed"
+  "approvalRequired" | "unlimitedSeats" | "listed" | "skills"
 >;
 const labels: Record<Field, string> = {
   title: "Course title",
@@ -91,6 +94,7 @@ const blank: Values = {
   enrollmentCloseDays: "7",
   canvasCourseUrl: "",
   reason: "",
+  skills: [],
 };
 const fromOffering = (o: StaffOffering): Values => ({
   title: o.title,
@@ -110,6 +114,7 @@ const fromOffering = (o: StaffOffering): Values => ({
   enrollmentCloseDays: String(o.enrollment_close_days),
   canvasCourseUrl: o.canvas_course_url ?? "",
   reason: "",
+  skills: o.skills ?? [],
 });
 // Fields shown in each offering page tab; the dialog (creating) shows them all.
 export type OfferingFormSection = "details" | "settings";
@@ -273,6 +278,14 @@ export function OfferingForm({
       ...(values.canvasCourseUrl.trim()
         ? { canvasCourseUrl: values.canvasCourseUrl.trim() }
         : {}),
+      ...(!section || section === "details"
+        ? {
+            skills: values.skills.map(({ id, releaseId }) => ({
+              id,
+              releaseId,
+            })),
+          }
+        : {}),
     };
     setBusy(true);
     try {
@@ -420,6 +433,13 @@ export function OfferingForm({
           </TextField>
           <TextField {...field("summary")} required />
           <TextField {...field("description")} required multiline minRows={3} />
+          <OfferingSkillsPicker
+            value={values.skills}
+            disabled={busy}
+            onChange={(skills) =>
+              setValues((current) => ({ ...current, skills }))
+            }
+          />
           <TextField
             {...field(
               "courseType",

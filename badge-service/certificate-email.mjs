@@ -476,7 +476,9 @@ export class CertificateEmail {
           cert.source_id,
           cert.badge_id,
           cert.learner,
+          true,
         );
+        this.certificates.verify(cert, true);
         rows.push(
           this.view(await this.build(cert, body, actor, directory, batchId)),
         );
@@ -500,7 +502,8 @@ export class CertificateEmail {
     const cert = await this.store.db
       .prepare("SELECT * FROM certificates WHERE id=?")
       .get(row.certificate_id);
-    await this.certificates.row(s.sourceId, s.badgeId, row.learner_id);
+    await this.certificates.row(s.sourceId, s.badgeId, row.learner_id, true);
+    this.certificates.verify(cert, true);
     const contact = this.contact(cert, await this.directory.directory());
     if (!contact || contact.address !== row.recipient)
       fail("Learner contact or account link changed. Create a new preview.");
@@ -671,6 +674,8 @@ export class CertificateEmail {
           ? {}
           : { attachments: [{ filename: pdf.filename, content: pdf.data }] }),
       };
+      // PDF rendering can cross the expiration boundary; recheck before transport.
+      await this.validate(row);
       contacted = true;
       providerId = await this.transport(payload, row.id);
       state = "accepted";
@@ -746,6 +751,8 @@ export class CertificateEmail {
       contact = this.contact(cert, await this.directory.directory());
     if (!contact || contact.address !== row.recipient)
       fail("Certificate link is unavailable. Contact Continuing Education.");
+    await this.certificates.row(s.sourceId, s.badgeId, row.learner_id, true);
+    this.certificates.verify(cert, true);
     return this.certificates.download(s.sourceId, s.badgeId, row.learner_id);
   }
 }

@@ -76,3 +76,7 @@ npm run test:a11y -- --project=light --grep 'credential integration'
 ```
 
 Certificate tests also require `pypdf==6.10.0` in that Python environment. The 46 pilot tests exercise signing, duplicate/retry behavior, ownership, publication/mapping drift, manual/CSV atomicity, Open Badges model validation and PDF geometry. `tests/badges.integration.ts` separately exercises the real service and Next broker against an explicitly mocked identity-provider boundary, including staff/learner separation, current-role checks, Canvas-mode fail-closed behavior, CSRF, actor spoofing, learner isolation, sharing removal and certificate downloads. Automated scans are not a screen-reader review or WCAG certification. Current validation evidence is recorded in [the integration review](prototype/badges-integration-review.md).
+
+## Optional expiration
+
+Badge **Details** and the certificate template editor each have an optional **Expiration date**. Blank means no expiration; saved dates apply to new awards and remain independent for a badge and its certificate. See [expiration behavior and staff instructions](credential-expiration.md).

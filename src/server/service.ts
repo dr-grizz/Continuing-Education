@@ -19,6 +19,7 @@ import {
   type StaffRole,
 } from "../generated/prisma/client";
 import { protectCanvasOfferingLink } from "./canvas-offering-links";
+import { resolveOfferingSkills } from "./offering-skills";
 import { missingOfferingInfo } from "../domain/offering-readiness";
 import { DEMO_LEARNER } from "../domain/db";
 import {
@@ -1244,6 +1245,7 @@ export class PortalService {
       { action: "create", data },
       async (tx) => {
         await protectCanvasOfferingLink(tx, data.canvasCourseUrl || null);
+        const skills = await resolveOfferingSkills(tx, data.skills ?? []);
         const offering = await tx.offerings.create({
           data: {
             title: data.title,
@@ -1262,6 +1264,7 @@ export class PortalService {
             enrollment_close_days: data.enrollmentCloseDays ?? 7,
             canvas_course_url: data.canvasCourseUrl || null,
             listed: data.listed ?? true,
+            skills: skills.map((skill) => ({ ...skill })),
           },
         });
         await tx.offering_prices.create({
@@ -1419,11 +1422,22 @@ export class PortalService {
             fields.enrollmentCloseDays ?? before.enrollment_close_days,
           canvas_course_url: fields.canvasCourseUrl || null,
           listed: fields.listed ?? before.listed,
+          skills: (fields.skills === undefined
+            ? before.skills
+            : await resolveOfferingSkills(
+                tx,
+                fields.skills,
+              )) as Prisma.InputJsonValue,
         };
         const previous = before as Record<string, unknown>;
         const changes = Object.fromEntries(
           Object.entries(after)
-            .filter(([field, value]) => previous[field] !== value)
+            .filter(([field, value]) =>
+              field === "skills"
+                ? JSON.stringify(previous[field], ["id", "releaseId"]) !==
+                  JSON.stringify(value, ["id", "releaseId"])
+                : previous[field] !== value,
+            )
             .map(([field, value]) => [
               field,
               { before: previous[field] ?? null, after: value },

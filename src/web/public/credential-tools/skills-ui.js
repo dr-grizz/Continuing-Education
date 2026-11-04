@@ -329,7 +329,8 @@
         if (!data.ready)
           status.textContent =
             "Skills reference data is not available yet. Please contact portal support.";
-        attribution(section, data);
+        if (!document.querySelector("[data-public-skills]"))
+          attribution(section, data);
       })
       .catch((error) => {
         status.textContent = error.message;

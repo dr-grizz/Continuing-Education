@@ -342,6 +342,53 @@ export default function Course({
               </List>
             </>
           )}
+          {!!course.skills?.length && (
+            <Box
+              component="section"
+              aria-labelledby="course-skills-heading"
+              sx={{ mt: 3 }}
+            >
+              <Typography
+                id="course-skills-heading"
+                component="h2"
+                variant="h5"
+              >
+                Skills covered
+              </Typography>
+              <List>
+                {course.skills.map((skill) => (
+                  <ListItem
+                    key={`${skill.releaseId}:${skill.id}`}
+                    sx={{ px: 0 }}
+                  >
+                    <ListItemText
+                      primary={skill.name}
+                      secondary={skill.description}
+                    />
+                  </ListItem>
+                ))}
+              </List>
+              <Typography variant="body2" color="text.secondary">
+                Definitions:{" "}
+                <Link
+                  href="https://www.onetcenter.org/database.html"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  O*NET Database
+                </Link>{" "}
+                by USDOL/ETA,{" "}
+                <Link
+                  href="https://creativecommons.org/licenses/by/4.0/"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  CC BY 4.0
+                </Link>
+                . <Link href="/skills">Explore skills and careers</Link>.
+              </Typography>
+            </Box>
+          )}
           {!!course.collections?.length && (
             <>
               <Typography variant="h6" component="h2" sx={{ mt: 3 }}>

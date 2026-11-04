@@ -1,3 +1,4 @@
+import { expirationFields, requireUnexpired } from "./expiration.mjs";
 import { createHash, randomUUID } from "node:crypto";
 import { validateDesign, listDrafts } from "./designs.mjs";
 import { renderBadge } from "./public/badge-artwork.js";
@@ -127,6 +128,7 @@ export class PublishingCatalog {
         return previous;
       }
       const design = validateDesign(draft.design);
+      requireUnexpired(expirationFields(design.expirationDate));
       if (!design.criteria)
         throw new Error("Add earning criteria before approving");
       const id = randomUUID();

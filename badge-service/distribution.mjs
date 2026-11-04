@@ -112,6 +112,7 @@ export class CredentialDistribution {
       row.source_id,
       row.badge_id,
       row.learner,
+      true,
     );
     if (row.kind !== "badge") {
       const certificate = await this.certificates.find(
@@ -125,7 +126,7 @@ export class CredentialDistribution {
       )
         fail("The certificate is no longer available.");
       // Full signature check without running the PDF renderer for every claim read.
-      this.certificates.verify(certificate);
+      this.certificates.verify(certificate, true);
     }
     return award;
   }
@@ -176,7 +177,12 @@ export class CredentialDistribution {
         "Choose an issued award, distribution format, and expiry of 1–30 days.",
       );
     return this.store.transaction(async () => {
-      const award = await this.certificates.row(body.sourceId, body.badgeId),
+      const award = await this.certificates.row(
+          body.sourceId,
+          body.badgeId,
+          undefined,
+          true,
+        ),
         cert = await this.certificates.find(body.sourceId, body.badgeId);
       const contact = (await this.recipients.directory()).contacts.get(
         award.learner,

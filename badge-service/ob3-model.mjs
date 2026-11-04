@@ -1,3 +1,4 @@
+import { expirationFields } from "./expiration.mjs";
 // Stage 1 only: data model + offline schema/JSON-LD checks, never credential issuance.
 import {createHash} from 'node:crypto';
 import {readFileSync} from 'node:fs';
@@ -43,7 +44,8 @@ export function buildUnsignedOpenBadge({badgeVersion,issuer,credentialId,learner
   if(Date.parse(verifiedAt)>Date.parse(from))throw new Error('Recipient mapping must be verified before credential validity begins');
   instant(badgeVersion.approvedAt,'Badge approval time');
   if(Date.parse(badgeVersion.approvedAt)>Date.parse(from))throw new Error('The badge version must be approved before credential validity begins');
-  const until=validUntil===undefined?undefined:instant(validUntil,'validUntil');
+  const selectedUntil=validUntil===undefined?expirationFields(design.expirationDate).validUntil:validUntil;
+  const until=selectedUntil===undefined?undefined:instant(selectedUntil,'validUntil');
   if(until&&Date.parse(until)<=Date.parse(from))throw new Error('validUntil must be later than validFrom');
   const image={id:'data:image/svg+xml;base64,'+Buffer.from(badgeVersion.artwork).toString('base64'),type:'Image',caption:design.title};
   const profile={id:issuer.id,type:['Profile'],name:issuer.name,...(issuer.url?{url:issuer.url}:{})};

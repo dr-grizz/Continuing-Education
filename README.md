@@ -10,7 +10,7 @@ Local Next.js + Material UI website, NestJS REST API, PostgreSQL and request-dri
 
 [QR and claim-code distribution](docs/credential-distribution.md) delivers an earned badge, its certificate, or both to the same authenticated learner. The certificate and award workspaces include recipient-bound codes, QR images, expiry, revocation and claim history; `npm run badges:seed-demo` prepares two fictional paired accomplishments locally.
 
-[Skills and careers](docs/skills-and-careers.md) adds assessed O*NET skills to badge drafts and frozen awards, related occupations, regional BLS wages and national projections. The free `/skills` explorer also supports O*NET v2 occupation search and national outlook when the private server `ONET_API_KEY` is configured. Apply migration `028_skills_labor_market`, run `npm run skills:import`, and verify API access with `npm run skills:verify-api`; the public reference area requires no account and includes source attribution.
+[Skills and careers](docs/skills-and-careers.md) adds assessed O*NET skills to badge drafts and frozen awards, related occupations, regional BLS wages and national projections. Offering creation and Details also support optional course skill coverage (migration `029_offering_skills`), and badge publishing links to the selected draft’s assessed-skills editor. The free `/skills` explorer also supports O*NET v2 occupation search and national outlook when the private server `ONET_API_KEY` is configured. Apply migration `028_skills_labor_market`, run `npm run skills:import`, and verify API access with `npm run skills:verify-api`; the public reference area requires no account and includes source attribution.
 
 ## Individual progress and cohorts
 

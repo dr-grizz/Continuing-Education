@@ -1,3 +1,4 @@
+import { expirationFields, requireUnexpired } from "./expiration.mjs";
 import { createHash, randomUUID, sign } from "node:crypto";
 export class AwardError extends Error {}
 const fail = (message) => {
@@ -163,6 +164,7 @@ export class ManualAwards {
           revision: v.revision,
           status: v.status,
           criteria: v.design.criteria,
+          expirationDate: v.design.expirationDate || null,
           artwork: v.artwork,
         })),
       learners: Object.entries(this.learners).map(([id, l]) => ({
@@ -174,6 +176,7 @@ export class ManualAwards {
         ((await this.certificates?.templates()) || []).map((t) => ({
           id: t.id,
           name: t.name,
+          expirationDate: t.design.expirationDate || null,
           revision: t.revision,
         })) || [],
       maxRows: MAX_ROWS,
@@ -181,6 +184,7 @@ export class ManualAwards {
   }
   async preview(body, actor) {
     const v = await this.version(body.versionId);
+    requireUnexpired(expirationFields(v.design.expirationDate));
     const method = body.method;
     const certificate = body.certificateTemplateId
       ? await this.certificates?.template(body.certificateTemplateId)
@@ -344,6 +348,7 @@ export class ManualAwards {
       versionId: b.version_id,
       title: v?.design.title,
       revision: v?.revision,
+      expirationDate: v?.design.expirationDate || null,
       certificate: b.certificate_json ? JSON.parse(b.certificate_json) : null,
       rows,
       counts: Object.fromEntries(
@@ -391,6 +396,7 @@ export class ManualAwards {
       if (Date.parse(b.expires_at) <= Date.now())
         fail("This preview expired. Create a new preview.");
       const v = await this.version(b.version_id);
+      requireUnexpired(expirationFields(v.design.expirationDate));
       if (this.fingerprint(v) !== b.snapshot_hash)
         fail("Badge changed. Create a new preview.");
       const rows = JSON.parse(b.rows_json),
@@ -438,6 +444,7 @@ export class ManualAwards {
           },
           subject: `urn:uuid:${randomUUID()}`,
           issuedAt,
+          ...expirationFields(v.design.expirationDate),
           demonstration: this.learners[r.learner].demonstration === true,
           achievement: {
             id: `badge:${v.draftId}`,
