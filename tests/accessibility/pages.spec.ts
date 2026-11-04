@@ -4180,7 +4180,12 @@ test.describe("skills and careers", () => {
     await mockSkills(page);
     await page.goto("/skills");
     const frame = page.frameLocator("iframe");
-    const credit = frame.locator(".skills-onet-credit").first();
+    await expect(
+      frame.getByRole("img", { name: "O*NET in-it", exact: true }),
+    ).toHaveCount(1);
+    const credit = frame.locator(".skills-onet-credit").filter({
+      has: frame.locator(".skills-onet-logo"),
+    });
     await expect(credit).toContainText(
       "This site incorporates information from O*NET Web Services by the U.S. Department of Labor, Employment and Training Administration (USDOL/ETA). O*NET® is a trademark of USDOL/ETA.",
     );
@@ -4254,6 +4259,9 @@ test.describe("skills and careers", () => {
       .getByRole("button", { name: "View O*NET outlook for 25-9031.00" })
       .click();
     await expect(api.getByText("Original provider wording.")).toBeVisible();
+    await expect(
+      frame.getByRole("img", { name: "O*NET in-it", exact: true }),
+    ).toHaveCount(1);
     await expect(
       api.getByRole("link", { name: "O*NET Web Services" }),
     ).toHaveAttribute("href", "https://services.onetcenter.org/");
