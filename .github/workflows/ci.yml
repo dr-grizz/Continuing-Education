@@ -103,6 +103,8 @@ jobs:
         run: npm run test:staff-lookup
       - name: Canvas course connector tests (mock provider, disposable database)
         run: npm run test:canvas
+      - name: Offering skills (disposable database)
+        run: npm run test:offering-skills
       - name: Individual progress and cohort reporting (disposable database)
         run: npm run test:progress
       - name: Initial setup and private System Info (disposable database)

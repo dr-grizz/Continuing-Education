@@ -30,6 +30,23 @@ Learners with aligned awards can open **Skills and career connections** in
 browser-selected learner. Reference search results alone never confer a skill,
 badge, certificate, or employment qualification.
 
+## Attach skills to offerings and badges
+
+In **Admin → Offerings → New offering**, use **Skills** below the description:
+search a skill name/software title, choose **Add**, and save the draft. Up to 20
+skills can be selected, and the field is optional. Reopen the offering's
+**Details** tab to add or remove skills; published changes require the usual
+reason. Published course pages show the saved skills as **Skills covered**.
+
+In **Badge publishing**, the selected draft shows **Skills attached to this
+badge**. **Add or edit skills** opens that exact draft's **Details** tab, where
+each skill needs an assessment explanation before saving. Approve the saved
+revision to include those skills in subsequent awards; older issued awards keep
+their original definitions. A paired certificate represents the same accomplishment.
+Offering coverage and badge assessment alignments remain separate staff decisions.
+
+Apply migration `029_offering_skills` before using offering skill selection.
+
 ## Server configuration
 
 Set `ONET_API_KEY` in the private server environment, never a `NEXT_PUBLIC_`
@@ -100,13 +117,12 @@ See [verification](testing/skills-and-careers-verification.md) and
 
 ## Recommended student-facing additions (proposals)
 
-Beyond the existing public explorer and learner award context, prioritize:
+Beyond the existing public explorer, offering coverage and learner award context, prioritize:
 
 | Priority | Placement | Proposed student benefit |
 | --- | --- | --- |
-| 1 | Public course details | Before enrolling, see staff-mapped assessed skills, related occupations, and dated wages/outlook with source credit. |
-| 2 | My learning | See assessed skills earned through credentials, skills targeted by enrolled courses, and links to relevant learning/evidence; clearly distinguish learning progress from verified skill attainment. |
-| 3 | Career goals and pathways | Choose a target occupation, compare its skill requirements against documented earned alignments, and explore staff-reviewed courses addressing other skills. |
+| 1 | My learning | See assessed skills earned through credentials, skills targeted by enrolled courses, and links to relevant learning/evidence; clearly distinguish learning progress from verified skill attainment. |
+| 2 | Career goals and pathways | Choose a target occupation, compare its skill requirements against documented earned alignments, and explore staff-reviewed courses addressing other skills. |
 
 These placements are recommendations, not completed workflows or a claim that an
 occupation match proves job readiness. O*NET's

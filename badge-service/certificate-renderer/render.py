@@ -93,8 +93,10 @@ def render(s):
     txt(d['signerName'],112,size=12,width=400,lines=1)
     txt(d['signerTitle'],96,size=10,color=muted,width=500,lines=1)
     txt('Awarded ' + s['awardDate'],72,size=10,color=ink,width=680,lines=1)
-    txt(d['footer'],55,size=8,color=muted,width=690,lines=1)
-    txt('Certificate ' + s['id'] + ' | Award ' + s['badgeId'],43,size=6,color=muted,width=710,lines=1)
+    if s.get('expirationDate'):
+        txt('Valid through ' + s['expirationDate'] + ' (UTC)',60,size=9,color=ink,width=680,lines=1)
+    txt(d['footer'],47 if s.get('expirationDate') else 55,size=8,color=muted,width=690,lines=1)
+    txt('Certificate ' + s['id'] + ' | Award ' + s['badgeId'],36 if s.get('expirationDate') else 43,size=6,color=muted,width=710,lines=1)
     if s.get('demo') or s.get('preview'):
         c.saveState();c.translate(396,310);c.rotate(24);c.setFillColor(Color(.0,.23,.39,alpha=.09));c.setFont('CertificateSans',58);c.drawCentredString(0,0,'SAMPLE' if s.get('preview') else 'FICTIONAL TEST');c.restoreState()
     c.showPage();c.save();return out.getvalue()

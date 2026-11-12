@@ -4463,3 +4463,524 @@ test.describe("skills and careers", () => {
     await scan(page, "Learner owned skill assessment and career context");
   });
 });
+
+test.describe("offering and badge skill attachment", () => {
+  const releaseId = "92000000-0000-4000-8000-000000000001",
+    offeringId = "92000000-0000-4000-8000-000000000002",
+    draftId = "92000000-0000-4000-8000-000000000003";
+  const skill = {
+    id: "2.A.2.a",
+    releaseId,
+    name: "Critical Thinking",
+    description: "Use reasoning to compare alternative approaches.",
+    category: "essential",
+    url: "https://www.onetcenter.org/database.html",
+    source: "O*NET",
+    version: "31.0",
+    license: "https://creativecommons.org/licenses/by/4.0/",
+  };
+  async function skills(page: Page) {
+    await page.route("**/api/badges/**/skills/**", (route) =>
+      route.fulfill({
+        json: route.request().url().endsWith("/catalog")
+          ? {
+              ready: true,
+              skillsRelease: { version: "31.0" },
+              attribution: "O*NET 31.0 Database by USDOL/ETA, CC BY 4.0.",
+            }
+          : { skills: [skill], limit: 25 },
+      }),
+    );
+  }
+  test("new offering selects skills, saves references, reopens and removes skills, and shows course coverage", async ({
+    page,
+  }) => {
+    await page.request.post("/api/staff-session", {
+      data: { email: "admin@cuce.test" },
+    });
+    await skills(page);
+    const offering: any = {
+      id: offeringId,
+      title: "Skills course fixture",
+      category: "Technology",
+      summary: "A synthetic summary for the new skills offering.",
+      description:
+        "A synthetic description for the offering skill picker workflow.",
+      format: "Online",
+      course_type: "self_paced",
+      start_date: null,
+      end_date: null,
+      price_cents: 14900,
+      capacity: 20,
+      seats_available: 20,
+      unlimited_seats: false,
+      approval_required: false,
+      approval_valid_days: 7,
+      enrollment_close_days: 7,
+      canvas_course_url: null,
+      published: false,
+      listed: true,
+      unpublished_at: null,
+      version: 1,
+      outcomes: [],
+      skills: [],
+      active_registrations: 0,
+      seats_in_use: 0,
+      sales_page_status: "none",
+    };
+    let creates = 0,
+      edits = 0;
+    await page.route("**/api/staff/offerings", (route) =>
+      route.fulfill({ json: [] }),
+    );
+    await page.route(`**/api/staff/offerings/${offeringId}`, (route) =>
+      route.fulfill({ json: { offering, registrations: {}, activity: [] } }),
+    );
+    await page.route(`**/api/offerings/${offeringId}/prices`, (route) =>
+      route.fulfill({ json: [] }),
+    );
+    await page.route("**/api/offerings", (route) => {
+      if (route.request().method() !== "POST") return route.fallback();
+      const body = route.request().postDataJSON();
+      expect(body.skills).toEqual([{ id: skill.id, releaseId }]);
+      Object.assign(offering, {
+        title: body.title,
+        summary: body.summary,
+        description: body.description,
+        skills: [skill],
+      });
+      creates++;
+      return route.fulfill({ status: 201, json: offering });
+    });
+    await page.route(`**/api/offerings/${offeringId}/edit`, (route) => {
+      const body = route.request().postDataJSON();
+      expect(body.skills).toEqual([]);
+      offering.skills = [];
+      offering.version++;
+      edits++;
+      return route.fulfill({ json: offering });
+    });
+    await page.goto("/staff/offerings");
+    await page
+      .getByRole("button", { name: "New offering", exact: true })
+      .click();
+    const dialog = page.getByRole("dialog", { name: "Create sample offering" });
+    await dialog.getByLabel("Course title").fill(offering.title);
+    await dialog.getByLabel("Short summary").fill(offering.summary);
+    await dialog.locator("#offering-description").fill(offering.description);
+    await expect(
+      dialog.getByRole("button", { name: "Search skills", exact: true }),
+    ).toBeEnabled();
+    await dialog.getByLabel("Search offering skills").fill("critical");
+    await dialog.getByLabel("Search offering skills").press("Enter");
+    await dialog
+      .getByRole("button", { name: "Add Critical Thinking", exact: true })
+      .click();
+    await expect(
+      dialog.getByRole("button", {
+        name: "Remove Critical Thinking",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await scan(page, "New offering with selected O*NET skill");
+    await dialog
+      .getByRole("button", { name: "Save draft", exact: true })
+      .click();
+    await expect(page).toHaveURL(
+      new RegExp("/staff/offerings/" + offeringId + "$"),
+    );
+    expect(creates).toBe(1);
+    await page.getByRole("link", { name: "Details", exact: true }).click();
+    await expect(
+      page.getByRole("button", {
+        name: "Remove Critical Thinking",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await page
+      .getByRole("button", { name: "Remove Critical Thinking", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Save changes", exact: true })
+      .click();
+    await expect.poll(() => edits).toBe(1);
+    await expect(
+      page.getByRole("button", {
+        name: "Remove Critical Thinking",
+        exact: true,
+      }),
+    ).toHaveCount(0);
+    await scan(page, "Edited offering skills");
+    await page.route(`**/api/offerings/${offeringId}`, (route) =>
+      route.fulfill({
+        json: { ...offering, published: true, skills: [skill] },
+      }),
+    );
+    await page.goto("/courses/" + offeringId);
+    await expect(
+      page.getByRole("heading", { name: "Skills covered", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByText(skill.description, { exact: true }),
+    ).toBeVisible();
+    await scan(page, "Public offering skills coverage");
+  });
+  test("badge publishing exposes attached skills and opens the selected draft in Details", async ({
+    page,
+  }) => {
+    await page.request.post("/api/staff-session", {
+      data: { email: "admin@cuce.test" },
+    });
+    await skills(page);
+    const design = {
+      ...require("../../badge-service/designs.mjs").defaultDesign,
+      title: "Skills badge fixture",
+      skills: [
+        {
+          ...skill,
+          assessment:
+            "Evaluate two approaches using the documented performance rubric.",
+        },
+      ],
+    };
+    const draft = { id: draftId, revision: 1, design };
+    await page.route("**/api/badges/admin/session", (route) =>
+      route.fulfill({ json: { authenticated: true } }),
+    );
+    await page.route("**/api/badges/admin/catalog", (route) =>
+      route.fulfill({
+        json: {
+          drafts: [draft],
+          versions: [],
+          mappings: [],
+          learners: [],
+          activity: [],
+          defaults: {
+            canvasCourseId: 101,
+            canvasAssignmentId: 102,
+            requiredModuleIds: [1],
+            minimumPercent: 80,
+          },
+        },
+      }),
+    );
+    await page.route("**/api/badges/designer/drafts", (route) =>
+      route.fulfill({ json: { drafts: [draft] } }),
+    );
+    await page.goto("/staff/badge-publishing");
+    let frame = page.frameLocator("iframe");
+    await expect(
+      frame
+        .locator("#draft-skills")
+        .getByText("Critical Thinking", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      frame
+        .locator("#draft-skills")
+        .getByText(design.skills[0].assessment, { exact: true }),
+    ).toBeVisible();
+    await scan(page, "Badge publishing skills summary");
+    await frame
+      .getByRole("link", { name: "Add or edit skills", exact: false })
+      .click();
+    await expect(page).toHaveURL(new RegExp("/staff/badges\\?"));
+    frame = page.frameLocator("iframe");
+    await expect(frame.getByRole("tab", { name: /Details/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    await expect(
+      frame.getByLabel("How is Critical Thinking assessed?"),
+    ).toHaveValue(design.skills[0].assessment);
+    // The selected draft controls above establish readiness after SPA navigation.
+    const assessmentScan = await new AxeBuilder({ page })
+      .withTags(tags)
+      .analyze();
+    expect(
+      assessmentScan.violations.map((item) => item.id),
+      "Selected badge draft accessibility",
+    ).toEqual([]);
+  });
+});
+
+test.describe("credential expiration", () => {
+  const id = "91000000-0000-4000-8000-000000000001";
+  const date = "2099-06-30";
+  async function staff(page: Page) {
+    await page.request.post("/api/staff-session", {
+      data: { email: "admin@cuce.test" },
+    });
+  }
+  test("badge expiration is optional, saves, reopens and can be cleared with keyboard access", async ({
+    page,
+  }) => {
+    await staff(page);
+    let saved: any = null;
+    await page.route("**/api/badges/designer/drafts**", (route) => {
+      if (route.request().method() === "GET")
+        return route.fulfill({ json: { drafts: saved ? [saved] : [] } });
+      saved = {
+        id,
+        revision: (saved?.revision || 0) + 1,
+        design: route.request().postDataJSON().design,
+      };
+      return route.fulfill({ json: saved });
+    });
+    await page.goto("/staff/badges");
+    const frame = page.frameLocator("iframe");
+    await frame.getByRole("tab", { name: /Details/ }).click();
+    const field = frame.getByLabel("Expiration date", { exact: false });
+    await expect(field).toHaveValue("");
+    await field.fill(date);
+    await field.focus();
+    for (
+      let step = 0;
+      step < 6 &&
+      (await field.evaluate((el) => el === el.ownerDocument.activeElement));
+      step++
+    )
+      await page.keyboard.press("Tab");
+    await expect(field).not.toBeFocused();
+    await frame
+      .getByRole("button", { name: "Save badge draft", exact: true })
+      .click();
+    await expect(
+      frame.getByText("Badge draft saved and verified."),
+    ).toBeVisible();
+    expect(saved.design.expirationDate).toBe(date);
+    await expect(frame.locator("#preview-expiration")).toHaveText(
+      "Valid through " + date + " (UTC)",
+    );
+    await page.reload();
+    await frame
+      .getByRole("button", { name: "Edit draft", exact: true })
+      .click();
+    await frame.getByRole("tab", { name: /Details/ }).click();
+    await expect(field).toHaveValue(date);
+    await scan(page, "Badge optional expiration");
+    await field.fill("");
+    await frame
+      .getByRole("button", { name: "Save badge draft", exact: true })
+      .click();
+    await expect(
+      frame.getByText("Badge draft saved and verified."),
+    ).toBeVisible();
+    expect(saved.design.expirationDate).toBeUndefined();
+    await expect(frame.locator("#preview-expiration")).toHaveText(
+      "No expiration",
+    );
+  });
+  test("certificate editor saves expiration and records retain historical PDF access", async ({
+    page,
+  }) => {
+    await staff(page);
+    const defaults = {
+      title: "Certificate of Completion",
+      department: "CONTINUING EDUCATION",
+      introduction: "This certificate is presented to",
+      completionText: "for successful completion of",
+      closing: "In recognition of achievement.",
+      signerName: "Continuing Education",
+      signerTitle: "Cedarville University",
+      footer: "FAITH · LEARNING · SERVICE",
+      style: "classic",
+      paper: "letter",
+      primary: "#003A63",
+      accent: "#FDB813",
+      header: "",
+      logo: null,
+      signatureImage: null,
+    };
+    let saved: any = null;
+    const certificate = {
+      id,
+      badgeId: id,
+      sourceId: "workspace",
+      learnerId: "synthetic-expiration",
+      recipientName: "Alex Morgan",
+      achievement: "Learning accomplishment",
+      createdAt: "2026-11-04T12:00:00Z",
+      expirationDate: "2026-01-01",
+      status: "expired",
+    };
+    await page.route("**/api/badges/admin/certificates/catalog", (route) =>
+      route.fulfill({
+        json: {
+          defaults,
+          templates: saved ? [saved] : [],
+          certificates: [certificate],
+          errors: [],
+          awards: [
+            {
+              id,
+              sourceId: "workspace",
+              learnerId: "synthetic-expiration",
+              title: "Learning accomplishment",
+              issuer: "Cedarville University",
+              issuedAt: "2025-01-01T12:00:00Z",
+              status: "issued",
+              signatureValid: true,
+              certificate,
+            },
+          ],
+        },
+      }),
+    );
+    await page.route("**/api/badges/admin/certificates/templates", (route) => {
+      const body = route.request().postDataJSON();
+      saved = {
+        id,
+        revision: (saved?.revision || 0) + 1,
+        name: body.name,
+        design: body.design,
+      };
+      return route.fulfill({ json: saved });
+    });
+    await page.goto("/staff/certificates");
+    const frame = page.frameLocator("iframe");
+    const field = frame.getByLabel("Expiration date", { exact: false });
+    await expect(field).toHaveValue("");
+    await field.fill(date);
+    await field.focus();
+    for (
+      let step = 0;
+      step < 6 &&
+      (await field.evaluate((el) => el === el.ownerDocument.activeElement));
+      step++
+    )
+      await page.keyboard.press("Tab");
+    await expect(field).not.toBeFocused();
+    await frame
+      .getByRole("button", { name: "Save template", exact: true })
+      .click();
+    await expect(frame.getByText("Certificate template saved.")).toBeVisible();
+    expect(saved.design.expirationDate).toBe(date);
+    await expect(frame.locator("#cc-preview")).toContainText(
+      "Valid through " + date + " (UTC)",
+    );
+    await expect(frame.locator("#cc-records")).toContainText(
+      "Expired · Valid through 2026-01-01 (UTC)",
+    );
+    await expect(
+      frame
+        .locator("#cc-records")
+        .getByRole("button", { name: "Download PDF", exact: true }),
+    ).toBeEnabled();
+    await expect(
+      frame
+        .locator("#cc-records")
+        .getByRole("button", { name: "Email certificate", exact: true }),
+    ).toBeDisabled();
+    await scan(page, "Certificate optional expiration");
+    await page.reload();
+    await frame.getByLabel("Saved template", { exact: true }).selectOption(id);
+    await expect(field).toHaveValue(date);
+    await field.fill("");
+    await frame
+      .getByRole("button", { name: "Save template", exact: true })
+      .click();
+    await expect(frame.getByText("Certificate template saved.")).toBeVisible();
+    expect(saved.design.expirationDate).toBe("");
+  });
+  test("learner sees separate badge and certificate expiration and can filter historical badges", async ({
+    page,
+  }) => {
+    await page.route("**/api/demo-session", (route) =>
+      route.fulfill({
+        json: {
+          id,
+          email: null,
+          display_name: "Test Learner",
+          auth: { mode: "canvas", configured: true },
+        },
+      }),
+    );
+    await page.route("**/api/badges/me/badges", (route) =>
+      route.fulfill({
+        json: {
+          errors: [],
+          badges: [
+            {
+              id,
+              sourceId: "workspace",
+              title: "Historical learning",
+              issuer: "Cedarville University",
+              description: "Completed learning.",
+              criteria: "Complete the required project.",
+              issuedAt: "2025-01-01T12:00:00Z",
+              expirationDate: "2026-01-01",
+              status: "expired",
+              signatureValid: true,
+              demo: true,
+              shared: false,
+              certificateAvailable: true,
+              certificate: { status: "expired", expirationDate: "2026-02-01" },
+            },
+          ],
+        },
+      }),
+    );
+    await page.goto("/badges");
+    const frame = page.frameLocator("iframe");
+    await expect(frame.getByText("EXPIRED", { exact: true })).toBeVisible();
+    await expect(
+      frame.getByText("Badge valid through 2026-01-01 (UTC)"),
+    ).toBeVisible();
+    await expect(
+      frame.getByText("Expired certificate · Valid through 2026-02-01 (UTC)"),
+    ).toBeVisible();
+    await expect(
+      frame.getByRole("button", {
+        name: "Download certificate PDF",
+        exact: true,
+      }),
+    ).toBeEnabled();
+    await expect(
+      frame.getByRole("checkbox", {
+        name: "Enable a verification link",
+        exact: true,
+      }),
+    ).toBeDisabled();
+    await frame.locator("#cu-filter").selectOption("expired");
+    await expect(
+      frame.getByRole("heading", { name: "Historical learning", exact: true }),
+    ).toBeVisible();
+    await scan(page, "Expired learner credentials");
+    await frame.locator("#cu-filter").selectOption("active");
+    await expect(
+      frame.getByRole("heading", { name: "Historical learning", exact: true }),
+    ).not.toBeVisible();
+  });
+  test("public verification identifies expiration independently of signature integrity", async ({
+    page,
+  }) => {
+    await page.route("**/api/badges/public/workspace/" + id, (route) =>
+      route.fulfill({
+        json: {
+          title: "Historical learning",
+          issuer: "Cedarville University",
+          description: "Completed learning.",
+          criteria: "Complete the project.",
+          issuedAt: "2025-01-01T12:00:00Z",
+          expirationDate: "2026-01-01",
+          status: "expired",
+          signatureValid: true,
+          demo: true,
+        },
+      }),
+    );
+    await page.goto("/verify/badges/workspace/" + id);
+    await expect(
+      page.getByText(
+        "This badge has expired. It is a historical record of achievement.",
+      ),
+    ).toBeVisible();
+    await expect(
+      page.getByText("Valid through 2026-01-01 (UTC)"),
+    ).toBeVisible();
+    await expect(
+      page.getByText("Credential signature verified.", { exact: true }),
+    ).not.toBeVisible();
+    await scan(page, "Expired public verification");
+  });
+});

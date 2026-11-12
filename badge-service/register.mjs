@@ -1,3 +1,4 @@
+import { credentialStatus } from "./expiration.mjs";
 import { PostgresBadgeDatabase } from "./postgres.mjs";
 import { createPrivateKey, createPublicKey, verify } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -36,7 +37,9 @@ export async function readRegister(sources) {
           title: credential.achievement?.name || "Untitled achievement",
           issuer: credential.issuer?.name || "Unknown issuer",
           issuedAt: row.issued_at,
-          status: row.revoked_at ? "revoked" : "issued",
+          status: credentialStatus(row),
+          expirationDate: credential.expirationDate || null,
+          validUntil: credential.validUntil || null,
           shared: Boolean(row.shared),
           revokedAt: row.revoked_at,
           revocationReason: row.revocation_reason,

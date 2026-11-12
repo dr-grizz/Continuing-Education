@@ -43,6 +43,7 @@
     "badges:seed-demo": "ts-node -P tsconfig.server.json scripts/seed-distribution-demo.ts",
     "skills:import": "node scripts/import-labor-market.mjs",
     "skills:verify-api": "node scripts/verify-onet.mjs",
+    "test:offering-skills": "ts-node -P tsconfig.server.json tests/offering-skills.integration.ts",
     "prebuild": "node scripts/generate-system-info.mjs",
     "predev": "node scripts/generate-system-info.mjs",
     "predev:web": "node scripts/generate-system-info.mjs",

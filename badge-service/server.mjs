@@ -133,7 +133,8 @@ export async function createApp({
           certificateAvailable:
             Boolean(await certificates.find(b.sourceId, b.id)) &&
             b.signatureValid &&
-            b.status === "issued",
+            b.status !== "revoked",
+          certificate: (await certificates.find(b.sourceId, b.id)) ? certificates.summary(await certificates.find(b.sourceId, b.id)) : null,
         })),
       ),
     };
@@ -655,7 +656,7 @@ export async function createApp({
         if (sourcePublic[1] === "api/public") return send(200, badge);
         return send(
           200,
-          `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Badge verification | CU Portal</title><link rel="stylesheet" href="/my-badges.css"></head><body><header class="cu-header"><a class="cu-brand" href="/my-badges">CU <span>PORTAL</span></a></header><main class="cu-badges"><p class="cu-eyebrow">CREDENTIAL VERIFICATION</p><h1>${escape(badge.title)}</h1><section class="cu-card"><h2>${badge.status === "revoked" ? "Revoked" : badge.signatureValid ? "Signature verified" : "Verification failed"}</h2>${badge.artwork ? `<img class="cu-artwork" alt="Badge artwork" src="data:image/svg+xml;charset=utf-8,${encodeURIComponent(badge.artwork)}">` : ""}<p>${escape(badge.description || "")}</p><p>${escape(badge.criteria)}</p><p>Issued by ${escape(badge.issuer)} · ${escape(badge.issuedAt)}</p><p class="cu-note">${badge.demo ? "Fictional demonstration credential. " : ""}CU pilot format; not a certified Open Badges credential. Signature integrity does not establish accreditation.</p></section></main></body></html>`,
+          `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Badge verification | CU Portal</title><link rel="stylesheet" href="/my-badges.css"></head><body><header class="cu-header"><a class="cu-brand" href="/my-badges">CU <span>PORTAL</span></a></header><main class="cu-badges"><p class="cu-eyebrow">CREDENTIAL VERIFICATION</p><h1>${escape(badge.title)}</h1><section class="cu-card"><h2>${badge.status === "revoked" ? "Revoked" : badge.status === "expired" ? "Expired" : badge.signatureValid ? "Signature verified" : "Verification failed"}</h2>${badge.artwork ? `<img class="cu-artwork" alt="Badge artwork" src="data:image/svg+xml;charset=utf-8,${encodeURIComponent(badge.artwork)}">` : ""}<p>${escape(badge.description || "")}</p><p>${escape(badge.criteria)}</p><p>Issued by ${escape(badge.issuer)} · ${escape(badge.issuedAt)}</p><p>${badge.expirationDate ? "Valid through " + escape(badge.expirationDate) + " (UTC)" : "No expiration"}</p><p class="cu-note">${badge.demo ? "Fictional demonstration credential. " : ""}CU pilot format; not a certified Open Badges credential. Signature integrity does not establish accreditation.</p></section></main></body></html>`,
           "text/html",
         );
       }
@@ -672,7 +673,7 @@ export async function createApp({
         if (publicMatch[1] === "api/public") return send(200, badge);
         return send(
           200,
-          `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>CU badge verification</title><link rel="stylesheet" href="/style.css"></head><body><main><p class="eyebrow">CU PORTAL · CREDENTIAL VERIFICATION</p><h1>${escape(badge.title)}</h1><p class="notice">${badge.demo ? "Fictional demonstration credential" : "Pilot credential"} · Not a certified Open Badges credential</p><section class="card"><h2>${badge.status === "revoked" ? "Revoked" : badge.signatureValid ? "Signature verified" : "Verification failed"}</h2><p>${escape(badge.criteria)}</p><p>Issued: ${escape(badge.issuedAt)}</p><p>Issuer: ${escape(JSON.parse(row.credential).issuer.name)}</p><p>Signature integrity: ${badge.signatureValid ? "Verified" : "Invalid"}</p><p>Issuer identity and accreditation have not been independently established.</p></section><a href="/">Return to local pilot</a></main></body></html>`,
+          `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>CU badge verification</title><link rel="stylesheet" href="/style.css"></head><body><main><p class="eyebrow">CU PORTAL · CREDENTIAL VERIFICATION</p><h1>${escape(badge.title)}</h1><p class="notice">${badge.demo ? "Fictional demonstration credential" : "Pilot credential"} · Not a certified Open Badges credential</p><section class="card"><h2>${badge.status === "revoked" ? "Revoked" : badge.status === "expired" ? "Expired" : badge.signatureValid ? "Signature verified" : "Verification failed"}</h2><p>${escape(badge.criteria)}</p><p>Issued: ${escape(badge.issuedAt)}</p><p>Issuer: ${escape(JSON.parse(row.credential).issuer.name)}</p><p>${badge.expirationDate ? "Valid through " + escape(badge.expirationDate) + " (UTC)" : "No expiration"}</p><p>Signature integrity: ${badge.signatureValid ? "Verified" : "Invalid"}</p><p>Issuer identity and accreditation have not been independently established.</p></section><a href="/">Return to local pilot</a></main></body></html>`,
           "text/html",
         );
       }
@@ -1118,6 +1119,9 @@ export async function createApp({
         "Approved Canvas IDs are not configured",
         "Canvas connection is not configured",
         "Invalid badge design",
+        "Only valid, active badges can be shared",
+        "Choose a valid expiration date (YYYY-MM-DD), or leave it blank.",
+        "This expiration date has passed. Choose a current or future date before issuing.",
         "Badge draft not found",
         "Draft changed elsewhere; reload before saving",
       ];

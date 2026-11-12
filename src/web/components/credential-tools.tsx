@@ -93,6 +93,7 @@ export function CredentialTools({ tool }: { tool: CredentialTool }) {
   // Theme changes must not reload the document and discard editor/search input.
   const params = new URLSearchParams({ theme: "light" });
   if (query.get("draft")) params.set("draft", query.get("draft")!);
+  if (query.get("section") === "details") params.set("section", "details");
   return (
     <Paper variant="outlined" sx={{ overflow: "hidden", minWidth: 0 }}>
       {!ready && <LinearProgress aria-label="Loading credential workspace" />}

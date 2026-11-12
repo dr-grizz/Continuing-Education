@@ -1,3 +1,8 @@
+import {
+  expirationFields,
+  requireUnexpired,
+  credentialStatus,
+} from "./expiration.mjs";
 import { PostgresBadgeDatabase } from "./postgres.mjs";
 import {
   createHash,
@@ -204,7 +209,9 @@ export class BadgeStore {
       id: row.id,
       title: credential.achievement.name,
       issuedAt: row.issued_at,
-      status: row.revoked_at ? "revoked" : "issued",
+      status: credentialStatus(row),
+      expirationDate: credential.expirationDate || null,
+      validUntil: credential.validUntil || null,
       signatureValid,
       shared: Boolean(row.shared),
       verificationUrl: row.shared ? `${this.baseUrl}/verify/${row.id}` : null,
@@ -236,6 +243,8 @@ export class BadgeStore {
       }
       const id = randomUUID();
       const issuedAt = new Date().toISOString();
+      const expiry = expirationFields(c.expirationDate);
+      requireUnexpired(expiry);
       // Deliberately a signed CU prototype envelope, not an OpenBadgeCredential.
       // A standards issuer adapter must replace this before production credentials.
       const credential = JSON.stringify({
@@ -248,6 +257,7 @@ export class BadgeStore {
         },
         subject: `urn:uuid:${randomUUID()}`,
         issuedAt,
+        ...expiry,
         demonstration: evidence.source === "fictional-demo",
         achievement: {
           id: c.id,
@@ -332,6 +342,8 @@ export class BadgeStore {
       }
       const id = randomUUID(),
         issuedAt = new Date().toISOString();
+      const expiry = expirationFields(version.design.expirationDate);
+      requireUnexpired(expiry);
       const credential = JSON.stringify({
         format: "cu-pilot-credential-v1",
         id: `${this.baseUrl}/verify/${id}`,
@@ -342,6 +354,7 @@ export class BadgeStore {
         },
         subject: `urn:uuid:${randomUUID()}`,
         issuedAt,
+        ...expiry,
         demonstration: false,
         achievement: {
           id: `badge:${version.draftId}`,
@@ -394,7 +407,11 @@ export class BadgeStore {
   }
   share(id, shared, actor) {
     return this.transaction(async () => {
-      if (!(await this.get(id))) throw new Error("Badge not found");
+      const row = await this.get(id);
+      if (!row) throw new Error("Badge not found");
+      const summary = this.summary(row);
+      if (shared && (summary.status !== "issued" || !summary.signatureValid))
+        throw new Error("Only valid, active badges can be shared");
       await this.db
         .prepare("UPDATE badges SET shared=? WHERE id=?")
         .run(shared ? 1 : 0, id);

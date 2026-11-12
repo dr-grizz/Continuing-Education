@@ -466,6 +466,7 @@ async function main() {
     data: {
       ...staffEdited,
       outcomes: [],
+      skills: [],
       id: randomUUID(),
       title: "Existing manual offering",
       imported_from_canvas: false,

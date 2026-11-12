@@ -134,6 +134,8 @@ model offerings {
   summary               String
   description           String
   outcomes              Json                      @default("[]")
+  /// Canonical versioned O*NET definitions selected as course coverage.
+  skills                Json                      @default("[]")
   format                String
   start_date            DateTime?                 @db.Date
   end_date              DateTime?                 @db.Date
