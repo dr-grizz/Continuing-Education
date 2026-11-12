@@ -20,6 +20,7 @@ export type Offering = {
   published: boolean;
   /** Independent public discovery preference; omitted by older fixtures means listed. */
   listed?: boolean;
+  archived_at?: string | null;
   version: number;
   approval_valid_days: number;
   enrollment_close_days: number;

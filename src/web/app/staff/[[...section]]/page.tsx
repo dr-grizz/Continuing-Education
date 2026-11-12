@@ -75,6 +75,7 @@ import {
 } from "../../../components/unsaved-changes";
 import { ManualPayments } from "../../../components/manual-payments";
 import { StaffTransactions } from "../../../components/staff-transactions";
+import { RecordLifecycle } from "../../../components/record-lifecycle";
 import { StaffLearners } from "../../../components/staff-learners";
 import { LearnerAlerts } from "../../../components/learner-alerts";
 import NotificationsActiveIcon from "@mui/icons-material/NotificationsActive";
@@ -126,18 +127,31 @@ const eventDetail = (entry: AuditEntry) =>
     .filter(Boolean)
     .join(" ");
 // Draft = never published; Unpublished = removed from the catalog after publishing.
-type OfferingStatus = "draft" | "published" | "unpublished";
+type OfferingStatus = "draft" | "published" | "unpublished" | "archived";
 const offeringStatus = (
-  c: Pick<Offering, "published" | "unpublished_at">,
+  c: Pick<Offering, "published" | "unpublished_at" | "archived_at">,
 ): OfferingStatus =>
-  c.published ? "published" : c.unpublished_at ? "unpublished" : "draft";
-const statusOrder: OfferingStatus[] = ["draft", "unpublished", "published"];
+  c.archived_at
+    ? "archived"
+    : c.published
+      ? "published"
+      : c.unpublished_at
+        ? "unpublished"
+        : "draft";
+const statusOrder: OfferingStatus[] = [
+  "draft",
+  "unpublished",
+  "published",
+  "archived",
+];
 const statusLabels: Record<OfferingStatus, string> = {
+  archived: "Archived",
   draft: "Draft",
   published: "Published",
   unpublished: "Unpublished",
 };
 const statusColors = {
+  archived: "default",
   draft: "default",
   published: "success",
   unpublished: "warning",
@@ -528,33 +542,37 @@ function StaffWorkspace({
     setLoaded(true);
   }
   const byText = (a: string, b: string) => a.localeCompare(b);
-  const offeringsView = useTableView(courses, {
-    compare: {
-      title: (a, b) => byText(a.title, b.title),
-      // Self-paced courses have no start date and sort first.
-      start: (a, b) =>
-        byText(a.start_date ?? "", b.start_date ?? "") ||
-        byText(a.title, b.title),
-      price: (a, b) =>
-        (a.price_cents ?? Number.MAX_SAFE_INTEGER) -
-        (b.price_cents ?? Number.MAX_SAFE_INTEGER),
-      seats: (a, b) =>
-        (a.unlimited_seats
-          ? Number.MAX_SAFE_INTEGER
-          : (a.seats_available ?? -1)) -
-        (b.unlimited_seats
-          ? Number.MAX_SAFE_INTEGER
-          : (b.seats_available ?? -1)),
-      status: (a, b) =>
-        statusOrder.indexOf(offeringStatus(a)) -
-        statusOrder.indexOf(offeringStatus(b)),
+  const [showArchivedOfferings, setShowArchivedOfferings] = useState(false);
+  const offeringsView = useTableView(
+    courses.filter((c) => Boolean(c.archived_at) === showArchivedOfferings),
+    {
+      compare: {
+        title: (a, b) => byText(a.title, b.title),
+        // Self-paced courses have no start date and sort first.
+        start: (a, b) =>
+          byText(a.start_date ?? "", b.start_date ?? "") ||
+          byText(a.title, b.title),
+        price: (a, b) =>
+          (a.price_cents ?? Number.MAX_SAFE_INTEGER) -
+          (b.price_cents ?? Number.MAX_SAFE_INTEGER),
+        seats: (a, b) =>
+          (a.unlimited_seats
+            ? Number.MAX_SAFE_INTEGER
+            : (a.seats_available ?? -1)) -
+          (b.unlimited_seats
+            ? Number.MAX_SAFE_INTEGER
+            : (b.seats_available ?? -1)),
+        status: (a, b) =>
+          statusOrder.indexOf(offeringStatus(a)) -
+          statusOrder.indexOf(offeringStatus(b)),
+      },
+      initial: { key: "start", direction: "asc" },
+      matches: (c) =>
+        c.title.toLowerCase().includes(query.toLowerCase()) &&
+        (status === "all" || offeringStatus(c) === status) &&
+        (pageFilter === "all" || c.sales_page_status === pageFilter),
     },
-    initial: { key: "start", direction: "asc" },
-    matches: (c) =>
-      c.title.toLowerCase().includes(query.toLowerCase()) &&
-      (status === "all" || offeringStatus(c) === status) &&
-      (pageFilter === "all" || c.sales_page_status === pageFilter),
-  });
+  );
   const approvalsView = useTableView(requests, {
     compare: {
       learner: (a, b) =>
@@ -621,23 +639,40 @@ function StaffWorkspace({
   const rowActions = (c: StaffOffering) =>
     !canCatalog ? null : (
       <>
-        {c.published ? (
-          <Button
-            color="error"
-            onClick={() => setUnpublishing(c)}
-            aria-label={`Unpublish ${c.title}`}
-          >
-            Unpublish
-          </Button>
-        ) : (
-          <Button
-            disabled={busy || missingOfferingInfo(c).length > 0}
-            onClick={() => publish(c)}
-            aria-label={`Publish ${c.title}`}
-          >
-            Publish
-          </Button>
-        )}
+        {!c.archived_at &&
+          (c.published ? (
+            <Button
+              color="error"
+              onClick={() => setUnpublishing(c)}
+              aria-label={`Unpublish ${c.title}`}
+            >
+              Unpublish
+            </Button>
+          ) : (
+            <Button
+              disabled={busy || missingOfferingInfo(c).length > 0}
+              onClick={() => publish(c)}
+              aria-label={`Publish ${c.title}`}
+            >
+              Publish
+            </Button>
+          ))}
+        <RecordLifecycle
+          compact
+          id={c.id}
+          version={c.version}
+          name={c.title}
+          target="offering"
+          archived={Boolean(c.archived_at)}
+          onChanged={async (message) => {
+            await refresh();
+            setMessage(message);
+            setTimeout(
+              () => document.getElementById("offering-search")?.focus(),
+              0,
+            );
+          }}
+        />
       </>
     );
   const navItems: StaffNavItem[] = allowed.map((s) => ({
@@ -829,7 +864,10 @@ function StaffWorkspace({
             id={item}
             tab={view}
             can={can}
-            onChanged={setMessage}
+            onChanged={(text) => {
+              setMessage(text);
+              refresh().catch((e) => setError(e.message));
+            }}
           />
         )}
         {loaded && tab === "offerings" && !item && (
@@ -864,6 +902,24 @@ function StaffWorkspace({
                 </Button>
               )}
             </Stack>
+            {canCatalog && (
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Archive offerings using the row actions. Select Archived
+                offerings to restore or delete eligible records.
+              </Typography>
+            )}
+            <TextField
+              select
+              label="Offering list"
+              value={showArchivedOfferings ? "archived" : "active"}
+              onChange={(e) =>
+                setShowArchivedOfferings(e.target.value === "archived")
+              }
+              sx={{ mb: 2, minWidth: 200 }}
+            >
+              <MenuItem value="active">Active offerings</MenuItem>
+              <MenuItem value="archived">Archived offerings</MenuItem>
+            </TextField>
             {!canCatalog && (
               <Alert severity="info" role="note" sx={{ mb: 2 }}>
                 View only: creating, editing and publishing offerings requires
@@ -876,6 +932,7 @@ function StaffWorkspace({
               sx={{ gap: 2, mb: 2 }}
             >
               <TextField
+                id="offering-search"
                 label="Search offerings"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
@@ -964,7 +1021,10 @@ function StaffWorkspace({
                       ? "Unlimited seats"
                       : `${c.seats_available ?? "Not set"} / ${c.capacity ?? "Not set"} seats`}
                   </Typography>
-                  <Stack direction="row" sx={{ gap: 1, mt: 1.5 }}>
+                  <Stack
+                    direction="row"
+                    sx={{ gap: 1, mt: 1.5, flexWrap: "wrap" }}
+                  >
                     {rowActions(c)}
                   </Stack>
                 </Paper>
@@ -1045,7 +1105,10 @@ function StaffWorkspace({
                         {salesPageShortText[c.sales_page_status]}
                       </TableCell>
                       <TableCell>
-                        <Stack direction="row" sx={{ gap: 0.5 }}>
+                        <Stack
+                          direction="row"
+                          sx={{ gap: 0.5, flexWrap: "wrap" }}
+                        >
                           {rowActions(c)}
                         </Stack>
                       </TableCell>

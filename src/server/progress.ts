@@ -1,3 +1,4 @@
+import { requireUnarchived } from "./managed-records";
 import {
   BadRequestException,
   ConflictException,
@@ -76,11 +77,11 @@ export class ProgressService {
         prisma,
         `SELECT p.*,o.title,(SELECT count(*)::integer FROM progress_participants a WHERE a.plan_id=p.id) participants,
     (SELECT jsonb_agg(jsonb_build_object('id',s.id,'title',s.title,'required',s.required) ORDER BY s.position) FROM progress_steps s WHERE s.plan_id=p.id) steps
-    FROM progress_plans p JOIN offerings o ON o.id=p.offering_id ORDER BY o.title,p.revision DESC`,
+    FROM progress_plans p JOIN offerings o ON o.id=p.offering_id WHERE NOT EXISTS (SELECT 1 FROM management_archives a WHERE a.target='progress-plan' AND a.id=p.id::text AND a.archived_at IS NOT NULL) ORDER BY o.title,p.revision DESC`,
       ),
       sql<any>(
         prisma,
-        `SELECT c.*,o.title,p.revision,(SELECT count(*)::integer FROM progress_cohort_members m WHERE m.cohort_id=c.id AND m.active) members FROM progress_cohorts c JOIN progress_plans p ON p.id=c.plan_id JOIN offerings o ON o.id=p.offering_id ORDER BY c.name,c.created_at`,
+        `SELECT c.*,o.title,p.revision,(SELECT count(*)::integer FROM progress_cohort_members m WHERE m.cohort_id=c.id AND m.active) members FROM progress_cohorts c JOIN progress_plans p ON p.id=c.plan_id JOIN offerings o ON o.id=p.offering_id WHERE NOT EXISTS (SELECT 1 FROM management_archives a WHERE ((a.target='cohort' AND a.id=c.id::text) OR (a.target='progress-plan' AND a.id=p.id::text)) AND a.archived_at IS NOT NULL) ORDER BY c.name,c.created_at`,
       ),
       prisma.learners.findMany({
         where: { active: true },
@@ -151,6 +152,7 @@ export class ProgressService {
       key,
       { action: "progress.cohort", ...body },
       async (tx) => {
+        await requireUnarchived(tx, "progress-plan", body.planId);
         await this.plan(tx, body.planId);
         const [row] = await sql<any>(
           tx,
@@ -182,6 +184,7 @@ export class ProgressService {
     planId: string,
     learnerId: string,
   ) {
+    await requireUnarchived(tx, "progress-plan", planId);
     await this.plan(tx, planId);
     if (
       !(await tx.learners.findFirst({ where: { id: learnerId, active: true } }))
@@ -234,6 +237,7 @@ export class ProgressService {
           cohortId,
         );
         if (!cohort) throw new NotFoundException("Cohort not found.");
+        if (body.active) await requireUnarchived(tx, "cohort", cohortId);
         let participant;
         if (body.active)
           participant = await this.assign(

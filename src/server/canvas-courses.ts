@@ -1,3 +1,4 @@
+import { requireUnarchived } from "./managed-records";
 import {
   BadRequestException,
   ConflictException,
@@ -393,11 +394,25 @@ export class CanvasCoursesService {
     const mappingById = new Map(
       mappings.map((mapping) => [mapping.course_id, mapping]),
     );
+    const management = new Map(
+      (
+        await prisma.management_archives.findMany({
+          where: { target: "canvas-course" },
+        })
+      ).map((r) => [r.id, r]),
+    );
     const annotated = courses.map((course) => {
       const saved = savedById.get(course.id);
       const mapping = mappingById.get(course.id);
       return {
         ...course,
+        management_id: saved && config ? `${config.hash}-${course.id}` : null,
+        management_archived: Boolean(
+          config && management.get(`${config.hash}-${course.id}`)?.archived_at,
+        ),
+        management_deleted: Boolean(
+          config && management.get(`${config.hash}-${course.id}`)?.deleted_at,
+        ),
         offering_id: mapping?.offering_id || null,
         offering_title: mapping?.offering.title || null,
         offering_missing_fields: mapping
@@ -413,7 +428,14 @@ export class CanvasCoursesService {
           (saved ? snapshot!.observed_at.toISOString() : null),
       };
     });
-    const filteredCourses = filterCanvasCourses(annotated, filters);
+    const filteredCourses = filterCanvasCourses(
+      annotated.filter(
+        (r) =>
+          !r.management_deleted &&
+          r.management_archived === (query.archived === "true"),
+      ),
+      filters,
+    );
     let enabled = false;
     try {
       enabled = courseReadsEnabled();
@@ -663,6 +685,12 @@ export class CanvasCoursesService {
       if (newest?.id !== run.id || Date.parse(preview.expiresAt) <= Date.now())
         throw new ConflictException(
           "A newer preview exists or this preview expired. Refresh before syncing.",
+        );
+      for (const courseId of courseIds)
+        await requireUnarchived(
+          tx,
+          "canvas-course",
+          `${config.hash}-${courseId}`,
         );
       const current = await tx.canvas_course_snapshots.findUnique({
         where: { configuration_hash: config.hash },

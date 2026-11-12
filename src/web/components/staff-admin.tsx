@@ -28,6 +28,11 @@ import {
   Typography,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
+import {
+  ManagedActions,
+  RecordRegister,
+  useManagedIndex,
+} from "./managed-records";
 import { api } from "./api";
 import { RoleChips, roleLabels, StaffMember, StaffRole } from "./staff-session";
 
@@ -68,6 +73,8 @@ export function StaffUsers({
   onRoleFilter: (role: StaffRole | "all") => void;
   onChanged: (message: string, selfChanged: boolean) => Promise<void>;
 }) {
+  const archiveIndex = useManagedIndex("staff", canManage);
+  const [showArchived, setShowArchived] = useState(false);
   const [members, setMembers] = useState<Member[]>([]);
   const [error, setError] = useState("");
   const [editing, setEditing] = useState<Member | "new">();
@@ -90,25 +97,50 @@ export function StaffUsers({
       </Alert>
     );
   const shown = members.filter(
-    (member) => roleFilter === "all" || member.roles.includes(roleFilter),
+    (member) =>
+      (roleFilter === "all" || member.roles.includes(roleFilter)) &&
+      Boolean(
+        archiveIndex.records.find((r) => r.id === member.id)?.archived,
+      ) === showArchived,
   );
   const editButton = (member: Member) => (
     <Stack direction="row" sx={{ flexWrap: "wrap", gap: 1 }}>
-      <Button
-        onClick={() => setEditing(member)}
-        aria-label={`Edit ${member.display_name}`}
-      >
-        Edit
-      </Button>
-      <Button
-        onClick={() => setLinking(member)}
-        disabled={
-          !member.external_subject && (!member.active || !member.canvas_origin)
-        }
-        aria-label={`${member.external_subject ? "View Canvas link for" : "Link Canvas for"} ${member.display_name}`}
-      >
-        {member.external_subject ? "View Canvas link" : "Link Canvas"}
-      </Button>
+      {archiveIndex.records.find((r) => r.id === member.id) && (
+        <ManagedActions
+          target="staff"
+          row={{
+            ...archiveIndex.records.find((r) => r.id === member.id)!,
+            ...(member.id === currentId
+              ? { protectedReason: "Your current staff account is protected." }
+              : {}),
+          }}
+          onChanged={async () => {
+            await load();
+            await archiveIndex.refresh();
+            await onChanged("Staff record updated.", false);
+          }}
+        />
+      )}
+      {!showArchived && (
+        <Button
+          onClick={() => setEditing(member)}
+          aria-label={`Edit ${member.display_name}`}
+        >
+          Edit
+        </Button>
+      )}
+      {!showArchived && (
+        <Button
+          onClick={() => setLinking(member)}
+          disabled={
+            !member.external_subject &&
+            (!member.active || !member.canvas_origin)
+          }
+          aria-label={`${member.external_subject ? "View Canvas link for" : "Link Canvas for"} ${member.display_name}`}
+        >
+          {member.external_subject ? "View Canvas link" : "Link Canvas"}
+        </Button>
+      )}
     </Stack>
   );
   const canvasStatus = (member: Member) => (
@@ -142,6 +174,18 @@ export function StaffUsers({
           Add staff member
         </Button>
       </Stack>
+      <FormControlLabel
+        control={
+          <Switch
+            checked={showArchived}
+            onChange={(e) => setShowArchived(e.target.checked)}
+          />
+        }
+        label={`Show archived staff (${archiveIndex.records.filter((r) => r.archived).length})`}
+      />
+      {archiveIndex.error && (
+        <Alert severity="error">{archiveIndex.error}</Alert>
+      )}
       <TextField
         select
         label="Role"
@@ -778,6 +822,7 @@ export function StaffRoles({
       <Typography variant="h6" component="h2" sx={{ mb: 1 }}>
         Roles and permissions
       </Typography>
+      {canManage && <RecordRegister target="role" title="Role definitions" />}
       <Typography color="text.secondary" sx={{ mb: 2 }}>
         Every staff member can view the workspace and reports. Each role adds
         the permissions listed below; a person with several roles has all of

@@ -12,6 +12,10 @@ import {
   LearnerAlertsController,
   LearnerAlertsService,
 } from "./learner-alerts";
+import {
+  ManagedRecordsController,
+  ManagedRecordsService,
+} from "./managed-records";
 import { ProgressController, ProgressService } from "./progress";
 import { CanvasCoursesService } from "./canvas-courses";
 import { CanvasCoursesController } from "./canvas-courses-controller";
@@ -67,6 +71,7 @@ import {
   DemoUserDto,
   DashboardQueryDto,
   DecisionDto,
+  RecordLifecycleDto,
   LearnerAccessDto,
   LearnerQueryDto,
   ExceptionActionDto,
@@ -582,6 +587,59 @@ class WorkflowController {
     requireScope(req, "catalog:write");
     return this.portal.editCollection(req.principal, key, id, dto);
   }
+  @Post("collections/:id/archive")
+  @HttpCode(200)
+  @ApiOperation({
+    summary: "Archive and unpublish a group, preserving courses and follows",
+  })
+  archiveCollection(
+    @Req() req: any,
+    @Headers("idempotency-key") key: string,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body() dto: PublishDto,
+  ) {
+    requireScope(req, "catalog:write");
+    return this.portal.setCollectionArchived(
+      req.principal,
+      key,
+      id,
+      dto.version,
+      true,
+    );
+  }
+  @Post("collections/:id/restore")
+  @HttpCode(200)
+  @ApiOperation({ summary: "Restore an archived group as a draft" })
+  restoreCollection(
+    @Req() req: any,
+    @Headers("idempotency-key") key: string,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body() dto: PublishDto,
+  ) {
+    requireScope(req, "catalog:write");
+    return this.portal.setCollectionArchived(
+      req.principal,
+      key,
+      id,
+      dto.version,
+      false,
+    );
+  }
+  @Post("collections/:id/delete")
+  @HttpCode(200)
+  @ApiOperation({
+    summary:
+      "Permanently delete a group and its follows; preserve individual courses and registrations",
+  })
+  deleteCollection(
+    @Req() req: any,
+    @Headers("idempotency-key") key: string,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body() dto: PublishDto,
+  ) {
+    requireScope(req, "catalog:write");
+    return this.portal.deleteCollection(req.principal, key, id, dto.version);
+  }
   @Post("collections/:id/publish")
   @HttpCode(200)
   publishCollection(
@@ -812,6 +870,35 @@ class WorkflowController {
     requireScope(req, "learners:manage");
     return this.portal.setLearnerAccess(req.principal, key, id, dto);
   }
+  @Post("staff/learners/:id/lifecycle")
+  @HttpCode(200)
+  @ApiOperation({
+    summary: "Archive, restore or delete a learner; preserve protected history",
+  })
+  learnerLifecycle(
+    @Req() req: any,
+    @Headers("idempotency-key") key: string,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body() dto: RecordLifecycleDto,
+  ) {
+    requireScope(req, "learners:manage");
+    return this.portal.recordLifecycle(req.principal, key, "learner", id, dto);
+  }
+  @Post("offerings/:id/lifecycle")
+  @HttpCode(200)
+  @ApiOperation({
+    summary:
+      "Archive, restore or delete a offering; preserve protected history",
+  })
+  offeringLifecycle(
+    @Req() req: any,
+    @Headers("idempotency-key") key: string,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body() dto: RecordLifecycleDto,
+  ) {
+    requireScope(req, "catalog:write");
+    return this.portal.recordLifecycle(req.principal, key, "offering", id, dto);
+  }
   @Get("reconciliation") report(@Req() req: any) {
     requireScope(req, "reports:read");
     return this.portal.report();
@@ -864,6 +951,7 @@ class DemoRequestInterceptor implements NestInterceptor {
     EarningsController,
     EngagementImpactController,
     LearnerAlertsController,
+    ManagedRecordsController,
     ProgressController,
     CanvasCoursesController,
     CatalogController,
@@ -877,6 +965,7 @@ class DemoRequestInterceptor implements NestInterceptor {
     EarningsService,
     EngagementImpactService,
     LearnerAlertsService,
+    ManagedRecordsService,
     ProgressService,
     { provide: APP_INTERCEPTOR, useClass: DemoRequestInterceptor },
     CanvasCoursesService,

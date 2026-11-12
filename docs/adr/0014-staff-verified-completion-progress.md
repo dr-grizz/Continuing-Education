@@ -11,3 +11,7 @@ Prisma migration 025 owns the six new tables. Composite foreign keys keep eviden
 Reports count only required steps in percentages and completion. Optional steps do not affect the overall required-work state. A new version does not rewrite assignments or carry evidence forward. There is no automatic evidence-expiry rule in this phase. Learners and staff explicitly refresh reports; times represent staff recording times, not fetched Canvas completion timestamps.
 
 Automatic Canvas completion synchronization, prerequisite/access gates, badge eligibility/issuance, cross-course pathway completion, shared group-project credit, and due-date/overdue reporting are separate work. No live Canvas content or existing badge awards are changed by this feature. The local portal database was backed up before the additive migration; generated private backups remain ignored by Git.
+
+## November 12, 2026: management archives
+
+Requirements and cohorts can be archived without removing existing reports or learner evidence. A new requirement assignment or active membership change must reject archived requirements/cohorts. The only deletion exception for requirement snapshots is an archived, unused final revision with no participants, cohorts or later revisions; migration `032_unused_progress_delete` enforces this in PostgreSQL. Assigned snapshots, all updates to requirement snapshots, and evidence updates/deletes remain protected.

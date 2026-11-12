@@ -115,6 +115,10 @@ jobs:
         run: npm run test:engagement-impact
       - name: Earnings analytics
         run: npm run test:earnings
+      - name: Archive and restore lifecycle (disposable database and API)
+        run: npm run test:lifecycle
+      - name: Guarded record management (disposable database and API)
+        run: npm run test:managed-records
       - name: Initial setup and private System Info (disposable database)
         run: npm run test:bootstrap
       - name: Portable release dependency links
