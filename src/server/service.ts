@@ -9,6 +9,7 @@ import {
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
+import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import {
   Prisma,
@@ -40,6 +41,7 @@ import {
   CollectionDto,
   ExploreDto,
   CollectionEditDto,
+  RecordLifecycleDto,
   LearnerAccessDto,
   StaffMemberDto,
   StaffUpdateDto,
@@ -1530,9 +1532,9 @@ export class PortalService {
       { action: "publish", id, version },
       async (tx) => {
         const current = await tx.offerings.findUnique({ where: { id } });
-        if (!current || current.version !== version)
+        if (!current || current.archived_at || current.version !== version)
           throw new ConflictException(
-            "Offering changed or does not exist. Refresh and retry.",
+            "Offering changed, is archived, or does not exist. Refresh and retry.",
           );
         const missing = missingOfferingInfo(current);
         if (missing.length)
@@ -1963,6 +1965,14 @@ export class PortalService {
           throw new ConflictException(
             "Staff member changed or does not exist. Refresh and retry.",
           );
+        if (
+          await tx.management_archives.findFirst({
+            where: { target: "staff", id, archived_at: { not: null } },
+          })
+        )
+          throw new ConflictException(
+            "Restore this staff record before editing or reactivating it.",
+          );
         const roles = data.roles as StaffRole[];
         const remainsAdmin = data.active && roles.includes("staff_admin");
         if (before.roles.includes("staff_admin") && !remainsAdmin) {
@@ -2008,6 +2018,152 @@ export class PortalService {
       },
     );
   }
+  async recordLifecycle(
+    principal: Principal,
+    key: string,
+    target: "learner" | "offering",
+    id: string,
+    data: RecordLifecycleDto,
+  ) {
+    return this.command(
+      principal,
+      key,
+      { action: `${target}.${data.action}`, id, data },
+      async (tx) => {
+        const learner = target === "learner";
+        if (learner && id === DEMO_LEARNER)
+          throw new ConflictException(
+            "The legacy sample learner must be kept for API demos.",
+          );
+        await sql(
+          tx,
+          learner
+            ? "SELECT id FROM learners WHERE id=$1::uuid FOR UPDATE"
+            : "SELECT id FROM offerings WHERE id=$1::uuid FOR UPDATE",
+          id,
+        );
+        const before = learner
+          ? await tx.learners.findUnique({ where: { id } })
+          : await tx.offerings.findUnique({ where: { id } });
+        if (!before || before.version !== data.version)
+          throw new ConflictException(
+            "Record changed or does not exist. Refresh and retry.",
+          );
+        const reason = data.reason.trim();
+        if (reason.length < 10)
+          throw new BadRequestException(
+            "Explain why in at least 10 characters.",
+          );
+        if (data.action === "delete") {
+          if (!before.archived_at)
+            throw new ConflictException(
+              "Archive this record before permanently deleting it.",
+            );
+          const registrations = await tx.entitlements.count({
+            where: learner ? { learner_id: id } : { offering_id: id },
+          });
+          const progress = learner
+            ? await tx.progress_participants.count({
+                where: { learner_id: id },
+              })
+            : await tx.progress_plans.count({ where: { offering_id: id } });
+          if (registrations || progress)
+            throw new ConflictException(
+              "This record has registration or progress history. Keep it archived instead.",
+            );
+          if (learner) {
+            let links: Record<string, string> = {};
+            try {
+              links = JSON.parse(
+                readFileSync(
+                  process.env.BADGE_LEARNER_MAP_FILE ||
+                    "badge-service/data/portal-learners.json",
+                  "utf8",
+                ),
+              );
+            } catch (e) {
+              if ((e as NodeJS.ErrnoException).code !== "ENOENT")
+                throw new ConflictException(
+                  "Credential links cannot be checked. Keep this learner archived.",
+                );
+            }
+            if (
+              links[id] ||
+              (await tx.credential_badges.count({ where: { learner: id } })) ||
+              (await tx.credential_certificates.count({
+                where: { learner: id },
+              }))
+            )
+              throw new ConflictException(
+                "This learner has a credential account or credential history. Keep them archived instead.",
+              );
+            await tx.learners.delete({ where: { id } });
+          } else {
+            const offering = before as offerings;
+            if (
+              offering.published ||
+              offering.unpublished_at ||
+              offering.imported_from_canvas ||
+              (await tx.canvas_offering_mappings.count({
+                where: { offering_id: id },
+              })) ||
+              (await tx.credential_badges.count({ where: { course: id } }))
+            )
+              throw new ConflictException(
+                "Previously published, Canvas-linked or credential-bearing offerings must be kept archived.",
+              );
+            // Membership is curated separately; removing it here could break a published pathway.
+            if (await tx.collection_items.count({ where: { offering_id: id } }))
+              throw new ConflictException(
+                "Remove this offering from its collections and pathways before deleting it.",
+              );
+            await tx.offerings.delete({ where: { id } });
+          }
+          await audit(tx, principal.actor, `${target}.deleted`, id, { reason });
+          return { id, deleted: true };
+        }
+        const archived = data.action === "archive";
+        if (Boolean(before.archived_at) === archived)
+          throw new ConflictException(
+            "Record is already in that state. Refresh and retry.",
+          );
+        if (learner) {
+          await tx.learners.update({
+            where: { id },
+            data: {
+              archived_at: archived ? new Date() : null,
+              active: false,
+              deactivated_at: new Date(),
+              version: { increment: 1 },
+            },
+          });
+          await tx.learner_sessions.deleteMany({ where: { learner_id: id } });
+        } else {
+          const offering = before as offerings;
+          await tx.offerings.update({
+            where: { id },
+            data: {
+              archived_at: archived ? new Date() : null,
+              published: false,
+              featured_rank: null,
+              unpublished_at: offering.published
+                ? new Date()
+                : offering.unpublished_at,
+              version: { increment: 1 },
+            },
+          });
+        }
+        await audit(
+          tx,
+          principal.actor,
+          `${target}.${archived ? "archived" : "restored"}`,
+          id,
+          { reason },
+        );
+        return { id, archived };
+      },
+    );
+  }
   // Staff learner management: list, details and account access (support role).
   async staffLearners(search?: string) {
     const term = search?.trim() ? `%${search.trim()}%` : "";
@@ -2017,6 +2173,8 @@ export class PortalService {
       created_at: Date;
       active: boolean;
       deactivated_at: Date | null;
+      archived_at: Date | null;
+      legacy: boolean;
       version: number;
       registrations: number;
       enrolled: number;
@@ -2024,7 +2182,7 @@ export class PortalService {
       last_activity: Date | null;
     }>(
       prisma,
-      `SELECT l.id,l.email,l.display_name,l.created_at,l.active,l.deactivated_at,l.version,
+      `SELECT l.id,l.email,l.display_name,l.created_at,l.active,l.deactivated_at,l.archived_at,l.version,l.id=$2::uuid AS legacy,
         count(e.id)::integer AS registrations,
         count(e.id) FILTER (WHERE e.status='enrolled')::integer AS enrolled,
         count(e.id) FILTER (WHERE e.status IN ('awaiting_approval','approved','reserved','provisioning','exception'))::integer AS in_progress,
@@ -2034,6 +2192,7 @@ export class PortalService {
       WHERE ($1='' OR l.email ILIKE $1 OR l.display_name ILIKE $1)
       GROUP BY l.id ORDER BY l.created_at DESC LIMIT 500`,
       term,
+      DEMO_LEARNER,
     );
   }
   async staffLearner(id: string) {
@@ -2046,6 +2205,7 @@ export class PortalService {
         created_at: true,
         active: true,
         deactivated_at: true,
+        archived_at: true,
         version: true,
         entitlements: {
           orderBy: { created_at: "desc" },
@@ -2135,7 +2295,12 @@ export class PortalService {
             "The legacy sample learner cannot be deactivated; direct API demos rely on it.",
           );
         const updated = await tx.learners.updateMany({
-          where: { id, version: data.version, active: !data.active },
+          where: {
+            id,
+            version: data.version,
+            active: !data.active,
+            archived_at: null,
+          },
           data: {
             active: data.active,
             deactivated_at: data.active ? null : new Date(),
@@ -2490,9 +2655,9 @@ export class PortalService {
       { action: "collection.edit", id, data },
       async (tx) => {
         const before = await this.staffCollection(tx, id);
-        if (!before || before.version !== data.version)
+        if (!before || before.archived_at || before.version !== data.version)
           throw new ConflictException(
-            "Collection changed or does not exist. Refresh and retry.",
+            "Collection changed, is archived, or does not exist. Refresh and retry.",
           );
         if (
           before.published &&
@@ -2530,6 +2695,94 @@ export class PortalService {
       },
     );
   }
+  async setCollectionArchived(
+    principal: Principal,
+    key: string,
+    id: string,
+    version: number,
+    archived: boolean,
+  ) {
+    return this.command(
+      principal,
+      key,
+      {
+        action: archived ? "collection.archive" : "collection.restore",
+        id,
+        version,
+      },
+      async (tx) => {
+        const before = await this.staffCollection(tx, id);
+        if (
+          !before ||
+          before.version !== version ||
+          Boolean(before.archived_at) === archived
+        )
+          throw new ConflictException(
+            "Collection changed or does not exist. Refresh and retry.",
+          );
+        await tx.collections.update({
+          where: { id },
+          data: {
+            archived_at: archived ? new Date() : null,
+            published: false,
+            featured_rank: null,
+            version: { increment: 1 },
+            updated_at: new Date(),
+          },
+        });
+        await audit(
+          tx,
+          principal.actor,
+          archived ? "collection.archived" : "collection.restored",
+          id,
+          {
+            title: before.title,
+            kind: before.kind,
+            was_published: before.published,
+          },
+        );
+        return this.staffCollection(tx, id);
+      },
+    );
+  }
+  async deleteCollection(
+    principal: Principal,
+    key: string,
+    id: string,
+    version: number,
+  ) {
+    return this.command(
+      principal,
+      key,
+      { action: "collection.delete", id, version },
+      async (tx) => {
+        const before = await this.staffCollection(tx, id);
+        if (!before || before.version !== version)
+          throw new ConflictException(
+            "Collection changed or does not exist. Refresh and retry.",
+          );
+        if (!before.archived_at)
+          throw new ConflictException(
+            "Archive this collection or pathway before deleting it.",
+          );
+        const followers = await tx.pathway_follows.count({
+          where: { collection_id: id },
+        });
+        // Membership and follows cascade; offerings and their learner records remain independent.
+        await tx.collections.delete({ where: { id } });
+        await audit(tx, principal.actor, "collection.deleted", id, {
+          title: before.title,
+          kind: before.kind,
+          slug: before.slug,
+          offering_ids: before.offeringIds,
+          followers,
+          was_published: before.published,
+          was_archived: Boolean(before.archived_at),
+        });
+        return { id, deleted: true };
+      },
+    );
+  }
   async setCollectionPublished(
     principal: Principal,
     key: string,
@@ -2549,6 +2802,7 @@ export class PortalService {
         const current = await this.staffCollection(tx, id);
         if (
           !current ||
+          Boolean(current.archived_at) ||
           current.version !== version ||
           current.published === published
         )

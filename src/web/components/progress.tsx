@@ -23,6 +23,7 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
+import { RecordRegister } from "./managed-records";
 import { api, type Offering } from "./api";
 import type {
   ProgressCatalog,
@@ -344,6 +345,24 @@ export function StaffProgress({
         <Alert severity="success" role="status">
           {notice}
         </Alert>
+      )}
+      {canManage && (
+        <>
+          <RecordRegister
+            target="progress-plan"
+            title="Progress requirements"
+            onChanged={async () => {
+              await loadCatalog();
+            }}
+          />
+          <RecordRegister
+            target="cohort"
+            title="Cohorts"
+            onChanged={async () => {
+              await loadCatalog();
+            }}
+          />
+        </>
       )}
       <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
         {canManage && (

@@ -18,6 +18,7 @@ import {
   TableRow,
   Typography,
 } from "@mui/material";
+import { RecordLifecycle } from "./record-lifecycle";
 import { api, courseFormatLabel, courseSchedule, money } from "./api";
 import { arrive, focusOnArrival } from "./arrival-focus";
 import { actorLabels, auditLabels } from "./audit-labels";
@@ -65,7 +66,7 @@ export const offeringTabs = [
   { slug: "activity", label: "Activity" },
 ] as const;
 const statusOf = (o: StaffOffering) =>
-  `${o.published ? "Published" : o.unpublished_at ? "Unpublished" : "Draft"}${o.listed === false ? " · Unlisted" : ""}`;
+  `${o.archived_at ? "Archived" : o.published ? "Published" : o.unpublished_at ? "Unpublished" : "Draft"}${o.listed === false ? " · Unlisted" : ""}`;
 const statusColor = (o: StaffOffering) =>
   o.published ? "success" : o.unpublished_at ? "warning" : "default";
 const when = (value: string) =>
@@ -193,6 +194,21 @@ export function StaffOfferingPage({
           {salesPageStatusText[o.sales_page_status].toLowerCase()}
         </Typography>
       </Stack>
+      {canCatalog && (
+        <RecordLifecycle
+          id={id}
+          version={o.version}
+          name={o.title}
+          target="offering"
+          archived={Boolean(o.archived_at)}
+          onChanged={async (message, deleted) => {
+            if (deleted) {
+              onChanged(message);
+              router.push("/staff/offerings");
+            } else await saved(message);
+          }}
+        />
+      )}
       {missingOfferingInfo(o).length > 0 && (
         <Alert severity="warning" role="note" sx={{ mt: 2 }}>
           Draft missing required information:{" "}
@@ -263,7 +279,7 @@ export function StaffOfferingPage({
         {current.slug === "" && (
           <Overview
             detail={detail}
-            canCatalog={canCatalog}
+            canCatalog={canCatalog && !o.archived_at}
             busy={busy}
             onPublish={publish}
             onUnpublish={() => setUnpublishing(true)}

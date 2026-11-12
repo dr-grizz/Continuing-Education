@@ -32,10 +32,33 @@ async function main() {
     learnerConfigured = true,
     learnerSecureCookies = false,
     mismatchedLearner = false;
+  let archiveState: {
+    target: string;
+    id: string;
+    archived_at: string | null;
+    deleted_at: string | null;
+  }[] = [];
+  let archiveUnavailable = false;
   // Explicitly mocked identity-provider boundary; the real pilot service, SQLite,
   // cryptographic signing, certificate renderer and Next broker run below.
   const identity = createServer((req, res) => {
     res.setHeader("Content-Type", "application/json");
+    if (
+      req.url === "/api/v1/staff/records/state" &&
+      active &&
+      scope &&
+      (req.headers["x-prototype-staff-id"] ||
+        req.headers["x-staff-session"] === "verified-canvas-session")
+    ) {
+      if (archiveUnavailable) res.statusCode = 503;
+      return res.end(
+        JSON.stringify(
+          archiveUnavailable
+            ? { message: "Archive state unavailable" }
+            : archiveState,
+        ),
+      );
+    }
     if (req.url === "/api/v1/auth/staff/config")
       return res.end(
         JSON.stringify({
@@ -290,6 +313,42 @@ async function main() {
     });
     equal(draftResponse.status, 201);
     const draft = await draftResponse.json();
+    archiveState = [
+      {
+        target: "badge-draft",
+        id: `fixture--${draft.id}`,
+        archived_at: new Date().toISOString(),
+        deleted_at: null,
+      },
+    ];
+    equal(
+      (await (await call("designer/drafts")).json()).drafts.some(
+        (r: any) => r.id === draft.id,
+      ),
+      false,
+    );
+    equal(
+      (
+        await call(`designer/drafts/${draft.id}`, {
+          revision: draft.revision,
+          design: draft.design,
+        })
+      ).status,
+      409,
+    );
+    equal(
+      (
+        await call("admin/versions/approve", {
+          draftId: draft.id,
+          revision: draft.revision,
+        })
+      ).status,
+      409,
+    );
+    archiveState = [];
+    archiveUnavailable = true;
+    equal((await call("admin/catalog")).status, 503);
+    archiveUnavailable = false;
     const approved = await call("admin/versions/approve", {
       draftId: draft.id,
       revision: draft.revision,
@@ -649,6 +708,34 @@ async function main() {
     equal((await call(`public/claims/${claim.id}`, undefined, "")).status, 404);
     const register = await (await call("admin/issuances")).json();
     equal(register.records[0].certificate.recipientName, "Alex Morgan");
+    archiveState = [
+      {
+        target: "badge-award",
+        id: `fixture--${badge.id}`,
+        archived_at: new Date().toISOString(),
+        deleted_at: null,
+      },
+      {
+        target: "certificate",
+        id: `fixture--${register.records[0].certificate.id}`,
+        archived_at: new Date().toISOString(),
+        deleted_at: null,
+      },
+    ];
+    equal(
+      (await (await call("admin/issuances")).json()).records.some(
+        (r: any) => r.id === badge.id,
+      ),
+      false,
+    );
+    equal(
+      (
+        await (await call("admin/certificates/catalog")).json()
+      ).certificates.some(
+        (r: any) => r.id === register.records[0].certificate.id,
+      ),
+      false,
+    );
     equal(
       (await app.certificates.find("workspace", badge.id)).created_by,
       `portal:${staffId}`,

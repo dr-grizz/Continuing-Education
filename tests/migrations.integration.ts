@@ -350,20 +350,24 @@ async function main() {
       cpSync(migrationsDir, path.join(fixture, "migrations"), {
         recursive: true,
       });
-      for (const name of committed) {
-        const bootstrap = ["025_bootstrap_setup", "026_bootstrap_key"].includes(
-          name,
-        );
-        const sourceFeature =
-          /^(025_individual|026_certificate|027_|028_|029_|030_|031_)/.test(
-            name,
-          );
-        if (
-          (profile === "beta" && sourceFeature) ||
-          (profile === "source" && bootstrap)
-        )
+      // Freeze each pre-sync history. Later migrations must be exercised by
+      // the upgrade, not accidentally installed ahead of their dependencies.
+      const historical = committed.filter(
+        (name) =>
+          Number.parseInt(name, 10) < 25 ||
+          (profile === "beta"
+            ? ["025_bootstrap_setup", "026_bootstrap_key"]
+            : [
+                "025_individual_progress_cohorts",
+                "026_certificate_email",
+                "027_credential_claims",
+                "028_skills_labor_market",
+              ]
+          ).includes(name),
+      );
+      for (const name of committed)
+        if (!historical.includes(name))
           rmSync(path.join(fixture, "migrations", name), { recursive: true });
-      }
       const config = path.join(fixture, "prisma.config.ts");
       writeFileSync(
         config,
@@ -375,6 +379,11 @@ async function main() {
       } finally {
         delete process.env.PRISMA_CONFIG_PATH;
       }
+      assert.deepEqual(
+        (await migrationNames(existing.pool)).map((row) => row.migration_name),
+        historical,
+        `${profile} fixture contains only its pre-sync migration history`,
+      );
       const priorData = await snapshot(existing.pool);
       const history = await existing.pool.query(
         "SELECT id, migration_name, checksum, finished_at FROM _prisma_migrations ORDER BY migration_name",

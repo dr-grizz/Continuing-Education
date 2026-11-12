@@ -51,7 +51,9 @@
     "prebuild": "node scripts/generate-system-info.mjs",
     "predev": "node scripts/generate-system-info.mjs",
     "predev:web": "node scripts/generate-system-info.mjs",
-    "test:bootstrap": "ts-node -P tsconfig.server.json tests/bootstrap.integration.ts"
+    "test:bootstrap": "ts-node -P tsconfig.server.json tests/bootstrap.integration.ts",
+    "test:lifecycle": "ts-node -P tsconfig.server.json tests/record-lifecycle.integration.ts",
+    "test:managed-records": "ts-node -P tsconfig.server.json tests/managed-records.integration.ts"
   },
   "engines": {
     "node": ">=24"

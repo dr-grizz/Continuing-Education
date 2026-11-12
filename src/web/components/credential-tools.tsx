@@ -1,4 +1,5 @@
 "use client";
+import { RecordRegister } from "./managed-records";
 import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useColorScheme } from "@mui/material/styles";
@@ -95,31 +96,58 @@ export function CredentialTools({ tool }: { tool: CredentialTool }) {
   if (query.get("draft")) params.set("draft", query.get("draft")!);
   if (query.get("section") === "details") params.set("section", "details");
   return (
-    <Paper variant="outlined" sx={{ overflow: "hidden", minWidth: 0 }}>
-      {!ready && <LinearProgress aria-label="Loading credential workspace" />}
-      {error && <Alert severity="error">{error}</Alert>}
-      <Box
-        component="iframe"
-        ref={frame}
-        title={labels[tool]}
-        src={`/credential-tools/${tool}.html?${params}`}
-        onLoad={() => {
-          frame.current?.contentWindow?.postMessage(
-            { type: "cu-badge-theme", theme: dark ? "dark" : "light" },
-            location.origin,
-          );
-          loaded.current = true;
-          setReady(true);
-          setError("");
-        }}
-        sx={{
-          display: "block",
-          width: "100%",
-          height,
-          border: 0,
-          colorScheme: dark ? "dark" : "light",
-        }}
-      />
-    </Paper>
+    <>
+      {(tool === "issuer"
+        ? [["badge-draft", "Badge designs"]]
+        : tool === "publishing"
+          ? [
+              ["badge-version", "Badge versions"],
+              ["badge-mapping", "Badge earning rules"],
+            ]
+          : tool === "certificates"
+            ? [
+                ["certificate-template", "Certificate templates"],
+                ["certificate", "Issued certificates"],
+              ]
+            : tool === "issuances" || tool === "awards"
+              ? [["badge-award", "Issued badges"]]
+              : []
+      ).map(([target, title]) => (
+        <RecordRegister
+          key={target}
+          target={target}
+          title={title}
+          onChanged={() => {
+            if (!dirty.current) frame.current?.contentWindow?.location.reload();
+          }}
+        />
+      ))}
+      <Paper variant="outlined" sx={{ overflow: "hidden", minWidth: 0 }}>
+        {!ready && <LinearProgress aria-label="Loading credential workspace" />}
+        {error && <Alert severity="error">{error}</Alert>}
+        <Box
+          component="iframe"
+          ref={frame}
+          title={labels[tool]}
+          src={`/credential-tools/${tool}.html?${params}`}
+          onLoad={() => {
+            frame.current?.contentWindow?.postMessage(
+              { type: "cu-badge-theme", theme: dark ? "dark" : "light" },
+              location.origin,
+            );
+            loaded.current = true;
+            setReady(true);
+            setError("");
+          }}
+          sx={{
+            display: "block",
+            width: "100%",
+            height,
+            border: 0,
+            colorScheme: dark ? "dark" : "light",
+          }}
+        />
+      </Paper>
+    </>
   );
 }

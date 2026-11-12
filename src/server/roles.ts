@@ -95,7 +95,7 @@ export const scopeDescriptions: Record<string, string> = {
   "canvas:manage":
     "Enable or pause scheduled Canvas course reads under your authorization",
   "progress:manage":
-    "Define progress requirements, manage cohorts and record documented completion evidence",
+    "Define progress requirements, manage and archive cohorts/requirements, and record documented completion evidence",
   "staff:read":
     "View the staff workspace: offerings, approvals, exceptions, activity",
   "reports:read": "Read reports and the audit log",
@@ -105,8 +105,10 @@ export const scopeDescriptions: Record<string, string> = {
     "Create, edit, publish and unpublish offerings and collections; choose the Explore tab picks",
   "exceptions:resolve": "Retry provisioning or record manual enrollment",
   "prototype:simulate": "Change the prototype provisioning simulation",
-  "staff:manage": "Manage staff members and their roles",
-  "learners:manage": "Deactivate or reactivate learner accounts",
+  "staff:manage":
+    "Manage staff members, role assignments and archived staff records",
+  "learners:manage":
+    "Manage learner access, archive/restore accounts and delete unused archived records",
   "payments:read": "View payment and refund records",
   "payments:record":
     "Record externally completed manual payments and refunds; no money transfer or enrollment change",

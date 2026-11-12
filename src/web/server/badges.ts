@@ -219,6 +219,31 @@ async function learnerIdentity(request: NextRequest) {
   return linked;
 }
 
+async function managementState(request: NextRequest) {
+  const auth = await staffAuthInfo();
+  const cookie = request.cookies.get(
+    auth.mode === "canvas"
+      ? authCookieName(staffCookie, auth.secureCookies)
+      : "ce-demo-staff",
+  )?.value;
+  const response = await staffBackend(
+    "staff/records/state",
+    {},
+    auth.mode === "canvas" ? cookie : undefined,
+    auth.mode === "mock" ? cookie : undefined,
+  );
+  if (!response.ok)
+    throw new BadgeAccessError(
+      503,
+      "Management archive state could not be verified.",
+    );
+  return (await response.json()) as {
+    target: string;
+    id: string;
+    archived_at: string | null;
+    deleted_at: string | null;
+  }[];
+}
 async function jsonBody(request: NextRequest) {
   if (!request.headers.get("content-type")?.startsWith("application/json"))
     throw new BadgeAccessError(415, "JSON is required.");
@@ -319,6 +344,32 @@ export async function badgeProxy(request: NextRequest, segments: string[]) {
         Object.keys(body).some((key) => key !== "code"))
     )
       return fail(400, "Enter only your claim code (up to 100 characters).");
+    const state = role === "staff" ? await managementState(request) : [];
+    const hidden = (target: string, id: unknown) =>
+      typeof id === "string" &&
+      state.some(
+        (r) =>
+          r.target === target &&
+          (r.id === id || r.id.endsWith(`--${id}`)) &&
+          Boolean(r.archived_at || r.deleted_at),
+      );
+    if (role === "staff" && body) {
+      const draft =
+        route.match(/^designer\/drafts\/([^/]+)$/)?.[1] || body.draftId;
+      const mapping = route.match(/^admin\/mappings\/([^/]+)\//)?.[1];
+      if (
+        hidden("badge-draft", draft) ||
+        hidden("badge-version", body.versionId) ||
+        hidden("badge-mapping", mapping) ||
+        hidden("certificate-template", body.templateId) ||
+        (route === "admin/certificates/templates" &&
+          hidden("certificate-template", body.id))
+      )
+        return fail(
+          409,
+          "This record is archived. Restore it before making changes.",
+        );
+    }
     if (body) headers["Content-Type"] = "application/json";
     const response = await fetch(
       new URL(
@@ -346,6 +397,28 @@ export async function badgeProxy(request: NextRequest, segments: string[]) {
     };
     if (type.includes("application/json")) {
       const data = await response.json();
+      if (role === "staff" && response.ok) {
+        const collections: Record<string, string> = {
+          drafts: "badge-draft",
+          versions: "badge-version",
+          mappings: "badge-mapping",
+          templates: "certificate-template",
+          certificates: "certificate",
+          badges: "badge-award",
+        };
+        for (const [field, target] of Object.entries(collections))
+          if (Array.isArray(data[field]))
+            data[field] = data[field].filter((r: any) => !hidden(target, r.id));
+        // Publishing cards require their parent version; hide rules whose version is archived too.
+        if (Array.isArray(data.mappings))
+          data.mappings = data.mappings.filter(
+            (r: any) => !hidden("badge-version", r.versionId),
+          );
+        if (Array.isArray(data.records) && route === "admin/issuances")
+          data.records = data.records.filter(
+            (r: any) => !hidden("badge-award", r.id),
+          );
+      }
       // Shared links use the portal origin, not the private badge listener.
       const rewrite = (item: Record<string, unknown>) => {
         if (
