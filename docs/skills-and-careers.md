@@ -78,8 +78,9 @@ The shared credit now includes the supplied **O*NET in-it** linked graphic at
 130 × 60 pixels, its provided link title and alternative text, and the complete
 USDOL/ETA acknowledgment and trademark sentence from
 [How to Credit Us](https://services.onetcenter.org/help/license_data).
-It appears beside skill selection, before related-occupation results (including
-the learner's owned award view), and beside API occupation search. Downloaded
+Each page displays the logo once; the credit text remains beside skill selection,
+related-occupation results (including the learner's owned award view), and API
+occupation search. Downloaded
 database attribution and its separate CC BY license remain alongside this credit.
 The official SVG is served unchanged from the portal's own static assets so it
 works under the existing image security policy and the public Basic-gate exception.
