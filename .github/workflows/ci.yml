@@ -107,6 +107,14 @@ jobs:
         run: npm run test:offering-skills
       - name: Individual progress and cohort reporting (disposable database)
         run: npm run test:progress
+      - name: Learner alert tests
+        run: npm run test:alerts
+      - name: Test Canvas SSO alert isolation
+        run: npm run test:alerts-sso
+      - name: Engagement and Impact analytics
+        run: npm run test:engagement-impact
+      - name: Earnings analytics
+        run: npm run test:earnings
       - name: Initial setup and private System Info (disposable database)
         run: npm run test:bootstrap
       - name: Portable release dependency links

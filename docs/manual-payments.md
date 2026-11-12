@@ -1,0 +1,21 @@
+# Manual payments and refunds
+
+Open **Admin → Finance → Earnings** or **Transactions**. Staff administrators can choose **Record manual payment**; other staff with `payments:read` can inspect the ledger without recording money. The new `payments:record` permission is separate from payment viewing, Stripe reconciliation, and refund requests.
+
+1. Search for an existing learner by name, email, or ID, and select the learner and offering. Search requires two characters and returns at most 50 results. Historical records may reference inactive learners or unpublished offerings.
+2. Enter the amount in USD, external payment date (UTC), method (cash, check, bank transfer, or other), external reference, and explanatory note. A positive amount with at most two decimal places is required. Future dates are rejected. Do not enter bank/card details or re-enter a Stripe payment.
+3. Review the fields, confirm the money was already handled externally, and save. The portal records evidence only: it does not charge a card, send a receipt, reserve a seat, enroll a learner, or award a credential.
+4. Expand **Manual payment ledger**, find the original payment, and select **Record manual refund** to document an already completed external refund. The dialog displays the original learner, offering, payment, and remaining balance. Enter the refund amount, date, unique reference, and reason, then review and save. Partial and full manual refunds are supported; their sum cannot exceed the payment, and a refund cannot precede it.
+5. Expand the payment's history to see original details and every linked refund, including the staff actor and recording timestamp. The ledger shows the latest 250 recorded payments with all their refunds; its search filters that displayed subset. Earnings aggregates cover all records matching report filters.
+
+Choose **Manual records** in the Earnings payment-source filter and apply it to see receipts, current cumulative refunds, retained amounts, payer mix, and offering comparisons separately from Stripe and simulation. Reports cover complete UTC days; a payment dated today appears immediately in the ledger and enters complete-day totals tomorrow. A later refund reduces its original payment cohort's retained amount. These are staff-entered records, not independent bank verification or a general ledger; fees, costs, payouts and profit are not estimated.
+
+## Duplicate protection and history
+
+Payment references are unique within their payment method, ignoring letter case and surrounding spaces; refund references are unique across the manual refund ledger. Choose an accounting reference sufficiently specific for the payment, such as a receipt ID rather than a reused note. A check number alone may be ambiguous across payers. Repeated identical requests with the same actor-scoped idempotency key return the original record; changed payloads using that key are rejected. The UI retains the key after an uncertain failure so an unchanged retry does not duplicate the record.
+
+Payment and refund records are append-only, enforced by database triggers. No edit/delete action is supplied. A genuine full return of funds can be recorded as a refund; do not invent a refund to erase a mistaken entry. Corrections to erroneous financial evidence require a reviewed accounting process; an adjustment/void workflow is not implemented. Audit entries are written atomically with each accepted record. Refund inserts lock the payment, with cumulative limits checked by both the service and database trigger.
+
+Stripe orders cannot receive manual refunds through these routes. Continue the existing Finance/Stripe workflow for those payments, as described in [ADR 0005](adr/0005-stripe-hosted-checkout.md). Manual records leave all order, entitlement, enrollment, approval and credential state unchanged.
+
+API routes: `GET /api/v1/staff/manual-payments` (`payments:read`), `GET /api/v1/staff/manual-payments/options?search=...`, `POST /api/v1/staff/manual-payments`, and `POST /api/v1/staff/manual-payments/:id/refunds` (`payments:record`). Writes require `Idempotency-Key`; amounts are positive integer cents up to 2,147,483,647. Payment fields are `learnerId`, `offeringId`, `method`, `amountCents`, `date`, `reference`, `note`; refund fields omit learner/offering/method because the original payment binds them.

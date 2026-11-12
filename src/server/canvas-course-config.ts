@@ -14,11 +14,14 @@ export function includeSubaccounts(env = process.env) {
     );
   return value === "true";
 }
-export function courseScopes(_env = process.env) {
+export function courseScopes(env = process.env) {
   return [
     "url:GET|/api/v1/accounts/:id",
     "url:GET|/api/v1/accounts/:account_id/courses",
     "url:GET|/api/v1/courses/:id",
+    ...(env.CANVAS_ALERTS_ENABLED === "true"
+      ? ["url:GET|/api/v1/courses/:course_id/enrollments"]
+      : []),
   ];
 }
 export function tokenEncryptionKey(env = process.env) {

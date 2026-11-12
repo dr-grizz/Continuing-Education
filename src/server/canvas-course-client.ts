@@ -217,6 +217,72 @@ export class CanvasCourseClient {
     }
     return [...matches.values()];
   }
+  async alertEnrollments(courseId: string) {
+    const rows = new Map<
+      string,
+      {
+        userId: string;
+        lastActivityAt: string | null;
+        activityKnown: boolean;
+        score: number | null;
+        startedAt: string | null;
+      }
+    >();
+    const instant = (value: unknown) => {
+      if (value == null) return null;
+      if (typeof value !== "string" || !Number.isFinite(Date.parse(value)))
+        throw new CanvasReadError("invalid");
+      return new Date(value).toISOString();
+    };
+    let count = 0;
+    for await (const enrollment of this.pages(
+      `/api/v1/courses/${canvasId(courseId)}/enrollments`,
+      { "type[]": "StudentEnrollment", "state[]": "active" },
+      100,
+    )) {
+      if (
+        ++count > 10000 ||
+        canvasId(enrollment.course_id) !== courseId ||
+        enrollment.type !== "StudentEnrollment" ||
+        enrollment.enrollment_state !== "active"
+      )
+        throw new CanvasReadError("invalid");
+      const userId = canvasId(enrollment.user_id);
+      const currentScore = enrollment.grades?.current_score;
+      if (
+        currentScore != null &&
+        (typeof currentScore !== "number" || !Number.isFinite(currentScore))
+      )
+        throw new CanvasReadError("invalid");
+      const row = {
+        userId,
+        lastActivityAt: instant(enrollment.last_activity_at),
+        activityKnown: Object.hasOwn(enrollment, "last_activity_at"),
+        score: currentScore ?? null,
+        startedAt: instant(enrollment.start_at ?? enrollment.created_at),
+      };
+      if (
+        row.lastActivityAt &&
+        Date.parse(row.lastActivityAt) > Date.now() + 5 * 60_000
+      )
+        throw new CanvasReadError("invalid");
+      const prior = rows.get(userId);
+      if (prior) {
+        row.lastActivityAt =
+          [prior.lastActivityAt, row.lastActivityAt]
+            .filter(Boolean)
+            .sort()
+            .at(-1) ?? null;
+        row.activityKnown = prior.activityKnown && row.activityKnown;
+        row.startedAt =
+          [prior.startedAt, row.startedAt].filter(Boolean).sort()[0] ?? null;
+        // Multiple sections with inconsistent grades cannot establish performance.
+        row.score = prior.score === row.score ? row.score : null;
+      }
+      rows.set(userId, row);
+    }
+    return [...rows.values()];
+  }
   async discover(accountId: string, nested: boolean): Promise<CanvasCourse[]> {
     const accountPath = `/api/v1/accounts/${canvasId(accountId)}`;
     const account = (

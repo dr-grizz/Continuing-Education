@@ -5,6 +5,7 @@ import { StaffRole } from "../generated/prisma/enums";
 export const roleScopes: Record<StaffRole, readonly string[]> = {
   approver: ["approvals:decide"],
   catalog_manager: [
+    "alerts:manage",
     "progress:manage",
     "catalog:write",
     "canvas:read",
@@ -29,6 +30,8 @@ export const roleScopes: Record<StaffRole, readonly string[]> = {
   // Also holds the former Finance role's permissions (removed October 8, 2026):
   // the university Finance department works in Stripe, not in the portal.
   staff_admin: [
+    "payments:record",
+    "alerts:manage",
     "progress:manage",
     "badges:manage",
     "canvas:read",
@@ -74,11 +77,13 @@ export const roleDescriptions: Record<StaffRole, string> = {
   it_canvas_admin:
     "Recovers identity and Canvas failures, including recording manual enrollment.",
   staff_admin:
-    "Adds staff members, assigns roles and deactivates access; sees sales figures and transactions and records refund requests for the Finance department.",
+    "Adds staff members, assigns roles and deactivates access; sees sales figures and transactions, records external manual payments/refunds, and requests Stripe refunds for Finance.",
   content_editor:
     "Edits, previews and publishes course sales pages, and chooses the learner Explore tab picks. Cannot change prices, dates or course publication.",
 };
 export const scopeDescriptions: Record<string, string> = {
+  "alerts:manage":
+    "Configure learner alert rules, acknowledge, snooze and resolve alerts",
   "payments:reconcile":
     "Manually check unresolved Stripe sandbox Checkout sessions",
   "badges:manage":
@@ -102,7 +107,9 @@ export const scopeDescriptions: Record<string, string> = {
   "prototype:simulate": "Change the prototype provisioning simulation",
   "staff:manage": "Manage staff members and their roles",
   "learners:manage": "Deactivate or reactivate learner accounts",
-  "payments:read": "View transactions (read-only)",
+  "payments:read": "View payment and refund records",
+  "payments:record":
+    "Record externally completed manual payments and refunds; no money transfer or enrollment change",
   "refunds:request":
     "Request a refund; Finance completes it in the Stripe Dashboard",
   "content:write":

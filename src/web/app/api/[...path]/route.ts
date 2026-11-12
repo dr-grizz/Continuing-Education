@@ -130,7 +130,7 @@ async function proxy(
         signal: AbortSignal.timeout(
           ["staff/canvas/courses", "staff/transactions/reconcile"].includes(
             path.join("/"),
-          )
+          ) || /^staff\/alerts\/rules\/[0-9a-f-]+\/sync$/.test(path.join("/"))
             ? 135_000
             : path.slice(0, 3).join("/") === "staff/canvas/staff-lookup"
               ? 20_000

@@ -73,10 +73,15 @@ import {
   UnsavedChangesProvider,
   useUnsavedChanges,
 } from "../../../components/unsaved-changes";
+import { ManualPayments } from "../../../components/manual-payments";
 import { StaffTransactions } from "../../../components/staff-transactions";
 import { StaffLearners } from "../../../components/staff-learners";
+import { LearnerAlerts } from "../../../components/learner-alerts";
+import NotificationsActiveIcon from "@mui/icons-material/NotificationsActive";
 import { StaffProgress } from "../../../components/progress";
 import { StaffDashboard } from "../../../components/staff-dashboard";
+import { EngagementImpactDashboard } from "../../../components/engagement-impact";
+import { EarningsDashboard } from "../../../components/earnings";
 import {
   OfferingForm,
   StaffOffering,
@@ -173,6 +178,9 @@ export default function Staff({
 }
 type Session = ReturnType<typeof useStaffSession>;
 type TabName =
+  | "earnings"
+  | "engagement-impact"
+  | "alerts"
   | "progress"
   | "canvas"
   | "dashboard"
@@ -216,6 +224,14 @@ const sections: {
     icon: <SpaceDashboardIcon />,
   },
   {
+    tab: "engagement-impact",
+    slug: "engagement-impact",
+    label: "Engagement and Impact",
+    group: "Overview",
+    icon: <SpaceDashboardIcon />,
+    scope: "reports:read",
+  },
+  {
     tab: "offerings",
     slug: "offerings",
     label: "Offerings",
@@ -251,6 +267,14 @@ const sections: {
     icon: <ReportProblemIcon />,
   },
   {
+    tab: "alerts",
+    slug: "alerts",
+    label: "Alerts",
+    group: "Learners",
+    icon: <NotificationsActiveIcon />,
+    scope: "reports:read",
+  },
+  {
     tab: "progress",
     slug: "progress",
     label: "Progress and cohorts",
@@ -272,6 +296,14 @@ const sections: {
     group: "Finance",
     icon: <ReceiptLongIcon />,
     scope: "payments:read",
+  },
+  {
+    tab: "earnings",
+    slug: "earnings",
+    label: "Earnings",
+    group: "Finance",
+    icon: <ReceiptLongIcon />,
+    scope: "reports:sales",
   },
   {
     tab: "users",
@@ -1352,6 +1384,13 @@ function StaffWorkspace({
         {loaded && tab === "dashboard" && (
           <StaffDashboard offerings={courses} canSales={can("reports:sales")} />
         )}
+        {loaded && tab === "engagement-impact" && <EngagementImpactDashboard />}
+        {loaded && tab === "earnings" && (
+          <EarningsDashboard
+            canTransactions={can("payments:read")}
+            canRecord={can("payments:record")}
+          />
+        )}
         {loaded && tab === "collections" && (
           <StaffCollections
             canManage={canCatalog}
@@ -1367,10 +1406,20 @@ function StaffWorkspace({
           />
         )}
         {tab === "transactions" && can("payments:read") && (
-          <StaffTransactions
-            canReconcile={can("payments:reconcile")}
-            canRequest={can("refunds:request")}
-            onChanged={setMessage}
+          <>
+            <ManualPayments canRecord={can("payments:record")} />
+            <StaffTransactions
+              canReconcile={can("payments:reconcile")}
+              canRequest={can("refunds:request")}
+              onChanged={setMessage}
+            />
+          </>
+        )}
+        {loaded && tab === "alerts" && (
+          <LearnerAlerts
+            canManage={can("alerts:manage")}
+            canCredentials={can("badges:manage")}
+            canCanvas={can("canvas:read")}
           />
         )}
         {loaded && tab === "progress" && (
