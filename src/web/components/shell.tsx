@@ -77,6 +77,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
       </Link>
       {sessionError && <Alert severity="error">{sessionError}</Alert>}
       <AppBar
+        enableColorOnDark
         position="static"
         elevation={0}
         sx={{
@@ -91,7 +92,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
         <Container maxWidth={width}>
           <Toolbar
             disableGutters
-            sx={{ minHeight: { xs: 64, md: 80 }, gap: 2, py: 1 }}
+            sx={{ minHeight: { xs: 80, md: 100 }, gap: 2, py: 2 }}
           >
             <Box sx={{ flexGrow: 1, minWidth: 0 }}>
               <Link
@@ -133,6 +134,9 @@ export default function Shell({ children }: { children: React.ReactNode }) {
                       ? `2px solid ${brand.gold}`
                       : "2px solid transparent",
                     borderRadius: 0,
+                    textTransform: "uppercase",
+                    fontWeight: 700,
+                    letterSpacing: ".04em",
                   }}
                 >
                   {label}
@@ -315,9 +319,17 @@ export default function Shell({ children }: { children: React.ReactNode }) {
               gap: 1,
             }}
           >
-            <Typography variant="body2" color="text.secondary">
-              Continuing Education · Non-credit learning
-            </Typography>
+            <Stack spacing={0.5}>
+              <Typography variant="body2" color="text.secondary">
+                Continuing Education · Non-credit learning
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Version {process.env.NEXT_PUBLIC_APP_VERSION}
+                {process.env.NEXT_PUBLIC_RELEASE_REVISION
+                  ? ` · ${process.env.NEXT_PUBLIC_RELEASE_REVISION}`
+                  : ""}
+              </Typography>
+            </Stack>
             <Link
               href="/api/docs"
               target="_blank"

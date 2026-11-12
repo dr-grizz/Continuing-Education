@@ -3,12 +3,12 @@ import { createTheme, ThemeProvider } from "@mui/material/styles";
 import CssBaseline from "@mui/material/CssBaseline";
 // Fixed brand surfaces (header, spotlight) stay navy in both color schemes.
 export const brand = {
-  navy: "#17364b",
-  navyHover: "#1f4560",
-  gold: "#d8b75d",
+  navy: "#003a63",
+  navyHover: "#002b4a",
+  gold: "#fdb813",
   onNavy: "#ffffff",
   onNavyMuted: "#e2e8ed",
-  goldOnNavy: "#e7d99b",
+  goldOnNavy: "#fdb813",
 };
 const theme = createTheme({
   // Light or dark comes from a class on <html>, set by the header's theme
@@ -19,7 +19,7 @@ const theme = createTheme({
     light: {
       palette: {
         primary: { main: brand.navy },
-        secondary: { main: "#80601e" },
+        secondary: { main: brand.navy },
         background: { default: "#f7f8fa", paper: "#ffffff" },
         text: { primary: "#1c2b36", secondary: "#52616d" },
         divider: "#dde2e7",
@@ -28,7 +28,7 @@ const theme = createTheme({
     dark: {
       palette: {
         primary: { main: "#9cc3df", contrastText: "#0d1b25" },
-        secondary: { main: "#d8b75d" },
+        secondary: { main: "#fdb813" },
         // MUI's default dark red (#f44336) is 4.4:1 on paper; this is 6.7:1 and
         // keeps 7.3:1 with dark text on contained error buttons.
         error: { main: "#f28b82", contrastText: "#0d1b25" },
@@ -39,14 +39,18 @@ const theme = createTheme({
     },
   },
   typography: {
-    fontFamily: "var(--font-sans), system-ui, -apple-system, sans-serif",
-    h3: { fontWeight: 700, letterSpacing: "-.02em" },
-    h4: { fontWeight: 700, letterSpacing: "-.015em" },
-    h5: { fontWeight: 600, letterSpacing: "-.01em" },
+    fontFamily:
+      'var(--font-sans, "myriad-pro", "Helvetica Neue", Tahoma, Arial, sans-serif)',
+    body1: { lineHeight: 1.6 },
+    h1: { fontWeight: 700, textTransform: "uppercase", lineHeight: 1.15 },
+    h2: { fontWeight: 700, textTransform: "uppercase", lineHeight: 1.2 },
+    h3: { fontWeight: 700, textTransform: "uppercase", lineHeight: 1.2 },
+    h4: { fontWeight: 700, textTransform: "uppercase", lineHeight: 1.2 },
+    h5: { fontWeight: 700, lineHeight: 1.3 },
     h6: { fontWeight: 600 },
-    button: { textTransform: "none", fontWeight: 600 },
+    button: { textTransform: "none", fontWeight: 700 },
   },
-  shape: { borderRadius: 10 },
+  shape: { borderRadius: 4 },
   components: {
     MuiCssBaseline: {
       styleOverrides: {
@@ -62,6 +66,13 @@ const theme = createTheme({
         // The rich text editor's writing area: its field border shows focus,
         // so a ring inside it would draw a second rectangle.
         ".ProseMirror:focus-visible": { outline: "none !important" },
+        "@media (prefers-reduced-motion: reduce)": {
+          "*, *::before, *::after": {
+            animation: "none !important",
+            transition: "none !important",
+            scrollBehavior: "auto !important",
+          },
+        },
       },
     },
     MuiInputBase: {
@@ -95,6 +106,8 @@ const theme = createTheme({
     MuiButton: {
       defaultProps: { disableElevation: true },
       styleOverrides: {
+        root: { borderRadius: 0 },
+        outlined: { borderWidth: 2, "&:hover": { borderWidth: 2 } },
         contained: {
           "@media (forced-colors: active)": { border: "1px solid ButtonText" },
         },

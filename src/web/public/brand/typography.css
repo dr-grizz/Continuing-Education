@@ -1,0 +1,8 @@
+/* Owner-supplied Adobe Fonts web project. Keep font files hosted by Adobe;
+   do not copy licensed binaries into this repository. */
+@import url("https://use.typekit.net/gei7qvn.css");
+
+:root {
+  --font-sans: "myriad-pro", "Helvetica Neue", Tahoma, Arial, sans-serif;
+  --font-editorial: "minion-pro", Georgia, "Times New Roman", serif;
+}

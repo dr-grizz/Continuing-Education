@@ -1,3 +1,4 @@
+import { isHostedRuntime } from "../domain/hosted-demo";
 import { HttpException } from "@nestjs/common";
 import { createHash } from "node:crypto";
 import { RequestLimiter } from "../domain/request-limiter";
@@ -5,7 +6,7 @@ import { RequestLimiter } from "../domain/request-limiter";
 const limiter = new RequestLimiter();
 /** Call only after Canvas's server-to-server response establishes the subject. */
 export function enforceCanvasLoginLimit(provider: string, subject: string) {
-  if (process.env.HOSTED_DEMO !== "true") return;
+  if (!isHostedRuntime()) return;
   // Provider + subject is stable across sessions and staff/learner flows.
   // Email/display name may be absent, changed or unverified; never use them.
   const key = createHash("sha256")

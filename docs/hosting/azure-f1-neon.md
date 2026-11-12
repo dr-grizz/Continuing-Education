@@ -2,7 +2,7 @@
 
 Prepared October 23, 2026. **Current state, October 26:** the public demo is deployed at https://cuce-demo.azurewebsites.net on the East US F1 plan, connected to Neon. The browser password gateway is removed (`DEMO_ACCESS_GATE=none`); Canvas OAuth is required for learner actions and staff access. Real learner and administrator sign-in were verified. The sole hosted staff member is `hye@cedarville.edu`. Course photos are public, and Stripe uses test keys with a dedicated hosted webhook. Real charges and Canvas enrollment remain disabled. Deployment from `azure-demo` is automated after CI; see [continuous deployment](azure-demo-cd.md). See [ADR 0012](../adr/0012-public-demo-canvas-oauth.md). Manual screen-reader review remains pending.
 
-The hosted demo now runs Node 24, deployed through CI/CD on October 27. Pushes to `azure-demo` build and deploy the minimal runtime after CI passes. See the [verified release and rollback procedure](azure-demo-cd.md). The runtime also includes an optional disposable standalone badge preview; see [preview configuration](azure-demo-cd.md#standalone-badge-preview). The embedded API migration remains separate.
+The hosted demo now runs Node 24, deployed through CI/CD on October 27. Pushes to `azure-demo` build and deploy the minimal runtime after CI passes. See the [verified release and rollback procedure](azure-demo-cd.md). The current source integrates credentials into the API and PostgreSQL; see [migration and persistent-key requirements](azure-demo-cd.md#integrated-credential-runtime) before upgrading the earlier standalone preview.
 
 ## What is included
 

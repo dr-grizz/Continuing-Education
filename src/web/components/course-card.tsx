@@ -1,5 +1,6 @@
 "use client";
 import Image from "next/image";
+import { brand } from "../app/theme";
 import { useState } from "react";
 import {
   Box,
@@ -53,7 +54,7 @@ export function CourseCard({
           aspectRatio: layout === "grid" ? "16 / 9" : undefined,
           borderRadius: layout === "grid" ? 0 : 1,
           overflow: "hidden",
-          bgcolor: branded ? "#19384b" : "action.hover",
+          bgcolor: brand.navy,
         }}
       >
         <Image

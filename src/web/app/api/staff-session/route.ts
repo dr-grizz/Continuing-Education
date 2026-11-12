@@ -1,3 +1,4 @@
+import { isHostedRuntime } from "../../../../domain/hosted-demo";
 import { NextRequest, NextResponse } from "next/server";
 import {
   readRequestBody,
@@ -106,7 +107,7 @@ export async function POST(request: NextRequest) {
       response.cookies.set(
         mockCookie,
         data.id,
-        cookieOptions(process.env.HOSTED_DEMO === "true", 28800),
+        cookieOptions(isHostedRuntime(), 28800),
       );
     return response;
   } catch (error) {

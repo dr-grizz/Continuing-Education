@@ -1,36 +1,37 @@
 import type { NextConfig } from "next";
 import path from "node:path";
+// Resolve from this config, including when Next uses a temporary module.
+const { baselineSecurityHeaders, credentialSecurityHeaders } = require(
+  path.join(__dirname, "server/security-headers.ts"),
+) as typeof import("./server/security-headers");
 const root = path.resolve(__dirname, "../..");
+const { version } = require(path.join(root, "package.json")) as {
+  version: string;
+};
+const releaseRevision = process.env.RELEASE_SHA || process.env.GITHUB_SHA || "";
 const config: NextConfig = {
   poweredByHeader: false,
   output: "standalone",
+  // Explicit public allowlist: never expose arbitrary runtime settings.
+  env: {
+    NEXT_PUBLIC_APP_VERSION: version,
+    NEXT_PUBLIC_RELEASE_REVISION: /^[a-f0-9]{7,64}$/i.test(releaseRevision)
+      ? releaseRevision.slice(0, 7)
+      : "",
+  },
   async headers() {
     return [
       {
         source: "/:path*",
-        headers: [
-          {
-            key: "Content-Security-Policy",
-            value:
-              "frame-ancestors 'self'; base-uri 'self'; object-src 'none'; form-action 'self'",
-          },
-          { key: "X-Frame-Options", value: "SAMEORIGIN" },
-          { key: "X-Content-Type-Options", value: "nosniff" },
-          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-        ],
+        headers: Object.entries(baselineSecurityHeaders).map(
+          ([key, value]) => ({ key, value }),
+        ),
       },
       {
         source: "/credential-tools/:path*",
-        headers: [
-          {
-            key: "Content-Security-Policy",
-            value:
-              "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'self'; base-uri 'none'; form-action 'self'",
-          },
-          { key: "X-Content-Type-Options", value: "nosniff" },
-          { key: "Referrer-Policy", value: "no-referrer" },
-          { key: "Cache-Control", value: "no-store" },
-        ],
+        headers: Object.entries(credentialSecurityHeaders).map(
+          ([key, value]) => ({ key, value }),
+        ),
       },
     ];
   },

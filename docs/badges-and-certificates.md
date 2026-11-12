@@ -80,3 +80,7 @@ Certificate tests also require `pypdf==6.10.0` in that Python environment. The 4
 ## Optional expiration
 
 Badge **Details** and the certificate template editor each have an optional **Expiration date**. Blank means no expiration; saved dates apply to new awards and remain independent for a badge and its certificate. See [expiration behavior and staff instructions](credential-expiration.md).
+
+## Hosted startup and persistent issuer keys
+
+The hosted launcher supervises web/API only. With `BADGES_ENABLED=true`, set an absolute persistent `BADGE_DATA_DIR` outside the release tree; symlinks resolving inside the release are rejected. Preserve that canonical path and the matching issuer key, tokens and learner mappings across releases. `BADGES_ENABLED=false` skips API credential initialization as well as the browser broker. Packaged verification exercises both modes, real PDF output and saved draft/key survival across restarts. See [hosted deployment requirements](hosting/azure-demo-cd.md#integrated-credential-runtime). No live database migration or Azure cutover is performed by this source fix.
