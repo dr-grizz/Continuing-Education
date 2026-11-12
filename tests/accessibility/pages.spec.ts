@@ -1177,9 +1177,9 @@ test.describe("CU learner OAuth", () => {
     await scan(page, "Canvas learner name in staff directory");
   });
 });
-async function scan(page: Page, name: string) {
+async function waitForSettledUi(page: Page, explicitUiReady = false) {
   // Wait for loading placeholders to be replaced before scanning.
-  await page.waitForLoadState("networkidle");
+  if (!explicitUiReady) await page.waitForLoadState("networkidle");
   await expect(page.locator(".MuiSkeleton-root")).toHaveCount(0, {
     timeout: 15_000,
   });
@@ -1196,6 +1196,9 @@ async function scan(page: Page, name: string) {
           animation.effect?.getComputedTiming().iterations === Infinity,
       ),
   );
+}
+async function scan(page: Page, name: string, explicitUiReady = false) {
+  await waitForSettledUi(page, explicitUiReady);
   const { violations } = await new AxeBuilder({ page })
     .withTags(tags)
     .analyze();
@@ -3029,6 +3032,11 @@ test("manual Stripe reconciliation keyboard action and status", async ({
   await page.route("**/api/staff/transactions", (route) =>
     route.fulfill({ json: [] }),
   );
+  // The transactions page also loads the independent manual-payment ledger.
+  // Keep this Stripe recovery test isolated from the real staff API/session.
+  await page.route("**/api/staff/manual-payments", (route) =>
+    route.fulfill({ json: { payments: [], limit: 250 } }),
+  );
   let checks = 0;
   await page.route("**/api/staff/transactions/reconcile", (route) => {
     checks++;
@@ -3045,6 +3053,7 @@ test("manual Stripe reconciliation keyboard action and status", async ({
     name: "Check Stripe payments",
     exact: true,
   });
+  await expect(page.getByRole("main").getByRole("alert")).toHaveCount(0);
   await check.focus();
   await check.press("Enter");
   await expect(
@@ -5805,6 +5814,7 @@ test.describe("Engagement and Impact analytics", () => {
     await expect(
       page.getByRole("button", { name: "Export analytics CSV" }),
     ).toBeVisible();
+    await waitForSettledUi(page);
     expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
     expect(
       await page.evaluate(
@@ -5842,6 +5852,7 @@ test.describe("Engagement and Impact analytics", () => {
     await expect(
       page.getByText("No activity or grades are inferred.", { exact: false }),
     ).toBeVisible();
+    await waitForSettledUi(page);
     expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   });
   test("load failure offers retry without stale totals or export", async ({
@@ -5858,6 +5869,7 @@ test.describe("Engagement and Impact analytics", () => {
     ).toHaveCount(0);
     await page.getByRole("button", { name: "Retry", exact: true }).click();
     await expect.poll(() => requests.length).toBeGreaterThan(1);
+    await waitForSettledUi(page);
     expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   });
 });
@@ -6124,6 +6136,7 @@ test.describe("Earnings dashboard", () => {
         .getByRole("group", { name: "Offering earnings chart", exact: true })
         .getByRole("button", { name: /Data literacy:/ }),
     ).toBeVisible();
+    await waitForSettledUi(page);
     expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
     expect(
       await page.evaluate(
@@ -6165,6 +6178,7 @@ test.describe("Earnings dashboard", () => {
     await expect(
       page.getByRole("group", { name: "Checkout outcomes chart", exact: true }),
     ).toHaveCount(0);
+    await waitForSettledUi(page);
     expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   });
   test("manual earnings stays separate with explicit labels and CSV", async ({
@@ -6230,6 +6244,7 @@ test.describe("Earnings dashboard", () => {
         exact: true,
       }),
     ).toHaveCount(0);
+    await waitForSettledUi(page);
     expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   });
   test("failed load offers retry without stale financial totals or export", async ({
@@ -6258,6 +6273,7 @@ test.describe("Earnings dashboard", () => {
             animation.effect?.getComputedTiming().iterations === Infinity,
         ),
     );
+    await waitForSettledUi(page);
     expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   });
   test("ordinary reporting role cannot navigate to financial analytics", async ({
