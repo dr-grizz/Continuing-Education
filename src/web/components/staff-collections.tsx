@@ -40,6 +40,7 @@ type StaffCollection = {
   published: boolean;
   listed?: boolean;
   version: number;
+  archived_at?: string | null;
   followers: number;
   courses: {
     id: string;
@@ -66,7 +67,50 @@ export function StaffCollections({
     [error, setError] = useState(""),
     [busy, setBusy] = useState(""),
     [editing, setEditing] = useState<StaffCollection | null>(),
-    [unpublishing, setUnpublishing] = useState<StaffCollection>();
+    [unpublishing, setUnpublishing] = useState<StaffCollection>(),
+    [showArchived, setShowArchived] = useState(false),
+    [lifecycle, setLifecycle] = useState<{
+      row: StaffCollection;
+      action: "archive" | "restore" | "delete";
+    }>(),
+    [lifecycleError, setLifecycleError] = useState("");
+  const newButtonRef = useRef<HTMLButtonElement>(null);
+  const lifecycleTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const lifecycleFallbackRef = useRef<HTMLInputElement>(null);
+  const visibleRows = rows.filter(
+    (row) => Boolean(row.archived_at) === showArchived,
+  );
+  function openLifecycle(
+    row: StaffCollection,
+    action: "archive" | "restore" | "delete",
+    trigger: HTMLButtonElement,
+  ) {
+    if (busy) return;
+    lifecycleTriggerRef.current = trigger;
+    setLifecycleError("");
+    setLifecycle({ row, action });
+  }
+  async function applyLifecycle() {
+    if (!lifecycle || busy) return;
+    const { row, action } = lifecycle;
+    setBusy(row.id);
+    setLifecycleError("");
+    try {
+      await api(`collections/${row.id}/${action}`, {
+        role: "staff",
+        body: { version: row.version },
+      });
+      await load();
+      setLifecycle(undefined);
+      onChanged(
+        `${row.title} ${action === "delete" ? "deleted" : action === "archive" ? "archived" : "restored as a draft"}.`,
+      );
+    } catch (e) {
+      setLifecycleError((e as Error).message);
+    } finally {
+      setBusy("");
+    }
+  }
   const load = () =>
     api<StaffCollection[]>("staff/collections", { role: "staff" })
       .then((data) => {
@@ -99,7 +143,7 @@ export function StaffCollections({
   }
   const status = (row: StaffCollection) => (
     <Chip
-      label={`${row.published ? "Published" : "Draft"}${row.listed === false ? " · Unlisted" : ""}`}
+      label={`${row.archived_at ? "Archived" : row.published ? "Published" : "Draft"}${row.listed === false ? " · Unlisted" : ""}`}
       color={row.published ? "success" : "default"}
       variant="outlined"
     />
@@ -136,27 +180,56 @@ export function StaffCollections({
   const actions = (row: StaffCollection) =>
     canManage && (
       <Stack direction="row" sx={{ gap: 1, flexWrap: "wrap" }}>
+        {!row.archived_at && (
+          <>
+            <Button
+              onClick={() => setEditing(row)}
+              aria-label={`Edit ${row.title}`}
+            >
+              Edit
+            </Button>
+            {row.published ? (
+              <Button
+                color="error"
+                onClick={() => setUnpublishing(row)}
+                aria-label={`Unpublish ${row.title}`}
+              >
+                Unpublish
+              </Button>
+            ) : (
+              <Button
+                onClick={() => setPublished(row, true)}
+                aria-disabled={busy === row.id || undefined}
+                aria-label={`Publish ${row.title}`}
+              >
+                {busy === row.id ? "Publishing…" : "Publish"}
+              </Button>
+            )}
+          </>
+        )}
         <Button
-          onClick={() => setEditing(row)}
-          aria-label={`Edit ${row.title}`}
+          onClick={(event) =>
+            openLifecycle(
+              row,
+              row.archived_at ? "restore" : "archive",
+              event.currentTarget,
+            )
+          }
+          aria-label={`${row.archived_at ? "Restore" : "Archive"} ${row.title}`}
+          disabled={Boolean(busy)}
         >
-          Edit
+          {row.archived_at ? "Restore" : "Archive"}
         </Button>
-        {row.published ? (
+        {row.archived_at && (
           <Button
             color="error"
-            onClick={() => setUnpublishing(row)}
-            aria-label={`Unpublish ${row.title}`}
+            disabled={Boolean(busy)}
+            onClick={(event) =>
+              openLifecycle(row, "delete", event.currentTarget)
+            }
+            aria-label={`Delete ${row.title}`}
           >
-            Unpublish
-          </Button>
-        ) : (
-          <Button
-            onClick={() => setPublished(row, true)}
-            aria-disabled={busy === row.id || undefined}
-            aria-label={`Publish ${row.title}`}
-          >
-            {busy === row.id ? "Publishing…" : "Publish"}
+            Delete
           </Button>
         )}
       </Stack>
@@ -183,11 +256,26 @@ export function StaffCollections({
           </Typography>
         </Box>
         {canManage && (
-          <Button variant="contained" onClick={() => setEditing(null)}>
+          <Button
+            ref={newButtonRef}
+            variant="contained"
+            onClick={() => setEditing(null)}
+          >
             New collection
           </Button>
         )}
       </Stack>
+      <FormControlLabel
+        control={
+          <Switch
+            checked={showArchived}
+            onChange={(event) => setShowArchived(event.target.checked)}
+            slotProps={{ input: { ref: lifecycleFallbackRef } }}
+          />
+        }
+        label={`Show archived (${rows.filter((row) => row.archived_at).length})`}
+        sx={{ mb: 2 }}
+      />
       {!canManage && (
         <Alert severity="info" role="note" sx={{ mb: 2 }}>
           Your role can view collections. Course managers create and publish
@@ -199,12 +287,16 @@ export function StaffCollections({
           {error}
         </Alert>
       )}
-      {loaded && rows.length === 0 && !error && (
+      {loaded && visibleRows.length === 0 && !error && (
         <Paper variant="outlined" sx={{ p: 3 }}>
-          <Typography>No collections yet.</Typography>
+          <Typography>
+            {showArchived
+              ? "No archived collections or pathways."
+              : "No active collections or pathways."}
+          </Typography>
         </Paper>
       )}
-      {rows.length > 0 && (
+      {visibleRows.length > 0 && (
         <>
           <TableContainer
             component={Paper}
@@ -219,11 +311,11 @@ export function StaffCollections({
                   <TableCell>Courses</TableCell>
                   <TableCell>Followers</TableCell>
                   <TableCell>Status</TableCell>
-                  {canManage && <TableCell>Actions</TableCell>}
+                  {canManage && <TableCell>Action</TableCell>}
                 </TableRow>
               </TableHead>
               <TableBody>
-                {rows.map((row) => (
+                {visibleRows.map((row) => (
                   <TableRow key={row.id}>
                     <TableCell>
                       <Typography sx={{ fontWeight: 600 }}>
@@ -256,7 +348,7 @@ export function StaffCollections({
             </Table>
           </TableContainer>
           <Stack spacing={2} sx={{ display: { xs: "flex", md: "none" } }}>
-            {rows.map((row) => (
+            {visibleRows.map((row) => (
               <Paper key={row.id} variant="outlined" sx={{ p: 2 }}>
                 <Stack
                   direction="row"
@@ -289,6 +381,72 @@ export function StaffCollections({
           </Stack>
         </>
       )}
+      <Dialog
+        open={Boolean(lifecycle)}
+        onClose={() => {
+          if (!busy) setLifecycle(undefined);
+        }}
+        disableRestoreFocus
+        aria-labelledby="collection-lifecycle-title"
+        aria-describedby="collection-lifecycle-description"
+        slotProps={{
+          transition: {
+            onExited: () => {
+              const trigger = lifecycleTriggerRef.current;
+              (trigger?.isConnected
+                ? trigger
+                : (newButtonRef.current ?? lifecycleFallbackRef.current)
+              )?.focus();
+            },
+          },
+        }}
+      >
+        <DialogTitle id="collection-lifecycle-title">
+          {lifecycle?.action === "delete"
+            ? "Delete"
+            : lifecycle?.action === "archive"
+              ? "Archive"
+              : "Restore"}{" "}
+          {lifecycle?.row.title}?
+        </DialogTitle>
+        <DialogContent>
+          <DialogContentText id="collection-lifecycle-description">
+            {lifecycle?.action === "delete"
+              ? `This permanently deletes this ${lifecycle.row.kind}, its course list and any pathway follows. This cannot be undone. Individual courses, saved courses, registrations and earned credentials are kept. Archive it instead if you may need it again.`
+              : lifecycle?.action === "archive"
+                ? `This removes this ${lifecycle.row.kind} from learner pages and the active staff list. Its course order and ${lifecycle.row.followers} pathway follows are kept. You can restore it as a draft from Show archived. Courses, registrations and earned credentials are kept.`
+                : "This returns the group to the active list as a draft with its course order and follows. Publish it when it is ready; choose Explore features again if needed."}
+          </DialogContentText>
+          {lifecycleError && (
+            <Alert severity="error" sx={{ mt: 2 }}>
+              {lifecycleError}
+            </Alert>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button
+            autoFocus
+            disabled={Boolean(busy)}
+            onClick={() => setLifecycle(undefined)}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            color={lifecycle?.action === "delete" ? "error" : "primary"}
+            disabled={Boolean(busy)}
+            onClick={applyLifecycle}
+          >
+            {busy
+              ? "Saving…"
+              : lifecycle?.action === "delete"
+                ? "Delete permanently"
+                : lifecycle?.action === "archive"
+                  ? "Archive"
+                  : "Restore as draft"}
+          </Button>
+        </DialogActions>
+      </Dialog>
       <CollectionDialog
         open={editing !== undefined}
         collection={editing ?? undefined}

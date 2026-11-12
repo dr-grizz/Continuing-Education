@@ -16,6 +16,8 @@ Follow the [two-repository sync, merge and deployment runbook](docs/repository-s
 
 [Skills and careers](docs/skills-and-careers.md) adds assessed O*NET skills to badge drafts and frozen awards, related occupations, regional BLS wages and national projections. The free `/skills` explorer also supports O*NET v2 occupation search and national outlook when the private server `ONET_API_KEY` is configured. Apply migration `028_skills_labor_market`, run `npm run skills:import`, and verify API access with `npm run skills:verify-api`; the public reference area requires no account and includes source attribution.
 
+[Archive, restore and deletion](docs/record-lifecycle.md) covers consistent Action-column controls across offerings, collections/pathways, saved Canvas entries, progress/cohorts, learners, staff and credential workspaces, with explicit protections for system roles and permanent history.
+
 ## Individual progress and cohorts
 
 [Progress and cohorts](docs/individual-progress-cohorts.md) lets course managers and staff administrators define versioned course requirements, assign learners, record documented evidence/corrections and track explicit learner cohorts. Learners see their own completion progress in My learning. Apply migration `025_individual_progress_cohorts` with `npm run db:migrate`; no badge issuance, prerequisite enforcement or automatic Canvas completion sync is triggered by these reports.

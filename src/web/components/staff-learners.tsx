@@ -10,6 +10,8 @@ import {
   DialogContent,
   DialogTitle,
   Divider,
+  FormControlLabel,
+  Switch,
   Paper,
   Stack,
   Table,
@@ -21,6 +23,7 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
+import { RecordLifecycle } from "./record-lifecycle";
 import { api, money } from "./api";
 import { auditLabels } from "./audit-labels";
 import {
@@ -31,10 +34,12 @@ import {
 } from "./table-view";
 
 type LearnerRow = {
+  legacy?: boolean;
   id: string;
   email: string | null;
   display_name?: string | null;
   created_at: string;
+  archived_at?: string | null;
   active: boolean;
   version: number;
   registrations: number;
@@ -43,6 +48,7 @@ type LearnerRow = {
   last_activity: string | null;
 };
 type LearnerDetail = {
+  archived_at?: string | null;
   id: string;
   email: string | null;
   display_name?: string | null;
@@ -90,11 +96,12 @@ const learnerName = (row: {
   email: string | null;
   display_name?: string | null;
 }) => row.email ?? row.display_name ?? "Legacy sample learner";
-const accessChip = (active: boolean) => (
+const accessChip = (active: boolean, archived = false) => (
   <Chip
-    label={active ? "Active" : "Deactivated"}
+    label={archived ? "Archived" : active ? "Active" : "Deactivated"}
     color={active ? "success" : "warning"}
     variant="outlined"
+    sx={!active ? { color: "text.primary" } : undefined}
   />
 );
 
@@ -106,6 +113,7 @@ export function StaffLearners({
   onChanged: (message: string) => void;
 }) {
   const [rows, setRows] = useState<LearnerRow[]>([]);
+  const [showArchived, setShowArchived] = useState(false);
   const [query, setQuery] = useState("");
   const [error, setError] = useState("");
   const [loaded, setLoaded] = useState(false);
@@ -121,25 +129,56 @@ export function StaffLearners({
   useEffect(() => {
     load();
   }, []);
-  const view = useTableView(rows, {
-    compare: {
-      email: (a, b) => learnerName(a).localeCompare(learnerName(b)),
-      joined: (a, b) => a.created_at.localeCompare(b.created_at),
-      registrations: (a, b) => a.registrations - b.registrations,
-      activity: (a, b) =>
-        (a.last_activity ?? "").localeCompare(b.last_activity ?? ""),
+  const view = useTableView(
+    rows.filter((row) => Boolean(row.archived_at) === showArchived),
+    {
+      compare: {
+        email: (a, b) => learnerName(a).localeCompare(learnerName(b)),
+        joined: (a, b) => a.created_at.localeCompare(b.created_at),
+        registrations: (a, b) => a.registrations - b.registrations,
+        activity: (a, b) =>
+          (a.last_activity ?? "").localeCompare(b.last_activity ?? ""),
+      },
+      initial: { key: "joined", direction: "desc" },
+      matches: (row) =>
+        learnerName(row).toLowerCase().includes(query.trim().toLowerCase()),
     },
-    initial: { key: "joined", direction: "desc" },
-    matches: (row) =>
-      learnerName(row).toLowerCase().includes(query.trim().toLowerCase()),
-  });
+  );
   const viewButton = (row: LearnerRow) => (
-    <Button
-      onClick={() => setOpenId(row.id)}
-      aria-label={`View learner ${learnerName(row)}`}
+    <Stack
+      direction="row"
+      sx={{ gap: 1, flexWrap: "wrap", alignItems: "center" }}
     >
-      View
-    </Button>
+      <Button
+        onClick={() => setOpenId(row.id)}
+        aria-label={`View learner ${learnerName(row)}`}
+      >
+        View
+      </Button>
+      {row.legacy && (
+        <Typography variant="caption" color="text.secondary">
+          Protected sample account — cannot archive or delete
+        </Typography>
+      )}
+      {canManage && !row.legacy && (
+        <RecordLifecycle
+          compact
+          id={row.id}
+          version={row.version}
+          name={learnerName(row)}
+          target="learner"
+          archived={Boolean(row.archived_at)}
+          onChanged={async (message) => {
+            await load();
+            onChanged(message);
+            setTimeout(
+              () => document.getElementById("learner-search")?.focus(),
+              0,
+            );
+          }}
+        />
+      )}
+    </Stack>
   );
   const counts = (row: LearnerRow) =>
     `${row.registrations} registrations · ${row.enrolled} enrolled · ${row.in_progress} in progress`;
@@ -148,8 +187,24 @@ export function StaffLearners({
       <Typography variant="h6" component="h2" sx={{ mb: 2 }}>
         Learners
       </Typography>
+      {canManage && (
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Archive learners using the row actions. Turn on Show archived to
+          restore or delete eligible accounts.
+        </Typography>
+      )}
+      <FormControlLabel
+        control={
+          <Switch
+            checked={showArchived}
+            onChange={(e) => setShowArchived(e.target.checked)}
+          />
+        }
+        label={`Show archived (${rows.filter((row) => row.archived_at).length})`}
+      />
       <Stack direction={{ xs: "column", sm: "row" }} sx={{ gap: 2, mb: 2 }}>
         <TextField
+          id="learner-search"
           label="Search learners"
           placeholder="Name or email address"
           value={query}
@@ -199,7 +254,7 @@ export function StaffLearners({
               >
                 {learnerName(row)}
               </Typography>
-              {accessChip(row.active)}
+              {accessChip(row.active, Boolean(row.archived_at))}
             </Stack>
             <Typography variant="body2" color="text.secondary">
               {counts(row)}
@@ -248,7 +303,9 @@ export function StaffLearners({
                     {row.enrolled} enrolled · {row.in_progress} in progress
                   </Typography>
                 </TableCell>
-                <TableCell>{accessChip(row.active)}</TableCell>
+                <TableCell>
+                  {accessChip(row.active, Boolean(row.archived_at))}
+                </TableCell>
                 <TableCell sx={{ whiteSpace: "nowrap" }}>
                   {day(row.created_at)}
                 </TableCell>
@@ -338,8 +395,14 @@ function LearnerDialog({
       onClose={() => !busy && onClose()}
       fullWidth
       maxWidth="md"
+      aria-labelledby="learner-details-title"
+      slotProps={{
+        transition: {
+          onExited: () => document.getElementById("learner-search")?.focus(),
+        },
+      }}
     >
-      <DialogTitle>Learner details</DialogTitle>
+      <DialogTitle id="learner-details-title">Learner details</DialogTitle>
       <DialogContent>
         {!learner && !error && <Typography>Loading learner…</Typography>}
         {!learner && error && <Alert severity="error">{error}</Alert>}
@@ -364,7 +427,9 @@ function LearnerDialog({
                     : ""}
                 </Typography>
               </Box>
-              <Box>{accessChip(learner.active)}</Box>
+              <Box>
+                {accessChip(learner.active, Boolean(learner.archived_at))}
+              </Box>
             </Stack>
             <Box component="section" aria-labelledby="learner-registrations">
               <Typography
@@ -437,7 +502,25 @@ function LearnerDialog({
               >
                 Account access
               </Typography>
-              {learner.legacy ? (
+              {canManage && !learner.legacy && (
+                <RecordLifecycle
+                  id={learner.id}
+                  version={learner.version}
+                  name={learnerName(learner)}
+                  target="learner"
+                  archived={Boolean(learner.archived_at)}
+                  onChanged={async (message, deleted) => {
+                    await onChanged(message);
+                    if (deleted) onClose();
+                    else await load(learner.id);
+                  }}
+                />
+              )}
+              {learner.archived_at ? (
+                <Typography>
+                  This learner is archived. Restore before reactivating access.
+                </Typography>
+              ) : learner.legacy ? (
                 <Typography variant="body2" color="text.secondary">
                   The legacy sample learner stays active because direct API
                   demos rely on it.

@@ -23,6 +23,7 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
+import { ManagedActions, useManagedIndex } from "./managed-records";
 import { api } from "./api";
 import { visuallyHidden } from "./visually-hidden";
 import {
@@ -32,6 +33,7 @@ import {
 } from "../../domain/canvas-course-filters";
 
 type Course = {
+  management_id?: string | null;
   id: string;
   account_id: string;
   name: string;
@@ -89,6 +91,8 @@ const time = (value: string | null) =>
   value ? new Date(value).toLocaleString() : "Not yet";
 
 export function CanvasCourses({ can }: { can: (scope: string) => boolean }) {
+  const archiveIndex = useManagedIndex("canvas-course", can("canvas:sync"));
+  const [showArchived, setShowArchived] = useState(false);
   const [data, setData] = useState<Preview>();
   const [page, setPage] = useState(0);
   const [viewMode, setViewMode] = useState<"preview" | "synced">("preview");
@@ -122,6 +126,7 @@ export function CanvasCourses({ can }: { can: (scope: string) => boolean }) {
         const query = new URLSearchParams({
           page: String(page + 1),
           view: viewMode,
+          archived: String(showArchived),
           pageSize: String(pageSize),
           ...appliedFilters,
         });
@@ -155,7 +160,7 @@ export function CanvasCourses({ can }: { can: (scope: string) => boolean }) {
       active = false;
       clearTimeout(timer);
     };
-  }, [page, pageSize, appliedFilters, revision, viewMode]);
+  }, [page, pageSize, appliedFilters, revision, viewMode, showArchived]);
   useEffect(() => {
     setSelected(new Set());
   }, [data?.preview?.run_id, viewMode]);
@@ -636,6 +641,21 @@ export function CanvasCourses({ can }: { can: (scope: string) => boolean }) {
                 courses and concluded courses. Filters affect this view only.
               </Typography>
             </Box>
+            {can("canvas:sync") && (
+              <TextField
+                select
+                label="Canvas inventory list"
+                value={showArchived ? "archived" : "active"}
+                onChange={(e) => {
+                  setShowArchived(e.target.value === "archived");
+                  setPage(0);
+                }}
+                sx={{ mb: 2, minWidth: 220 }}
+              >
+                <MenuItem value="active">Active Canvas entries</MenuItem>
+                <MenuItem value="archived">Archived Canvas entries</MenuItem>
+              </TextField>
+            )}
             {viewMode === "preview" && can("canvas:sync") && (
               <Stack
                 direction="row"
@@ -743,7 +763,7 @@ export function CanvasCourses({ can }: { can: (scope: string) => boolean }) {
                         <TableCell>Import status</TableCell>
                         <TableCell>Last imported</TableCell>
                         <TableCell>Offering</TableCell>
-                        {can("canvas:sync") && <TableCell>Actions</TableCell>}
+                        {can("canvas:sync") && <TableCell>Action</TableCell>}
                       </TableRow>
                     </TableHead>
                     <TableBody>
@@ -856,16 +876,45 @@ export function CanvasCourses({ can }: { can: (scope: string) => boolean }) {
                           </TableCell>
                           {can("canvas:sync") && (
                             <TableCell>
-                              <Button
-                                size="small"
-                                disabled={!canSync}
-                                aria-label={`${course.offering_id ? "Refresh source details for" : "Create offering draft for"} ${course.name} (Canvas ID ${course.id})`}
-                                onClick={() => void syncCourses([course.id])}
+                              <Stack
+                                direction="row"
+                                sx={{ gap: 1, flexWrap: "wrap" }}
                               >
-                                {course.offering_id
-                                  ? "Refresh source details"
-                                  : "Create offering draft"}
-                              </Button>
+                                {course.management_id &&
+                                archiveIndex.records.find(
+                                  (r) => r.id === course.management_id,
+                                ) ? (
+                                  <ManagedActions
+                                    target="canvas-course"
+                                    row={archiveIndex.records.find(
+                                      (r) => r.id === course.management_id,
+                                    )!}
+                                    onChanged={async () => {
+                                      await archiveIndex.refresh();
+                                      refresh((v) => v + 1);
+                                    }}
+                                  />
+                                ) : (
+                                  <Typography variant="caption">
+                                    Import this preview to manage its saved
+                                    portal entry.
+                                  </Typography>
+                                )}
+                                {!showArchived && (
+                                  <Button
+                                    size="small"
+                                    disabled={!canSync}
+                                    aria-label={`${course.offering_id ? "Refresh source details for" : "Create offering draft for"} ${course.name} (Canvas ID ${course.id})`}
+                                    onClick={() =>
+                                      void syncCourses([course.id])
+                                    }
+                                  >
+                                    {course.offering_id
+                                      ? "Refresh source details"
+                                      : "Create offering draft"}
+                                  </Button>
+                                )}
+                              </Stack>
                             </TableCell>
                           )}
                         </TableRow>

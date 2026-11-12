@@ -276,6 +276,17 @@ export class StaffCanvasLinkDto {
   @Equals(true)
   identityVerified!: boolean;
 }
+export class RecordLifecycleDto {
+  @ApiProperty() @IsInt() @Min(1) version!: number;
+  @ApiProperty({ enum: ["archive", "restore", "delete"] })
+  @IsIn(["archive", "restore", "delete"])
+  action!: "archive" | "restore" | "delete";
+  @ApiProperty({ minLength: 10, maxLength: 500 })
+  @IsString()
+  @MinLength(10)
+  @MaxLength(500)
+  reason!: string;
+}
 export class LearnerAccessDto {
   @ApiProperty() @IsInt() @Min(1) version!: number;
   @ApiProperty({ description: "true to reactivate, false to deactivate" })

@@ -866,6 +866,614 @@ test.describe("T01 offering visibility", () => {
     return collection;
   }
   for (const kind of ["collection", "pathway"]) {
+    test(`lifecycle ${kind} archive, restore, delete confirmation and keyboard focus`, async ({
+      page,
+    }) => {
+      const group = await collectionSetup(page, kind);
+      Object.assign(group, { archived_at: null as string | null });
+      let removed = false;
+      await page.route("**/api/staff/collections", (route) =>
+        route.fulfill({ json: removed ? [] : [group] }),
+      );
+      for (const action of ["archive", "restore", "delete"])
+        await page.route(
+          `**/api/collections/${group.id}/${action}`,
+          async (route) => {
+            expect(route.request().postDataJSON()).toEqual({
+              version: group.version,
+            });
+            Object.assign(group, {
+              version: group.version + 1,
+              published: false,
+              archived_at:
+                action === "archive" ? new Date().toISOString() : null,
+            });
+            removed = action === "delete";
+            await route.fulfill({ json: { id: group.id } });
+          },
+        );
+      await page.goto("/staff/collections");
+      const archive = page.getByRole("button", {
+        name: `Archive ${group.title}`,
+        exact: true,
+      });
+      await archive.focus();
+      await page.keyboard.press("Enter");
+      let dialog = page.getByRole("dialog", {
+        name: `Archive ${group.title}?`,
+      });
+      await expect(
+        dialog.getByRole("button", { name: "Cancel", exact: true }),
+      ).toBeFocused();
+      await scan(page, `${kind} archive dialog`);
+      await page.keyboard.press("Escape");
+      await expect(archive).toBeFocused();
+      await archive.click();
+      await dialog
+        .getByRole("button", { name: "Archive", exact: true })
+        .click();
+      await expect(
+        page.getByRole("button", { name: "New collection", exact: true }),
+      ).toBeFocused();
+      await expect(archive).toHaveCount(0);
+      await page.getByRole("switch", { name: /Show archived/ }).check();
+      await page
+        .getByRole("button", { name: `Restore ${group.title}`, exact: true })
+        .click();
+      await page
+        .getByRole("button", { name: "Restore as draft", exact: true })
+        .click();
+      await page.getByRole("switch", { name: /Show archived/ }).uncheck();
+      await expect(
+        page
+          .getByText("Draft", { exact: true })
+          .filter({ visible: true })
+          .first(),
+      ).toBeVisible();
+      await archive.click();
+      await page
+        .getByRole("dialog", { name: `Archive ${group.title}?` })
+        .getByRole("button", { name: "Archive", exact: true })
+        .click();
+      await page.getByRole("switch", { name: /Show archived/ }).check();
+      await page
+        .getByRole("button", { name: `Delete ${group.title}`, exact: true })
+        .click();
+      dialog = page.getByRole("dialog", { name: `Delete ${group.title}?` });
+      await expect(dialog).toContainText("cannot be undone");
+      await scan(page, `${kind} delete dialog`);
+      await dialog.getByRole("button", { name: "Delete permanently" }).click();
+      await expect(
+        page.getByText("No archived collections or pathways."),
+      ).toBeVisible();
+    });
+  }
+  for (const [target, path, title] of [
+    ["staff", "staff", "Staff members"],
+    ["progress-plan", "progress", "Progress requirements"],
+    ["cohort", "progress", "Cohorts"],
+    ["canvas-course", "canvas", "Published Canvas courses"],
+    ["badge-draft", "badges", "Badge designs"],
+    ["badge-version", "badge-publishing", "Badge versions"],
+    ["badge-mapping", "badge-publishing", "Badge earning rules"],
+    ["badge-award", "badge-issuances", "Issued badges"],
+    ["certificate-template", "certificates", "Certificate templates"],
+    ["certificate", "certificates", "Issued certificates"],
+  ]) {
+    test(`managed Action column ${target} archives then restores/deletes`, async ({
+      page,
+    }) => {
+      await setup(page);
+      const row = {
+        id: "00000000-0000-4000-8000-000000000404",
+        name: "Synthetic management record",
+        detail: "Synthetic verification data",
+        version: 1,
+        archived: false,
+      };
+      let removed = false;
+      const member = {
+        id: row.id,
+        email: "managed@example.test",
+        display_name: row.name,
+        roles: ["support"],
+        active: true,
+        version: 1,
+        auth_provider: "mock",
+        external_subject: null,
+      };
+      await page.route("**/api/staff-session", (route) =>
+        route.fulfill({
+          json: {
+            member: {
+              id,
+              display_name: "Management tester",
+              email: "manager@example.test",
+              active: true,
+              roles: ["staff_admin"],
+              scopes: [
+                "reports:read",
+                "staff:manage",
+                "catalog:write",
+                "learners:manage",
+                "progress:manage",
+                "badges:manage",
+                "canvas:read",
+                "canvas:sync",
+              ],
+            },
+            auth: { mode: "mock", configured: true },
+          },
+        }),
+      );
+      await page.route("**/api/staff/records/*", (route) =>
+        route.fulfill({
+          json:
+            route
+              .request()
+              .url()
+              .endsWith("/" + target) && !removed
+              ? [row]
+              : [],
+        }),
+      );
+      await page.route(
+        `**/api/staff/records/${target}/${row.id}`,
+        async (route) => {
+          const body = route.request().postDataJSON();
+          expect(body.version).toBe(row.version);
+          expect(body.reason).toBe("Synthetic management browser check");
+          row.version++;
+          row.archived = body.action !== "restore";
+          member.active = false;
+          removed = body.action === "delete";
+          await route.fulfill({ json: { id: row.id, action: body.action } });
+        },
+      );
+      await page.route("**/api/staff/members", (route) =>
+        route.fulfill({ json: removed ? [] : [member] }),
+      );
+      await page.route("**/api/staff/progress", (route) =>
+        route.fulfill({ json: { plans: [], cohorts: [], learners: [] } }),
+      );
+      await page.route(/\/credential-tools\/[^/]+\.html(?:\?|$)/, (route) =>
+        route.fulfill({
+          contentType: "text/html",
+          body: "<!doctype html><html lang='en'><head><title>Synthetic credential editor</title></head><body><main><h1>Synthetic editor</h1></main></body></html>",
+        }),
+      );
+      await page.route("**/api/staff/canvas/courses?**", (route) => {
+        const showing =
+          new URL(route.request().url()).searchParams.get("archived") ===
+          "true";
+        const course = {
+          id: "404",
+          name: row.name,
+          course_code: "SYNTHETIC",
+          account_id: "50",
+          workflow_state: "available",
+          start_at: null,
+          end_at: null,
+          url: "https://canvas.example.test/courses/404",
+          management_id: row.id,
+          sync_status: "synced",
+          offering_id: null,
+        };
+        return route.fulfill({
+          json: {
+            enabled: true,
+            configured: true,
+            connected: true,
+            subaccount_id: "50",
+            include_subaccounts: false,
+            last_success_at: null,
+            saved_run_id: row.id,
+            saved_revision: "synthetic",
+            synced_total: 1,
+            preview: null,
+            preview_expired: false,
+            source: "saved",
+            latest_run: null,
+            schedule: {
+              enabled: false,
+              deferred: true,
+              interval_minutes: 60,
+              next_run_at: null,
+              owner_name: null,
+              owner_active: false,
+              version: 1,
+            },
+            courses: !removed && showing === row.archived ? [course] : [],
+            total: !removed && showing === row.archived ? 1 : 0,
+            source_total: 1,
+            page: 1,
+            page_size: 100,
+          },
+        });
+      });
+      await page.goto(`/staff/${path}`);
+      const isMobile = (page.viewportSize()?.width ?? 1280) < 900;
+      const table =
+        target === "staff" && isMobile
+          ? page
+          : page.getByRole("table", { name: title, exact: true });
+      if (!(target === "staff" && isMobile))
+        await expect(
+          table.getByRole("columnheader", { name: "Action", exact: true }),
+        ).toBeVisible();
+      const archive = table.getByRole("button", {
+        name: `Archive ${row.name}`,
+        exact: true,
+      });
+      await expect(archive).toBeVisible();
+      await expect(
+        table.getByRole("button", { name: `Delete ${row.name}`, exact: true }),
+      ).toHaveCount(0);
+      await archive.click();
+      let dialog = page.getByRole("dialog", {
+        name: `Archive ${row.name}?`,
+        exact: true,
+      });
+      await dialog
+        .getByRole("textbox", { name: "Reason", exact: true })
+        .fill("Synthetic management browser check");
+      await scan(page, `${target} archive confirmation`, true);
+      await dialog
+        .getByRole("button", { name: "Archive", exact: true })
+        .click();
+      await expect(archive).toHaveCount(0);
+      if (target === "canvas-course") {
+        await page
+          .getByRole("combobox", { name: "Canvas inventory list" })
+          .click();
+        await page
+          .getByRole("option", { name: "Archived Canvas entries", exact: true })
+          .click();
+      } else
+        await page
+          .getByRole("switch", {
+            name:
+              target === "staff"
+                ? /Show archived staff/
+                : new RegExp("Show archived " + title.toLowerCase()),
+          })
+          .check();
+      await expect(
+        table.getByRole("button", { name: `Restore ${row.name}`, exact: true }),
+      ).toBeVisible();
+      await table
+        .getByRole("button", { name: `Delete ${row.name}`, exact: true })
+        .click();
+      dialog = page.getByRole("dialog", {
+        name: `Delete ${row.name}?`,
+        exact: true,
+      });
+      await scan(page, `${target} archived delete confirmation`, true);
+      if (["badge-award", "certificate"].includes(target)) {
+        await expect(
+          dialog.getByRole("button", { name: "Delete permanently" }),
+        ).toBeDisabled();
+        await expect(dialog).toContainText("permanent records");
+      } else {
+        await dialog
+          .getByRole("textbox", { name: "Reason", exact: true })
+          .fill("Synthetic management browser check");
+        await dialog
+          .getByRole("button", { name: "Delete permanently" })
+          .click();
+        await expect(dialog).not.toBeVisible();
+      }
+    });
+  }
+  test("managed Action column built-in Roles explains protection", async ({
+    page,
+  }) => {
+    await setup(page);
+    await page.route("**/api/staff-session", (route) =>
+      route.fulfill({
+        json: {
+          member: {
+            id,
+            email: "admin@example.test",
+            display_name: "Tester",
+            roles: ["staff_admin"],
+            scopes: ["staff:manage"],
+          },
+          auth: { mode: "mock", configured: true },
+        },
+      }),
+    );
+    await page.route("**/api/staff/roles", (route) =>
+      route.fulfill({ json: [] }),
+    );
+    await page.route("**/api/staff/records/role", (route) =>
+      route.fulfill({
+        json: [
+          {
+            id: "staff_admin",
+            name: "Staff administrator",
+            detail: "Built-in permission definition",
+            version: 1,
+            archived: false,
+            protectedReason:
+              "System roles cannot be archived or deleted; manage staff role assignments instead.",
+          },
+        ],
+      }),
+    );
+    await page.goto("/staff/roles");
+    const table = page.getByRole("table", { name: "Role definitions" });
+    await expect(
+      table.getByRole("button", { name: "Archive", exact: true }),
+    ).toBeDisabled();
+    await expect(table).toContainText(
+      "System roles cannot be archived or deleted",
+    );
+    await scan(page, "Role management protections");
+  });
+  for (const target of ["learner", "offering"]) {
+    test(`lifecycle ${target} list actions are visible and restore focus after archive`, async ({
+      page,
+    }) => {
+      const offering = await setup(page);
+      Object.assign(offering, { archived_at: null as string | null });
+      const person = {
+        id,
+        email: "row-actions@example.test",
+        active: true,
+        archived_at: null as string | null,
+        legacy: false,
+        version: 1,
+        created_at: "2026-01-01T00:00:00Z",
+        registrations: 0,
+        enrolled: 0,
+        in_progress: 0,
+        last_activity: null,
+      };
+      const record = target === "learner" ? person : offering;
+      const name = target === "learner" ? person.email : offering.title;
+      if (target === "learner") {
+        await page.route("**/api/staff-session", (route) =>
+          route.fulfill({
+            json: {
+              member: {
+                id,
+                email: "support@cuce.test",
+                display_name: "Lifecycle tester",
+                active: true,
+                roles: ["support"],
+                scopes: ["learners:manage"],
+              },
+              auth: { mode: "mock", configured: true },
+            },
+          }),
+        );
+        await page.route("**/api/staff/learners", (route) =>
+          route.fulfill({ json: [person] }),
+        );
+      }
+      await page.route(
+        `**/api/${target === "learner" ? "staff/learners" : "offerings"}/${id}/lifecycle`,
+        async (route) => {
+          const body = route.request().postDataJSON();
+          expect(body).toMatchObject({
+            version: record.version,
+            action: "archive",
+            reason: "Verify visible row action",
+          });
+          Object.assign(record, {
+            archived_at: new Date().toISOString(),
+            active: false,
+            published: false,
+            version: record.version + 1,
+          });
+          await route.fulfill({ json: { id } });
+        },
+      );
+      await page.goto(
+        `/staff/${target === "learner" ? "learners" : "offerings"}`,
+      );
+      const archive = page.getByRole("button", {
+        name: `Archive ${name}`,
+        exact: true,
+      });
+      await expect(archive).toBeVisible();
+      await scan(page, `${target} list with archive actions`);
+      await archive.focus();
+      await page.keyboard.press("Enter");
+      let dialog = page.getByRole("dialog", {
+        name: `Archive ${name}?`,
+        exact: true,
+      });
+      await expect(
+        dialog.getByRole("textbox", { name: "Reason", exact: true }),
+      ).toBeFocused();
+      await page.keyboard.press("Escape");
+      await expect(archive).toBeFocused();
+      await archive.click();
+      await dialog
+        .getByRole("textbox", { name: "Reason", exact: true })
+        .fill("Verify visible row action");
+      await dialog
+        .getByRole("button", { name: "Archive", exact: true })
+        .click();
+      await expect(archive).toHaveCount(0);
+      await expect(
+        page.getByRole("textbox", {
+          name: target === "learner" ? "Search learners" : "Search offerings",
+          exact: true,
+        }),
+      ).toBeFocused();
+      if (target === "learner")
+        await page.getByRole("switch", { name: /Show archived/ }).check();
+      else {
+        await page
+          .getByRole("combobox", { name: "Offering list", exact: true })
+          .click();
+        await page
+          .getByRole("option", { name: "Archived offerings", exact: true })
+          .click();
+      }
+      await expect(
+        page.getByRole("button", { name: `Restore ${name}`, exact: true }),
+      ).toBeVisible();
+      await page
+        .getByRole("button", { name: `Delete ${name}`, exact: true })
+        .click();
+      dialog = page.getByRole("dialog", {
+        name: `Delete ${name}?`,
+        exact: true,
+      });
+      await expect(dialog).toContainText("cannot be undone");
+      await scan(page, `${target} archived row delete confirmation`);
+      await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+      await expect(
+        page.getByRole("button", { name: `Delete ${name}`, exact: true }),
+      ).toBeFocused();
+    });
+  }
+  for (const target of ["learner", "offering"]) {
+    test(`lifecycle ${target} archive and restore, deletion failure and reflow`, async ({
+      page,
+    }) => {
+      const offering = await setup(page);
+      Object.assign(offering, { archived_at: null as string | null });
+      const person = {
+        id,
+        email: "lifecycle@example.test",
+        active: true,
+        archived_at: null as string | null,
+        version: 1,
+        created_at: "2026-01-01T00:00:00Z",
+        deactivated_at: null,
+        legacy: false,
+        registrations: [],
+        activity: [],
+      };
+      const record = target === "learner" ? person : offering;
+      if (target === "learner") {
+        await page.route("**/api/staff-session", (route) =>
+          route.fulfill({
+            json: {
+              member: {
+                id,
+                email: "support@cuce.test",
+                display_name: "Lifecycle tester",
+                active: true,
+                roles: ["support"],
+                scopes: ["learners:manage"],
+              },
+              auth: { mode: "mock", configured: true },
+            },
+          }),
+        );
+        await page.route("**/api/staff/learners", (route) =>
+          route.fulfill({
+            json: [
+              {
+                ...person,
+                registrations: 0,
+                enrolled: 0,
+                in_progress: 0,
+                last_activity: null,
+              },
+            ],
+          }),
+        );
+        await page.route(`**/api/staff/learners/${id}`, (route) =>
+          route.fulfill({ json: person }),
+        );
+      }
+      await page.route(
+        `**/api/${target === "learner" ? "staff/learners" : "offerings"}/${id}/lifecycle`,
+        async (route) => {
+          const body = route.request().postDataJSON();
+          expect(body.version).toBe(record.version);
+          if (body.action === "delete")
+            return route.fulfill({
+              status: 409,
+              json: {
+                message: "Protected history. Keep this record archived.",
+              },
+            });
+          Object.assign(record, {
+            archived_at:
+              body.action === "archive" ? new Date().toISOString() : null,
+            published: false,
+            active: false,
+            version: record.version + 1,
+          });
+          await route.fulfill({ json: { id } });
+        },
+      );
+      if (target === "learner") {
+        await page.goto("/staff/learners");
+        await page
+          .getByRole("button", {
+            name: `View learner ${person.email}`,
+            exact: true,
+          })
+          .click();
+      } else await page.goto(`/staff/offerings/${id}`);
+      await page
+        .getByRole("button", { name: `Archive ${target}`, exact: true })
+        .click();
+      let dialog = page.getByRole("dialog", { name: /^Archive / });
+      await dialog
+        .getByRole("button", { name: "Archive", exact: true })
+        .click();
+      await expect(dialog.getByRole("alert")).toContainText("at least 10");
+      await dialog
+        .getByRole("textbox", { name: "Reason", exact: true })
+        .fill("Synthetic lifecycle verification");
+      await scan(page, `${target} archive confirmation`);
+      await dialog
+        .getByRole("button", { name: "Archive", exact: true })
+        .click();
+      await expect(dialog).not.toBeVisible();
+      await page
+        .getByRole("button", { name: `Restore ${target}`, exact: true })
+        .click();
+      dialog = page.getByRole("dialog", { name: /^Restore / });
+      await dialog
+        .getByRole("textbox", { name: "Reason", exact: true })
+        .fill("Synthetic restore verification");
+      await dialog
+        .getByRole("button", { name: "Restore", exact: true })
+        .click();
+      await expect(
+        page.getByRole("button", { name: `Archive ${target}`, exact: true }),
+      ).toBeVisible();
+      await page
+        .getByRole("button", { name: `Archive ${target}`, exact: true })
+        .click();
+      dialog = page.getByRole("dialog", { name: /^Archive / });
+      await dialog
+        .getByRole("textbox", { name: "Reason", exact: true })
+        .fill("Synthetic second archive");
+      await dialog
+        .getByRole("button", { name: "Archive", exact: true })
+        .click();
+      await page
+        .getByRole("button", { name: `Delete ${target}`, exact: true })
+        .click();
+      dialog = page.getByRole("dialog", { name: /^Delete / });
+      await dialog
+        .getByRole("textbox", { name: "Reason", exact: true })
+        .fill("Synthetic deletion verification");
+      await dialog.getByRole("button", { name: "Delete permanently" }).click();
+      await expect(dialog.getByRole("alert")).toContainText(
+        "Protected history",
+      );
+      await page.setViewportSize({ width: 320, height: 800 });
+      await scan(page, `${target} deletion failure phone`);
+      expect(
+        await dialog.evaluate((el) => el.scrollWidth <= el.clientWidth),
+      ).toBe(true);
+      await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+    });
+  }
+  for (const kind of ["collection", "pathway"]) {
     test(`collection visibility ${kind} keyboard save, reload and retained Explore pick`, async ({
       page,
     }) => {
@@ -1177,9 +1785,9 @@ test.describe("CU learner OAuth", () => {
     await scan(page, "Canvas learner name in staff directory");
   });
 });
-async function scan(page: Page, name: string) {
+async function scan(page: Page, name: string, explicitUiReady = false) {
   // Wait for loading placeholders to be replaced before scanning.
-  await page.waitForLoadState("networkidle");
+  if (!explicitUiReady) await page.waitForLoadState("networkidle");
   await expect(page.locator(".MuiSkeleton-root")).toHaveCount(0, {
     timeout: 15_000,
   });
